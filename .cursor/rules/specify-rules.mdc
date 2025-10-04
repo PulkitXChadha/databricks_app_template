@@ -1,0 +1,27 @@
+# databricks-app-template Development Guidelines
+
+Auto-generated from all feature plans. Last updated: 2025-10-04
+
+## Active Technologies
+- Python 3.11+ (backend), TypeScript 5.2+ (frontend) + FastAPI 0.104+, Databricks SDK 0.59, React 18.3, Vite 5.0, Unity Catalog, Lakebase, MLflow 3.1+ (001-databricks-integrations)
+- Python 3.11+ (modern type hints), Node.js 18.0+ (TypeScript 5.2+, Vite 5.0) (001-databricks-integrations)
+
+## Project Structure
+```
+backend/
+frontend/
+tests/
+```
+
+## Commands
+cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] pytest [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] ruff check .
+
+## Code Style
+Python 3.11+ (backend), TypeScript 5.2+ (frontend): Follow standard conventions
+
+## Recent Changes
+- 001-databricks-integrations: Added Python 3.11+ (modern type hints), Node.js 18.0+ (TypeScript 5.2+, Vite 5.0)
+- 001-databricks-integrations: Added Python 3.11+ (backend), TypeScript 5.2+ (frontend) + FastAPI 0.104+, Databricks SDK 0.59, React 18.3, Vite 5.0, Unity Catalog, Lakebase, MLflow 3.1+
+
+<!-- MANUAL ADDITIONS START -->
+<!-- MANUAL ADDITIONS END -->

@@ -15,9 +15,17 @@ This is a modern full-stack application template for Databricks Apps, featuring 
 **Frontend:**
 - TypeScript with React
 - Vite for fast development and hot reloading
-- shadcn/ui components with Tailwind CSS
+- Design Bricks components (migrating from shadcn/ui) for Databricks look-and-feel
+- shadcn/ui components with Tailwind CSS (being phased out)
 - React Query for API state management
 - Bun for package management
+
+**Databricks Integrations:**
+- Unity Catalog for lakehouse data access with fine-grained permissions
+- Lakebase (Databricks-hosted Postgres) for transactional data
+- Model Serving endpoints for ML inference
+- Asset Bundles for reproducible deployments
+- Databricks Apps built-in authentication
 
 ## Development Workflow
 
@@ -211,13 +219,44 @@ Claude understands natural language commands for common development tasks:
 - Follow the documented patterns and examples for proper API usage
 - Check official documentation links in each API guide for latest updates
 
+### Service Integration Patterns
+
+**Unity Catalog Integration** (`server/services/unity_catalog_service.py`):
+- Use `WorkspaceClient` with SQL Warehouse execution for queries
+- Leverage Unity Catalog's built-in access control for permissions
+- Query pattern: `SELECT * FROM {catalog}.{schema}.{table} LIMIT 100`
+- Connection pooling: Reuse `WorkspaceClient` instance across requests
+- See `specs/001-databricks-integrations/research.md` for detailed patterns
+
+**Lakebase Integration** (`server/services/lakebase_service.py`):
+- SQLAlchemy with `psycopg2` driver for Postgres connection
+- Connection string: `postgresql+psycopg2://token:<token>@<host>:<port>/<database>`
+- Connection pooling: QueuePool with 5-10 connections
+- Always filter by `user_id` for data isolation
+- Tables: `user_preferences`, `model_inference_logs`
+
+**Model Serving Integration** (`server/services/model_serving_service.py`):
+- Use Databricks SDK to list and invoke serving endpoints
+- Timeout: 30 seconds for inference requests
+- Error handling: Retry up to 3 times with exponential backoff
+- Log all inference requests to Lakebase for observability
+
+**Design Bricks UI Components**:
+- Constitution requirement: ALL UI components must use Design Bricks
+- Component source: https://pulkitxchadha.github.io/DesignBricks
+- Installation: `cd client && bun add @databricks/design-bricks`
+- Migration path: Replace shadcn/ui components incrementally
+- See component mapping in `specs/001-databricks-integrations/research.md`
+
 ### Frontend Development
-- Use shadcn/ui components for consistent UI
+- **Primary**: Use Design Bricks components for Databricks look-and-feel (Constitution requirement)
+- **Legacy**: shadcn/ui components (being migrated to Design Bricks)
 - Follow React Query patterns for API calls
 - Use TypeScript strictly - no `any` types
 - Import from auto-generated client: `import { apiClient } from '@/fastapi_client'`
-- Client uses shadcn/ui components with proper TypeScript configuration
-- shadcn components must be added with: npx shadcn@latest add <component-name>
+- Client uses Design Bricks components with proper TypeScript configuration
+- Design Bricks installation: `cd client && bun add @databricks/design-bricks`
+- shadcn components (legacy): npx shadcn@latest add <component-name>
 
 ### Testing Methodology
 - Test API endpoints using FastAPI docs interface
@@ -313,6 +352,14 @@ Claude understands natural language commands for common development tasks:
 - `docs/databricks_apis/mlflow_genai.md` - MLflow GenAI for AI agents
 - `docs/databricks_apis/model_serving.md` - Model serving endpoints and inference
 - `docs/databricks_apis/workspace_apis.md` - Workspace file operations
+
+### Feature Specifications
+- `specs/001-databricks-integrations/` - Service integrations feature documentation
+- `specs/001-databricks-integrations/spec.md` - Feature requirements and user stories
+- `specs/001-databricks-integrations/research.md` - Technical decisions and implementation patterns
+- `specs/001-databricks-integrations/data-model.md` - Entity definitions and database schemas
+- `specs/001-databricks-integrations/contracts/` - OpenAPI contract specifications
+- `specs/001-databricks-integrations/quickstart.md` - Testing and verification guide
 
 ### Documentation Files
 - `docs/product.md` - Product requirements document (created during /dba workflow)
