@@ -20,6 +20,9 @@ dependencies = [
     "mlflow[databricks]>=3.1.1",
     "debugpy>=1.8.15",
     "python-dotenv>=1.1.1",
+    "sqlalchemy>=2.0.0",        # Lakebase ORM
+    "psycopg2-binary>=2.9.0",   # Postgres driver for Lakebase
+    "alembic>=1.13.0",          # Database migrations
 ]
 requires-python = ">=3.11"
 
