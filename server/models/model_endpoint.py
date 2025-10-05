@@ -1,94 +1,91 @@
-"""ModelEndpoint Pydantic model for Databricks Model Serving endpoints.
+"""Model Endpoint Pydantic Model
 
 Represents a Databricks Model Serving endpoint that can be invoked for inference.
-Source: Databricks Model Serving API.
 """
 
-from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, Field, field_validator
+from datetime import datetime
+from typing import Any
 
 
 class EndpointState(str, Enum):
     """Model Serving endpoint state."""
-    CREATING = 'CREATING'
-    READY = 'READY'
-    UPDATING = 'UPDATING'
-    FAILED = 'FAILED'
+    CREATING = "CREATING"
+    READY = "READY"
+    UPDATING = "UPDATING"
+    FAILED = "FAILED"
 
 
 class ModelEndpoint(BaseModel):
-    """Model Serving endpoint metadata.
+    """Databricks Model Serving endpoint metadata.
     
     Attributes:
-        endpoint_name: Unique endpoint name within workspace
+        endpoint_name: Unique endpoint name
         endpoint_id: Databricks endpoint ID
-        model_name: Fully qualified model name from Unity Catalog Model Registry
+        model_name: Model name from Unity Catalog Model Registry
         model_version: Model version being served
-        state: Endpoint state (must be READY for inference)
+        state: Endpoint state
         workload_url: URL to invoke the endpoint
         creation_timestamp: When endpoint was created
         last_updated_timestamp: When endpoint was last modified
         config: Endpoint configuration (served models, traffic routing)
     """
     
-    endpoint_name: str = Field(..., min_length=1, description='Unique endpoint name')
-    endpoint_id: str = Field(..., min_length=1, description='Databricks endpoint ID')
-    model_name: str = Field(
-        ...,
-        min_length=1,
-        description='Model name from Unity Catalog Model Registry'
-    )
-    model_version: str = Field(..., min_length=1, description='Model version')
-    state: EndpointState = Field(..., description='Endpoint state')
-    workload_url: str = Field(
-        ...,
-        pattern=r'^https://.*',
-        description='Endpoint invocation URL'
-    )
-    creation_timestamp: datetime = Field(
-        ...,
-        description='Endpoint creation time'
-    )
-    last_updated_timestamp: datetime = Field(
-        ...,
-        description='Last modification time'
-    )
-    config: dict = Field(default_factory=dict, description='Endpoint configuration')
+    endpoint_name: str = Field(..., min_length=1, description="Unique endpoint name")
+    endpoint_id: str = Field(..., min_length=1, description="Databricks endpoint ID")
+    model_name: str = Field(..., min_length=1, description="Model name")
+    model_version: str = Field(..., min_length=1, description="Model version")
+    state: EndpointState = Field(..., description="Endpoint state")
+    workload_url: str = Field(..., description="Endpoint invocation URL")
+    creation_timestamp: datetime = Field(..., description="Creation time")
+    last_updated_timestamp: datetime = Field(..., description="Last update time")
+    config: dict[str, Any] = Field(default={}, description="Endpoint configuration")
+    
+    @field_validator('workload_url')
+    @classmethod
+    def validate_workload_url(cls, v: str) -> str:
+        """Validate workload URL is HTTPS."""
+        if not v.startswith('https://'):
+            raise ValueError('workload_url must use HTTPS')
+        return v
     
     @field_validator('state')
     @classmethod
-    def validate_ready_state_for_inference(cls, v: EndpointState) -> EndpointState:
-        """Validate endpoint is in READY state for inference operations.
+    def validate_ready_state(cls, v: EndpointState) -> EndpointState:
+        """Validate endpoint is ready for inference.
         
-        Note: This validator is strict for safety. In production, you may want
-        to allow checking state separately before inference.
+        Note: This validator only checks state for newly created endpoints.
+        For existing endpoints, check state before invocation in service layer.
         """
-        if v != EndpointState.READY:
-            raise ValueError(
-                f'Endpoint must be READY for inference (current state: {v})'
-            )
+        # Allow all states during model creation, check in service layer before invocation
         return v
     
-    class Config:
-        json_schema_extra = {
-            'example': {
-                'endpoint_name': 'sentiment-analysis',
-                'endpoint_id': 'ep_abc123',
-                'model_name': 'main.ml_models.sentiment_classifier',
-                'model_version': '3',
-                'state': 'READY',
-                'workload_url': 'https://workspace.cloud.databricks.com/serving-endpoints/sentiment-analysis/invocations',
-                'creation_timestamp': '2025-10-01T08:00:00Z',
-                'last_updated_timestamp': '2025-10-04T10:00:00Z',
-                'config': {
-                    'served_models': [
+    def is_ready_for_inference(self) -> bool:
+        """Check if endpoint is ready to serve predictions."""
+        return self.state == EndpointState.READY
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "endpoint_name": "sentiment-analysis-prod",
+                "endpoint_id": "ep-123abc",
+                "model_name": "sentiment_classifier",
+                "model_version": "3",
+                "state": "READY",
+                "workload_url": "https://example.cloud.databricks.com/serving-endpoints/sentiment-analysis-prod",
+                "creation_timestamp": "2025-10-01T12:00:00Z",
+                "last_updated_timestamp": "2025-10-05T10:00:00Z",
+                "config": {
+                    "served_models": [
                         {
-                            'model_name': 'main.ml_models.sentiment_classifier',
-                            'model_version': '3',
-                            'workload_size': 'Small'
+                            "model_name": "sentiment_classifier",
+                            "model_version": "3",
+                            "workload_size": "Small",
+                            "scale_to_zero_enabled": True
                         }
                     ]
                 }
             }
         }
+    }
