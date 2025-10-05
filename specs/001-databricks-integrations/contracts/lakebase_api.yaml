@@ -1,0 +1,288 @@
+openapi: 3.0.3
+info:
+  title: Lakebase (Transactional Data) API
+  description: |
+    API endpoints for CRUD operations on user-scoped transactional data in Lakebase (Databricks-hosted Postgres).
+    All records are strictly user-isolated - each user can only access their own preferences.
+    No shared records exist, eliminating concurrent edit conflict scenarios.
+  version: 1.0.0
+  contact:
+    name: Databricks App Template
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+  - url: https://your-workspace.cloud.databricks.com/apps/your-app
+    description: Production (Databricks Apps)
+
+paths:
+  /api/preferences:
+    get:
+      summary: Get user preferences (user-scoped, data isolated)
+      description: |
+        Retrieve user-specific preferences from Lakebase.
+        - All records filtered by authenticated user_id (data isolation)
+        - No shared records - each user sees only their own data
+        - Optional filtering by preference_key
+      tags:
+        - User Preferences
+      parameters:
+        - name: preference_key
+          in: query
+          schema:
+            type: string
+            enum: [dashboard_layout, favorite_tables, theme]
+          description: Filter by specific preference key (optional, returns all if omitted)
+          example: theme
+      responses:
+        '200':
+          description: User preferences retrieved successfully
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+              description: Correlation ID for request tracing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserPreference'
+              example:
+                - id: 1
+                  user_id: user@example.com
+                  preference_key: theme
+                  preference_value:
+                    mode: dark
+                    accent_color: blue
+                  created_at: '2025-10-04T10:00:00Z'
+                  updated_at: '2025-10-04T12:00:00Z'
+                - id: 2
+                  user_id: user@example.com
+                  preference_key: dashboard_layout
+                  preference_value:
+                    widgets: [chart1, table2, metrics3]
+                    columns: 3
+                  created_at: '2025-10-04T11:00:00Z'
+                  updated_at: '2025-10-04T11:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+    
+    post:
+      summary: Create or update user preference (user-scoped)
+      description: |
+        Create a new preference or update existing one (upsert operation).
+        - Automatically scoped to authenticated user (data isolation)
+        - Unique constraint on (user_id, preference_key) ensures no duplicates
+        - No conflict resolution needed - all records are user-isolated
+        - Maximum preference_value size: 100KB JSON
+      tags:
+        - User Preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - preference_key
+                - preference_value
+              properties:
+                preference_key:
+                  type: string
+                  enum: [dashboard_layout, favorite_tables, theme]
+                  description: Preference category
+                preference_value:
+                  type: object
+                  description: JSON preference data (max 100KB)
+                  additionalProperties: true
+            example:
+              preference_key: theme
+              preference_value:
+                mode: dark
+                accent_color: blue
+      responses:
+        '200':
+          description: Preference created or updated successfully
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+              description: Correlation ID for request tracing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreference'
+              example:
+                id: 1
+                user_id: user@example.com
+                preference_key: theme
+                preference_value:
+                  mode: dark
+                  accent_color: blue
+                created_at: '2025-10-04T10:00:00Z'
+                updated_at: '2025-10-04T12:00:00Z'
+        '400':
+          description: Invalid preference data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: INVALID_PREFERENCE
+                message: Invalid preference key or value format
+                technical_details:
+                  allowed_keys: [dashboard_layout, favorite_tables, theme]
+                  max_size_bytes: 102400
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  
+  /api/preferences/{preference_key}:
+    delete:
+      summary: Delete user preference (user-scoped)
+      description: |
+        Delete a specific user preference.
+        - Automatically scoped to authenticated user (data isolation)
+        - Returns 404 if preference doesn't exist for this user
+      tags:
+        - User Preferences
+      parameters:
+        - name: preference_key
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [dashboard_layout, favorite_tables, theme]
+          description: Preference key to delete
+          example: theme
+      responses:
+        '204':
+          description: Preference deleted successfully (no content)
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+              description: Correlation ID for request tracing
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Preference not found for this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: PREFERENCE_NOT_FOUND
+                message: Preference not found for this user
+                technical_details:
+                  user_id: user@example.com
+                  preference_key: theme
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+
+components:
+  schemas:
+    UserPreference:
+      type: object
+      description: User-specific application preference stored in Lakebase
+      required:
+        - id
+        - user_id
+        - preference_key
+        - preference_value
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          description: Auto-incremented primary key
+          example: 1
+        user_id:
+          type: string
+          description: User identifier (always matches authenticated user for data isolation)
+          example: user@example.com
+        preference_key:
+          type: string
+          enum: [dashboard_layout, favorite_tables, theme]
+          description: Preference category
+        preference_value:
+          type: object
+          description: JSON preference data (max 100KB)
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+          description: When preference was created (UTC)
+        updated_at:
+          type: string
+          format: date-time
+          description: When preference was last updated (UTC)
+    
+    ErrorResponse:
+      type: object
+      description: Standard error response format
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+          description: User-friendly error message
+        technical_details:
+          type: object
+          additionalProperties: true
+          description: Technical details for debugging
+  
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials (EC-003)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error_code: AUTH_REQUIRED
+            message: Authentication required. Please provide valid credentials.
+            technical_details:
+              required_scope: lakebase:write
+              workspace: https://your-workspace.cloud.databricks.com
+    
+    DatabaseUnavailable:
+      description: Lakebase connection failure (EC-002)
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - type: object
+                required:
+                  - retry_after
+                properties:
+                  retry_after:
+                    type: integer
+                    description: Seconds to wait before retrying
+          example:
+            error_code: DATABASE_UNAVAILABLE
+            message: Database service temporarily unavailable.
+            technical_details:
+              error_type: connection_pool_exhausted
+              postgres_error_code: '53300'
+            retry_after: 10
+
+security:
+  - DatabricksToken: []
+
+components:
+  securitySchemes:
+    DatabricksToken:
+      type: http
+      scheme: bearer
+      bearerFormat: Databricks PAT
+      description: Databricks Personal Access Token or service principal token

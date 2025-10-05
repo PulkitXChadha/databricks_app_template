@@ -1,0 +1,392 @@
+openapi: 3.0.3
+info:
+  title: Model Serving API
+  description: |
+    API endpoints for invoking Databricks Model Serving endpoints for ML inference.
+    Supports models registered in Unity Catalog Model Registry deployed to serving endpoints.
+    - Mandatory capability: invoke_model (model inference from UC-registered models)
+    - SHOULD implement: list_endpoints, get_endpoint (metadata for UI display and debugging)
+  version: 1.0.0
+  contact:
+    name: Databricks App Template
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+  - url: https://your-workspace.cloud.databricks.com/apps/your-app
+    description: Production (Databricks Apps)
+
+paths:
+  /api/model-serving/endpoints:
+    get:
+      summary: List available Model Serving endpoints (SHOULD capability)
+      description: |
+        List all Model Serving endpoints accessible to the authenticated user.
+        This is a SHOULD capability for UI display and debugging purposes.
+        Standard practice for complete integration demonstration.
+      tags:
+        - Model Serving
+      responses:
+        '200':
+          description: List of available endpoints
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+              description: Correlation ID for request tracing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModelEndpoint'
+              example:
+                - endpoint_name: sentiment-analysis
+                  endpoint_id: ep_abc123
+                  model_name: main.ml_models.sentiment_classifier
+                  model_version: '3'
+                  state: READY
+                  workload_url: https://your-workspace.cloud.databricks.com/serving-endpoints/sentiment-analysis/invocations
+                  creation_timestamp: '2025-10-01T08:00:00Z'
+                  last_updated_timestamp: '2025-10-04T10:00:00Z'
+                - endpoint_name: recommendation-engine
+                  endpoint_id: ep_def456
+                  model_name: main.ml_models.recommender
+                  model_version: '5'
+                  state: READY
+                  workload_url: https://your-workspace.cloud.databricks.com/serving-endpoints/recommendation-engine/invocations
+                  creation_timestamp: '2025-09-15T12:00:00Z'
+                  last_updated_timestamp: '2025-10-03T14:30:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ModelServiceUnavailable'
+  
+  /api/model-serving/endpoints/{endpoint_name}:
+    get:
+      summary: Get endpoint details (SHOULD capability)
+      description: |
+        Retrieve detailed information about a specific Model Serving endpoint.
+        This is a SHOULD capability for UI display and debugging purposes.
+      tags:
+        - Model Serving
+      parameters:
+        - name: endpoint_name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Name of the serving endpoint
+          example: sentiment-analysis
+      responses:
+        '200':
+          description: Endpoint details retrieved
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+              description: Correlation ID for request tracing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelEndpoint'
+              example:
+                endpoint_name: sentiment-analysis
+                endpoint_id: ep_abc123
+                model_name: main.ml_models.sentiment_classifier
+                model_version: '3'
+                state: READY
+                workload_url: https://your-workspace.cloud.databricks.com/serving-endpoints/sentiment-analysis/invocations
+                creation_timestamp: '2025-10-01T08:00:00Z'
+                last_updated_timestamp: '2025-10-04T10:00:00Z'
+                config:
+                  served_models:
+                    - model_name: main.ml_models.sentiment_classifier
+                      model_version: '3'
+                      workload_size: Small
+                      scale_to_zero_enabled: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Endpoint not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: ENDPOINT_NOT_FOUND
+                message: Model Serving endpoint not found
+                technical_details:
+                  endpoint_name: nonexistent-endpoint
+        '503':
+          $ref: '#/components/responses/ModelServiceUnavailable'
+  
+  /api/model-serving/invoke:
+    post:
+      summary: Invoke model for inference (MANDATORY capability)
+      description: |
+        Invoke a Model Serving endpoint for predictions.
+        This is the MANDATORY capability for model inference from Unity Catalog registered models.
+        - Model must be registered in Unity Catalog Model Registry
+        - Endpoint must be in READY state
+        - Default timeout: 30 seconds (configurable 1-300 seconds)
+        - Performance target: <2s latency for standard input payload (NFR-003)
+        - Input format depends on model schema
+      tags:
+        - Model Serving
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - endpoint_name
+                - inputs
+              properties:
+                endpoint_name:
+                  type: string
+                  description: Name of the serving endpoint to invoke
+                  example: sentiment-analysis
+                inputs:
+                  type: object
+                  description: Model input data (format depends on model's input schema)
+                  additionalProperties: true
+                timeout_seconds:
+                  type: integer
+                  default: 30
+                  minimum: 1
+                  maximum: 300
+                  description: Request timeout in seconds (max 5 minutes)
+            example:
+              endpoint_name: sentiment-analysis
+              inputs:
+                text: This product is amazing! Highly recommend.
+              timeout_seconds: 30
+      responses:
+        '200':
+          description: Inference completed successfully
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+              description: Correlation ID for request tracing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelInferenceResponse'
+              example:
+                request_id: req_xyz789
+                endpoint_name: sentiment-analysis
+                predictions:
+                  sentiment: positive
+                  confidence: 0.95
+                  scores:
+                    positive: 0.95
+                    negative: 0.03
+                    neutral: 0.02
+                status: SUCCESS
+                execution_time_ms: 1234
+                completed_at: '2025-10-04T12:00:00Z'
+        '400':
+          description: Invalid input data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: INVALID_INPUT
+                message: Input data does not match model schema
+                technical_details:
+                  required_fields: [text]
+                  provided_fields: [content]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Endpoint not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: ENDPOINT_NOT_FOUND
+                message: Model Serving endpoint not found
+                technical_details:
+                  endpoint_name: nonexistent-endpoint
+        '503':
+          $ref: '#/components/responses/ModelUnavailable'
+
+components:
+  schemas:
+    ModelEndpoint:
+      type: object
+      description: Model Serving endpoint metadata
+      required:
+        - endpoint_name
+        - model_name
+        - state
+      properties:
+        endpoint_name:
+          type: string
+          description: Unique endpoint name within workspace
+          example: sentiment-analysis
+        endpoint_id:
+          type: string
+          description: Databricks endpoint ID
+          example: ep_abc123
+        model_name:
+          type: string
+          description: Fully qualified model name from Unity Catalog Model Registry
+          example: main.ml_models.sentiment_classifier
+        model_version:
+          type: string
+          description: Model version being served
+          example: '3'
+        state:
+          type: string
+          enum: [CREATING, READY, UPDATING, FAILED]
+          description: Endpoint state (must be READY for inference)
+        workload_url:
+          type: string
+          format: uri
+          description: URL to invoke the endpoint
+          example: https://your-workspace.cloud.databricks.com/serving-endpoints/sentiment-analysis/invocations
+        creation_timestamp:
+          type: string
+          format: date-time
+          description: When endpoint was created (UTC)
+        last_updated_timestamp:
+          type: string
+          format: date-time
+          description: When endpoint was last modified (UTC)
+        config:
+          type: object
+          description: Endpoint configuration (served models, traffic routing)
+          additionalProperties: true
+    
+    ModelInferenceResponse:
+      type: object
+      description: Result of a model inference request
+      required:
+        - request_id
+        - endpoint_name
+        - status
+        - execution_time_ms
+        - completed_at
+      properties:
+        request_id:
+          type: string
+          description: Unique identifier for this inference request
+          example: req_xyz789
+        endpoint_name:
+          type: string
+          description: Endpoint that processed the request
+          example: sentiment-analysis
+        predictions:
+          type: object
+          description: Model predictions/outputs (format depends on model)
+          additionalProperties: true
+        status:
+          type: string
+          enum: [SUCCESS, ERROR, TIMEOUT]
+          description: Inference status
+        execution_time_ms:
+          type: integer
+          minimum: 1
+          description: Inference execution time in milliseconds
+          example: 1234
+        error_message:
+          type: string
+          nullable: true
+          description: Error message if status is ERROR
+        completed_at:
+          type: string
+          format: date-time
+          description: When response was received (UTC)
+    
+    ErrorResponse:
+      type: object
+      description: Standard error response format
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+          description: User-friendly error message
+        technical_details:
+          type: object
+          additionalProperties: true
+          description: Technical details for debugging
+  
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials (EC-003)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error_code: AUTH_REQUIRED
+            message: Authentication required. Please provide valid credentials.
+            technical_details:
+              required_scope: model_serving:invoke
+              workspace: https://your-workspace.cloud.databricks.com
+    
+    ModelUnavailable:
+      description: Model Serving endpoint unavailable (EC-001)
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - type: object
+                required:
+                  - retry_after
+                properties:
+                  retry_after:
+                    type: integer
+                    description: Seconds to wait before retrying
+          example:
+            error_code: MODEL_UNAVAILABLE
+            message: Model service temporarily unavailable. Please try again in a few moments.
+            technical_details:
+              endpoint: https://your-workspace.cloud.databricks.com/serving-endpoints/sentiment-analysis/invocations
+              status: 503
+              error_type: connection_timeout
+            retry_after: 30
+    
+    ModelServiceUnavailable:
+      description: Model Serving service temporarily unavailable (generic 503)
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - type: object
+                required:
+                  - retry_after
+                properties:
+                  retry_after:
+                    type: integer
+                    description: Seconds to wait before retrying
+          example:
+            error_code: SERVICE_UNAVAILABLE
+            message: Model Serving service temporarily unavailable.
+            technical_details:
+              error_type: service_overload
+            retry_after: 30
+
+security:
+  - DatabricksToken: []
+
+components:
+  securitySchemes:
+    DatabricksToken:
+      type: http
+      scheme: bearer
+      bearerFormat: Databricks PAT
+      description: Databricks Personal Access Token or service principal token

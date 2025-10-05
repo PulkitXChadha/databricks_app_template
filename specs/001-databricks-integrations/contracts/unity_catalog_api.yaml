@@ -1,0 +1,405 @@
+openapi: 3.0.3
+info:
+  title: Unity Catalog API
+  description: |
+    API endpoints for querying Unity Catalog managed tables with fine-grained access control.
+    Supports basic pagination (limit/offset) and read-only SELECT queries with user-specific permissions.
+  version: 1.0.0
+  contact:
+    name: Databricks App Template
+    
+servers:
+  - url: http://localhost:8000
+    description: Development server
+  - url: https://your-workspace.cloud.databricks.com/apps/your-app
+    description: Production (Databricks Apps)
+
+paths:
+  /api/unity-catalog/tables:
+    get:
+      summary: List accessible Unity Catalog tables
+      description: |
+        Returns list of tables the authenticated user has access to.
+        Unity Catalog enforces permissions automatically based on user identity.
+      tags:
+        - Unity Catalog
+      parameters:
+        - name: catalog
+          in: query
+          schema:
+            type: string
+          description: Filter by catalog name (optional)
+          example: main
+        - name: schema
+          in: query
+          schema:
+            type: string
+          description: Filter by schema name (optional)
+          example: samples
+      responses:
+        '200':
+          description: List of accessible tables
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+              description: Correlation ID for request tracing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DataSource'
+              example:
+                - catalog_name: main
+                  schema_name: samples
+                  table_name: demo_data
+                  full_name: main.samples.demo_data
+                  columns:
+                    - name: id
+                      data_type: INT
+                      nullable: false
+                    - name: name
+                      data_type: STRING
+                      nullable: true
+                  row_count: 100
+                  owner: user@example.com
+                  access_level: READ
+                  last_refreshed: '2025-10-04T12:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  
+  /api/unity-catalog/query:
+    post:
+      summary: Execute SELECT query with pagination
+      description: |
+        Execute a SELECT query on a Unity Catalog table.
+        - Only SELECT statements allowed (no INSERT/UPDATE/DELETE)
+        - Unity Catalog enforces user's table/column permissions
+        - Basic pagination with limit/offset parameters
+        - Response time target: <500ms for ≤100 rows per page (NFR-003)
+      tags:
+        - Unity Catalog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - catalog
+                - schema
+                - table
+              properties:
+                catalog:
+                  type: string
+                  pattern: ^[a-zA-Z0-9_]+$
+                  description: Unity Catalog name
+                  example: main
+                schema:
+                  type: string
+                  pattern: ^[a-zA-Z0-9_]+$
+                  description: Schema name within catalog
+                  example: samples
+                table:
+                  type: string
+                  pattern: ^[a-zA-Z0-9_]+$
+                  description: Table name
+                  example: demo_data
+                limit:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 1000
+                  description: Number of rows per page (max 1000)
+                  example: 100
+                offset:
+                  type: integer
+                  default: 0
+                  minimum: 0
+                  description: Offset for pagination (0-based)
+                  example: 0
+                filters:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Optional column filters (key=column_name, value=filter_value)
+                  example:
+                    status: active
+      responses:
+        '200':
+          description: Query executed successfully
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+              description: Correlation ID for request tracing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResult'
+              example:
+                query_id: qry_abc123
+                data_source:
+                  catalog_name: main
+                  schema_name: samples
+                  table_name: demo_data
+                  full_name: main.samples.demo_data
+                  access_level: READ
+                sql_statement: SELECT * FROM main.samples.demo_data LIMIT 100 OFFSET 0
+                rows:
+                  - id: 1
+                    name: Sample A
+                    value: 100
+                  - id: 2
+                    name: Sample B
+                    value: 200
+                row_count: 2
+                execution_time_ms: 245
+                user_id: user@example.com
+                executed_at: '2025-10-04T12:00:00Z'
+                status: SUCCEEDED
+        '400':
+          description: Invalid query (non-SELECT or malformed SQL)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: INVALID_QUERY
+                message: Only SELECT queries are allowed
+                technical_details:
+                  sql_statement: UPDATE main.samples.demo_data SET value = 0
+        '403':
+          $ref: '#/components/responses/CatalogPermissionDenied'
+        '404':
+          description: Table not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: TABLE_NOT_FOUND
+                message: Table does not exist
+                technical_details:
+                  catalog: main
+                  schema: samples
+                  table: nonexistent_table
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+
+components:
+  schemas:
+    DataSource:
+      type: object
+      description: Unity Catalog table metadata with access control information
+      required:
+        - catalog_name
+        - schema_name
+        - table_name
+        - full_name
+        - columns
+        - owner
+        - access_level
+        - last_refreshed
+      properties:
+        catalog_name:
+          type: string
+          pattern: ^[a-zA-Z0-9_]+$
+          description: Unity Catalog name
+        schema_name:
+          type: string
+          pattern: ^[a-zA-Z0-9_]+$
+          description: Schema name within catalog
+        table_name:
+          type: string
+          pattern: ^[a-zA-Z0-9_]+$
+          description: Table name
+        full_name:
+          type: string
+          pattern: ^[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+$
+          description: Fully qualified table name (catalog.schema.table)
+          example: main.samples.demo_data
+        columns:
+          type: array
+          minItems: 1
+          description: List of column definitions
+          items:
+            type: object
+            required:
+              - name
+              - data_type
+              - nullable
+            properties:
+              name:
+                type: string
+                description: Column name
+              data_type:
+                type: string
+                description: Column data type (INT, STRING, DOUBLE, BOOLEAN, TIMESTAMP, etc.)
+              nullable:
+                type: boolean
+                description: Whether column allows NULL values
+        row_count:
+          type: integer
+          nullable: true
+          description: Approximate number of rows (may be null if unavailable)
+        size_bytes:
+          type: integer
+          nullable: true
+          description: Approximate table size in bytes (may be null if unavailable)
+        owner:
+          type: string
+          description: Table owner user or group
+        access_level:
+          type: string
+          enum: [READ, WRITE, NONE]
+          description: User's access level to this table
+        last_refreshed:
+          type: string
+          format: date-time
+          description: When metadata was last fetched from Unity Catalog
+    
+    QueryResult:
+      type: object
+      description: Result of a Unity Catalog query execution
+      required:
+        - query_id
+        - rows
+        - row_count
+        - execution_time_ms
+        - user_id
+        - executed_at
+        - status
+      properties:
+        query_id:
+          type: string
+          description: Unique identifier for this query execution
+        data_source:
+          $ref: '#/components/schemas/DataSource'
+        sql_statement:
+          type: string
+          description: The SQL query that was executed
+        rows:
+          type: array
+          description: Query result rows (array of objects with column values)
+          items:
+            type: object
+            additionalProperties: true
+        row_count:
+          type: integer
+          minimum: 0
+          description: Number of rows returned (must equal len(rows))
+        execution_time_ms:
+          type: integer
+          minimum: 1
+          description: Query execution time in milliseconds
+        user_id:
+          type: string
+          description: User who executed the query
+        executed_at:
+          type: string
+          format: date-time
+          description: When query was executed (UTC)
+        status:
+          type: string
+          enum: [PENDING, RUNNING, SUCCEEDED, FAILED]
+          description: Query execution status
+        error_message:
+          type: string
+          nullable: true
+          description: Error message if status is FAILED
+    
+    ErrorResponse:
+      type: object
+      description: Standard error response format
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+          description: User-friendly error message
+        technical_details:
+          type: object
+          additionalProperties: true
+          description: Technical details for debugging
+  
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials (EC-003)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error_code: AUTH_REQUIRED
+            message: Authentication required. Please provide valid credentials.
+            technical_details:
+              required_scope: unity_catalog:read
+              workspace: https://your-workspace.cloud.databricks.com
+    
+    Forbidden:
+      description: Insufficient permissions (EC-003)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error_code: PERMISSION_DENIED
+            message: You do not have permission to access this resource.
+            technical_details:
+              required_scope: unity_catalog:read
+    
+    CatalogPermissionDenied:
+      description: No access to Unity Catalog table (EC-004)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error_code: CATALOG_PERMISSION_DENIED
+            message: You don't have access to this table.
+            technical_details:
+              catalog: main
+              schema: samples
+              table: restricted_data
+    
+    DatabaseUnavailable:
+      description: Unity Catalog service temporarily unavailable (EC-002 adapted)
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - type: object
+                required:
+                  - retry_after
+                properties:
+                  retry_after:
+                    type: integer
+                    description: Seconds to wait before retrying
+          example:
+            error_code: DATABASE_UNAVAILABLE
+            message: Unity Catalog service temporarily unavailable.
+            technical_details:
+              error_type: connection_timeout
+            retry_after: 10
+
+security:
+  - DatabricksToken: []
+
+components:
+  securitySchemes:
+    DatabricksToken:
+      type: http
+      scheme: bearer
+      bearerFormat: Databricks PAT
+      description: Databricks Personal Access Token or service principal token
