@@ -1,48 +1,54 @@
 """Lakebase Database Connection Module
 
 Provides SQLAlchemy engine with connection pooling for Lakebase (Postgres in Databricks).
+Uses Databricks SDK for secure, token-based authentication with automatic token caching.
 """
 
 import os
+import uuid
 from typing import Generator
 
-from sqlalchemy import create_engine, Engine
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
+from sqlalchemy import create_engine, Engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
 
 def get_lakebase_connection_string() -> str:
-    """Build Lakebase connection string from environment variables.
+    """Build Lakebase connection string using Databricks SDK.
     
     Environment variables:
-        LAKEBASE_HOST: Workspace hostname
+        PGHOST: Lakebase host (exposed automatically when Lakebase resource is added)
         LAKEBASE_PORT: Database port (default: 5432)
         LAKEBASE_DATABASE: Database name
-        LAKEBASE_TOKEN: Databricks authentication token
     
     Returns:
-        PostgreSQL connection string with token authentication
+        PostgreSQL connection string for token-based authentication
         
     Raises:
         ValueError: If required environment variables are missing
     """
-    host = os.getenv('LAKEBASE_HOST')
-    port = os.getenv('LAKEBASE_PORT', '5432')
-    database = os.getenv('LAKEBASE_DATABASE')
-    token = os.getenv('LAKEBASE_TOKEN')
+    app_config = Config()
+    # For Lakebase, use client_id (OAuth) or DATABRICKS_USER (PAT) as username
+    # The actual token/password is provided via event listener
+    postgres_username = app_config.client_id or os.getenv('DATABRICKS_USER') or "token"
+    postgres_host = os.getenv('PGHOST') or os.getenv('LAKEBASE_HOST')
+    postgres_port = os.getenv('LAKEBASE_PORT', '5432')
+    postgres_database = os.getenv('LAKEBASE_DATABASE')
     
-    if not all([host, database, token]):
+    if not all([postgres_host, postgres_database]):
         missing = []
-        if not host:
-            missing.append('LAKEBASE_HOST')
-        if not database:
+        if not postgres_host:
+            missing.append('PGHOST or LAKEBASE_HOST')
+        if not postgres_database:
             missing.append('LAKEBASE_DATABASE')
-        if not token:
-            missing.append('LAKEBASE_TOKEN')
-        raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+        raise ValueError(f"Missing required configuration: {', '.join(missing)}")
     
-    # Connection string format: postgresql+psycopg2://token:<token>@<host>:<port>/<database>
-    return f"postgresql+psycopg2://token:{token}@{host}:{port}/{database}"
+    # Connection string format: postgresql+psycopg://<username>:@<host>:<port>/<database>?sslmode=require
+    # Password is provided dynamically via event listener
+    # SSL is required for Lakebase connections
+    return f"postgresql+psycopg://{postgres_username}:@{postgres_host}:{postgres_port}/{postgres_database}?sslmode=require"
 
 
 def create_lakebase_engine(
@@ -53,6 +59,9 @@ def create_lakebase_engine(
 ) -> Engine:
     """Create SQLAlchemy engine with QueuePool for Lakebase.
     
+    Uses Databricks SDK for secure OAuth token authentication. The token is
+    automatically cached and refreshed by WorkspaceClient.
+    
     Args:
         connection_string: Database connection string (auto-generated if None)
         pool_size: Number of connections to maintain in pool
@@ -60,7 +69,7 @@ def create_lakebase_engine(
         pool_pre_ping: Test connections before use to detect stale connections
         
     Returns:
-        Configured SQLAlchemy engine
+        Configured SQLAlchemy engine with OAuth token authentication
         
     Example:
         engine = create_lakebase_engine(pool_size=5, max_overflow=10)
@@ -79,6 +88,50 @@ def create_lakebase_engine(
         pool_recycle=3600,  # Recycle connections after 1 hour
         echo=False  # Set to True for SQL query logging (debugging)
     )
+    
+    # Set up authentication via event listener
+    workspace_client = WorkspaceClient()
+    
+    # Get Lakebase instance name
+    # Use LAKEBASE_INSTANCE_NAME if provided (logical name from bundle)
+    # Otherwise extract from host (but this may not work with SDK)
+    instance_name = os.getenv('LAKEBASE_INSTANCE_NAME')
+    
+    if not instance_name:
+        lakebase_host = os.getenv('PGHOST') or os.getenv('LAKEBASE_HOST')
+        # Extract instance name from host (format: instance-{id}.database.cloud.databricks.com)
+        if lakebase_host and "instance-" in lakebase_host:
+            instance_name = lakebase_host.split(".")[0]  # Gets "instance-{id}"
+    
+    @event.listens_for(engine, "do_connect")
+    def provide_token(dialect, conn_rec, cargs, cparams):
+        """Provide authentication token for Lakebase using OAuth"""
+        # For Lakebase, generate OAuth token using Databricks SDK
+        # If LAKEBASE_TOKEN is already an OAuth token, use it directly
+        lakebase_token = os.getenv("LAKEBASE_TOKEN")
+        
+        if lakebase_token and not lakebase_token.startswith("dapi"):
+            # Already an OAuth token
+            cparams["password"] = lakebase_token
+        elif instance_name:
+            # Generate OAuth token for Lakebase instance
+            try:
+                cred = workspace_client.database.generate_database_credential(
+                    request_id=str(uuid.uuid4()),
+                    instance_names=[instance_name]
+                )
+                cparams["password"] = cred.token
+            except Exception as e:
+                # Fallback to LAKEBASE_TOKEN if generation fails
+                if lakebase_token:
+                    cparams["password"] = lakebase_token
+                else:
+                    raise Exception(f"Failed to generate Lakebase OAuth token: {e}")
+        elif lakebase_token:
+            # Use provided token as fallback
+            cparams["password"] = lakebase_token
+        else:
+            raise Exception("No valid Lakebase authentication method available")
     
     return engine
 

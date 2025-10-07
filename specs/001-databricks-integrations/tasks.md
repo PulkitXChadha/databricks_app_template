@@ -46,7 +46,7 @@ This is a **web application** with:
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/migrations/versions/001_create_user_preferences.py`  
 **Description**: Create migration with table schema: id (SERIAL PK), user_id (VARCHAR indexed), preference_key (VARCHAR), preference_value (JSONB), timestamps, UNIQUE(user_id, preference_key)  
 **Validation**: Run `alembic upgrade head` in dev environment  
-**Status**: ✅ COMPLETE
+**Status**: ✅ COMPLETE - Migration created and successfully applied
 
 ### T004 [P] [X] Create Alembic migration for model_inference_logs table
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/migrations/versions/002_create_model_inference_logs.py`  
@@ -58,6 +58,18 @@ This is a **web application** with:
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/alembic.ini`  
 **Description**: Create Alembic config with Lakebase connection string pattern  
 **Validation**: Run `alembic current` successfully  
+**Status**: ✅ COMPLETE - Configuration created with OAuth token authentication for Lakebase
+
+### T005A [X] Configure Lakebase OAuth authentication
+**File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/migrations/env.py` and `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/lib/database.py`  
+**Description**: Implement OAuth token authentication exclusively for Lakebase using Databricks SDK's `generate_database_credential()` API.  
+**Key Changes**:
+- Added `psycopg[binary]>=3.1.0` dependency for PostgreSQL driver with binary support
+- Configured SSL mode (`sslmode=require`) for secure Lakebase connections
+- Implemented username resolution: `client_id` (OAuth) → "token" (fallback)
+- Added dynamic OAuth token generation using `workspace_client.database.generate_database_credential()`
+- PAT (Personal Access Token) authentication is not supported  
+**Validation**: Run `uv run alembic upgrade head` successfully  
 **Status**: ✅ COMPLETE
 
 ---
@@ -243,33 +255,37 @@ This is a **web application** with:
 **Depends on**: T002  
 **Validation**: Run dev server, verify page renders with Databricks styling
 
-### T029 [P] Create DataTable component with pagination
+### T029 [P] [X] Create DataTable component with pagination
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/DataTable.tsx`  
 **Description**: React component using Design Bricks databricks-table with pagination controls (limit/offset), displays Unity Catalog query results  
 **Depends on**: T002  
-**Validation**: Render with mock data, verify pagination controls work
+**Validation**: Render with mock data, verify pagination controls work  
+**Status**: ✅ COMPLETE
 
-### T030 [P] Create PreferencesForm component
+### T030 [P] [X] Create PreferencesForm component
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/PreferencesForm.tsx`  
 **Description**: React component using Design Bricks databricks-input and databricks-button for CRUD operations on user preferences  
 **Depends on**: T002  
-**Validation**: Render form, verify all CRUD actions work
+**Validation**: Render form, verify all CRUD actions work  
+**Status**: ✅ COMPLETE
 
-### T031 [P] Create ModelInvokeForm component
+### T031 [P] [X] Create ModelInvokeForm component
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/ModelInvokeForm.tsx`  
 **Description**: React component using Design Bricks databricks-input for model inference inputs, databricks-button for invoke action, displays predictions  
 **Depends on**: T002  
-**Validation**: Render form, verify input validation and result display
+**Validation**: Render form, verify input validation and result display  
+**Status**: ✅ COMPLETE
 
 ---
 
 ## Phase 3.10: Frontend API Integration
 
-### T032 Regenerate TypeScript client from OpenAPI spec
+### T032 [X] Regenerate TypeScript client from OpenAPI spec
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/fastapi_client/`  
 **Description**: Run `python scripts/make_fastapi_client.py` to generate TypeScript client with UnityCatalogService, LakebaseService, ModelServingService  
 **Depends on**: T026  
-**Validation**: Verify client/src/fastapi_client/services/ contains new service files
+**Validation**: Verify client/src/fastapi_client/services/ contains new service files  
+**Status**: ✅ COMPLETE
 
 ### T033 Integrate Unity Catalog API in DataTable component
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/DataTable.tsx`  
@@ -321,16 +337,23 @@ This is a **web application** with:
 
 ## Phase 3.12: Sample Data & Deployment Configuration
 
-### T040 Implement sample data setup script
+### T040 [X] Implement sample data setup script
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/scripts/setup_sample_data.py`  
-**Description**: Script to create Unity Catalog sample table (main.samples.demo_data with ≤100 rows) and seed Lakebase with 5 sample user_preferences records. Include --create-all, --unity-catalog, --lakebase flags.  
+**Description**: Script to create Unity Catalog sample table and seed Lakebase with sample user_preferences records. Include --create-all, --unity-catalog, --lakebase flags. Reads configuration from `.env.local` (DATABRICKS_CATALOG, DATABRICKS_SCHEMA, LAKEBASE_INSTANCE_NAME). Automatically generates OAuth tokens for Lakebase using `generate_database_credential()` with logical instance name (e.g., `databricks-app-lakebase-dev`).  
+**Key Features**:
+- Automatic `.env.local` loading via python-dotenv
+- OAuth token generation using Databricks SDK (no manual LAKEBASE_TOKEN needed)
+- Uses psycopg v3 with CAST syntax for JSONB
+- Supports both CLI flags and environment variable configuration  
 **Depends on**: T020, T021  
-**Validation**: Run script, verify sample data exists in UC and Lakebase
+**Validation**: Run script, verify sample data exists in UC and Lakebase  
+**Status**: ✅ COMPLETE
 
-### T041 Update databricks.yml with new environment variables
+### T041 [X] Update databricks.yml with new environment variables
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/databricks.yml`  
-**Description**: Add environment variables: LAKEBASE_HOST, LAKEBASE_PORT, LAKEBASE_DATABASE, LAKEBASE_TOKEN, MODEL_SERVING_ENDPOINT, MODEL_SERVING_TIMEOUT  
-**Validation**: Run `databricks bundle validate` - should pass
+**Description**: Add environment variables: DATABRICKS_CATALOG, DATABRICKS_SCHEMA, LAKEBASE_HOST, LAKEBASE_PORT, LAKEBASE_DATABASE, LAKEBASE_INSTANCE_NAME, MODEL_SERVING_ENDPOINT, MODEL_SERVING_TIMEOUT. Note: LAKEBASE_TOKEN is not required (OAuth tokens auto-generated via SDK).  
+**Validation**: Run `databricks bundle validate` - should pass  
+**Status**: ✅ COMPLETE
 
 ### T042 Validate Asset Bundle configuration
 **File**: N/A (validation task)  
@@ -342,15 +365,17 @@ This is a **web application** with:
 
 ## Phase 3.13: Documentation
 
-### T043 Write quickstart.md with user stories
+### T043 [X] Write quickstart.md with user stories
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/specs/001-databricks-integrations/quickstart.md`  
 **Description**: Complete quickstart guide with Prerequisites, Setup (6 steps), Testing User Stories (9 stories from spec), Multi-User Testing, Troubleshooting (EC-001 through EC-005)  
-**Validation**: Follow quickstart end-to-end as new developer
+**Validation**: Follow quickstart end-to-end as new developer  
+**Status**: ✅ COMPLETE
 
-### T044 Update README with integration instructions
+### T044 [X] Update README with integration instructions
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/README.md`  
 **Description**: Add section on Databricks service integrations (Unity Catalog, Lakebase, Model Serving), link to quickstart.md and contracts/  
-**Validation**: Review README for completeness and clarity
+**Validation**: Review README for completeness and clarity  
+**Status**: ✅ COMPLETE
 
 ### T045 Update agent context file (CLAUDE.md)
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/CLAUDE.md`  
@@ -506,6 +531,8 @@ Task: "Create ModelInvokeForm component in client/src/components/ui/ModelInvokeF
 - **Performance**: Unity Catalog queries must respond <500ms for ≤100 rows
 - **Commit Strategy**: Commit after each task completion
 - **Testing**: Run contract tests after each router implementation to ensure compliance
+- **OAuth Token Generation**: Databricks SDK successfully generates OAuth tokens for Lakebase when using logical bundle instance name (e.g., `databricks-app-lakebase-dev`) instead of technical UUID. Set via `LAKEBASE_INSTANCE_NAME` environment variable.
+- **Environment Variables**: Use `DATABRICKS_CATALOG` and `DATABRICKS_SCHEMA` (not `UNITY_CATALOG_NAME`/`UNITY_CATALOG_SCHEMA`)
 
 ---
 

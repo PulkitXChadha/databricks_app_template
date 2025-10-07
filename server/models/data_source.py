@@ -54,9 +54,9 @@ class DataSource(BaseModel):
         last_refreshed: When metadata was last fetched
     """
     
-    catalog_name: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$", description="Catalog name")
-    schema_name: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$", description="Schema name")
-    table_name: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$", description="Table name")
+    catalog_name: str = Field(..., pattern=r"^[a-zA-Z0-9_.\-]+$", description="Catalog name")
+    schema_name: str = Field(..., pattern=r"^[a-zA-Z0-9_.\-]+$", description="Schema name")
+    table_name: str = Field(..., pattern=r"^[a-zA-Z0-9_.\-]+$", description="Table name")
     columns: list[ColumnDefinition] = Field(..., min_length=1, description="Column definitions")
     row_count: int | None = Field(default=None, description="Approximate row count")
     size_bytes: int | None = Field(default=None, description="Approximate size in bytes")

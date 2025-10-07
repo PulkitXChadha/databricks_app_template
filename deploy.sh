@@ -214,9 +214,9 @@ print_timing "Starting frontend build"
 echo "🏗️  Building frontend..."
 cd client
 if [ "$VERBOSE" = true ]; then
-  npm run build
+  bun run build
 else
-  npm run build > /dev/null 2>&1
+  bun run build > /dev/null 2>&1
 fi
 cd ..
 echo "✅ Frontend build complete"

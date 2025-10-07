@@ -48,8 +48,8 @@ class UnityCatalogService:
 ```bash
 # Environment Variables
 DATABRICKS_WAREHOUSE_ID=<sql-warehouse-id>
-UNITY_CATALOG_NAME=main
-UNITY_CATALOG_SCHEMA=samples
+DATABRICKS_CATALOG=main
+DATABRICKS_SCHEMA=samples
 ```
 
 ### Best Practices
@@ -122,16 +122,19 @@ class LakebaseService:
 LAKEBASE_HOST=<workspace>.cloud.databricks.com
 LAKEBASE_PORT=5432
 LAKEBASE_DATABASE=<database-name>
-LAKEBASE_TOKEN=<databricks-token>
+# Note: OAuth tokens are generated dynamically via workspace_client.database.generate_database_credential()
+# PAT (Personal Access Token) authentication is not supported
 ```
 
 ### Best Practices
 - **Connection Pooling**: Use `QueuePool` with 5-10 connections for typical workload
-- **Token Rotation**: Detect expired tokens and refresh automatically
+- **OAuth Token Generation**: Generate fresh OAuth tokens dynamically using `workspace_client.database.generate_database_credential()` API
+- **Token Expiration**: OAuth tokens expire after 1 hour; connections remain active but new connections require fresh tokens
 - **Schema Migrations**: Use Alembic for schema versioning and migrations
 - **Data Isolation**: Always filter queries by `user_id` from authenticated context
 - **Transactions**: Use SQLAlchemy sessions with proper commit/rollback
 - **Health Checks**: `pool_pre_ping=True` validates connections before use
+- **No PAT Support**: PAT (Personal Access Token) authentication is not supported; use OAuth exclusively
 
 ### Alternatives Considered
 - **asyncpg**: Rejected - psycopg2 better supported by SQLAlchemy ORM
@@ -708,20 +711,22 @@ dependencies = [
 ## Environment Variables
 
 ```bash
-# Databricks Authentication
+# Databricks Authentication (OAuth via CLI)
 DATABRICKS_HOST=https://<workspace>.cloud.databricks.com
-DATABRICKS_TOKEN=<token>
+# OAuth authentication is automatic via: databricks auth login
 
 # Unity Catalog
 DATABRICKS_WAREHOUSE_ID=<warehouse-id>
-UNITY_CATALOG_NAME=main
-UNITY_CATALOG_SCHEMA=samples
+DATABRICKS_CATALOG=main
+DATABRICKS_SCHEMA=samples
 
 # Lakebase
 LAKEBASE_HOST=<workspace>.cloud.databricks.com
 LAKEBASE_PORT=5432
 LAKEBASE_DATABASE=<database-name>
-LAKEBASE_TOKEN=<token>
+LAKEBASE_INSTANCE_NAME=<instance-name>
+# Note: OAuth tokens are generated dynamically via workspace_client.database.generate_database_credential()
+# PAT authentication is not supported
 
 # Model Serving
 MODEL_SERVING_ENDPOINT=<endpoint-name>

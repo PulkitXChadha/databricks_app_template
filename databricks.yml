@@ -1,0 +1,148 @@
+# Databricks Asset Bundle Configuration
+# For deploying the Databricks App Template with service integrations
+
+bundle:
+  name: databricks-app-template
+
+include:
+  - resources/*.yml
+
+variables:
+  app_name:
+    description: "Databricks App Template"
+    default: "databricks-app-template"
+  
+  warehouse_id:
+    description: "SQL Warehouse ID for Unity Catalog queries"
+    default: "${DATABRICKS_WAREHOUSE_ID}"
+  
+  warehouse_name:
+    description: "SQL Warehouse name"
+    default: "databricks-app-warehouse"
+  
+  warehouse_cluster_size:
+    description: "SQL Warehouse cluster size (2X-Small, X-Small, Small, Medium, Large, etc.)"
+    default: "2X-Small"
+  
+  warehouse_max_num_clusters:
+    description: "Maximum number of clusters for the SQL Warehouse"
+    default: 1
+  
+  lakebase_instance_name:
+    description: "Lakebase instance name"
+    default: "databricks-app-lakebase"
+  
+  lakebase_capacity:
+    description: "Lakebase instance capacity (CU_1, CU_2, CU_4, etc.)"
+    default: "CU_1"
+  
+  lakebase_catalog_name:
+    description: "Unity Catalog name for Lakebase"
+    default: "lakebase_catalog"
+  
+  lakebase_database:
+    description: "Lakebase database name"
+    default: "app_database"
+  
+  lakebase_host:
+    description: "Lakebase (Postgres) host (optional, auto-generated if using bundle resource)"
+    default: "${LAKEBASE_HOST}"
+  
+  lakebase_port:
+    description: "Lakebase port"
+    default: "5432"
+  
+  lakebase_token:
+    description: "Lakebase authentication token (optional, OAuth is used by default)"
+    default: ""
+  
+  model_serving_endpoint:
+    description: "Model Serving endpoint name"
+    default: "${MODEL_SERVING_ENDPOINT}"
+  
+  model_serving_timeout:
+    description: "Model Serving request timeout (seconds)"
+    default: "30"
+
+targets:
+  # Development environment
+  dev:
+    mode: development
+    # workspace.host is configured via DATABRICKS_HOST environment variable
+    # Variable interpolation is not supported for authentication fields
+    
+    resources:
+      # SQL Warehouse
+      sql_warehouses:
+        databricks-app-template-dev:
+          name: ${var.warehouse_name}-dev
+          cluster_size: ${var.warehouse_cluster_size}
+          max_num_clusters: ${var.warehouse_max_num_clusters}
+          enable_photon: true
+          enable_serverless_compute: true
+          auto_stop_mins: 10
+          warehouse_type: PRO
+      
+      # Lakebase Database Instance
+      database_instances:
+        databricks-app-lakebase-dev:
+          name: ${var.lakebase_instance_name}-dev
+          capacity: ${var.lakebase_capacity}
+      
+      # Lakebase Database Catalog
+      database_catalogs:
+        databricks-app-lakebase-catalog-dev:
+          database_instance_name: ${resources.database_instances.databricks-app-lakebase-dev.name}
+          name: ${var.lakebase_catalog_name}_dev
+          database_name: ${var.lakebase_database}
+          create_database_if_not_exists: true
+      
+      apps:
+        databricks-app-template:
+          name: ${var.app_name}-dev
+          description: "Databricks App Template (Development) - FastAPI + React with Unity Catalog, Lakebase, and Model Serving integrations"
+          source_code_path: ./
+  
+  # Production environment
+  prod:
+    mode: production
+    # workspace.host is configured via DATABRICKS_HOST environment variable
+    # Variable interpolation is not supported for authentication fields
+    
+    resources:
+      # SQL Warehouse
+      sql_warehouses:
+        databricks-app-template-prod:
+          name: ${var.warehouse_name}
+          cluster_size: ${var.warehouse_cluster_size}
+          max_num_clusters: ${var.warehouse_max_num_clusters}
+          enable_photon: true
+          enable_serverless_compute: false
+          auto_stop_mins: 20
+          warehouse_type: PRO
+      
+      # Lakebase Database Instance
+      database_instances:
+        databricks-app-lakebase-prod:
+          name: ${var.lakebase_instance_name}
+          capacity: ${var.lakebase_capacity}
+      
+      # Lakebase Database Catalog
+      database_catalogs:
+        databricks-app-lakebase-catalog-prod:
+          database_instance_name: ${resources.database_instances.databricks-app-lakebase-prod.name}
+          name: ${var.lakebase_catalog_name}
+          database_name: ${var.lakebase_database}
+          create_database_if_not_exists: true
+      
+      apps:
+        databricks-app-template:
+          name: ${var.app_name}
+          description: "Databricks App Template (Production) - FastAPI + React with Unity Catalog, Lakebase, and Model Serving integrations"
+          source_code_path: ./
+          
+          permissions:
+            - level: CAN_MANAGE
+              group_name: admins
+            - level: CAN_USE
+              group_name: users

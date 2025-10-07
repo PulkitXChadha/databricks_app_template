@@ -56,13 +56,33 @@ class ModelServingService:
                 # Extract first served model config
                 served_model = ep.config.served_models[0] if ep.config and ep.config.served_models else None
                 
+                # Map state
+                state_str = ep.state.config_update.value if ep.state and ep.state.config_update else "UNKNOWN"
+                state_mapping = {
+                    "NOT_UPDATING": "READY",
+                    "UPDATE_PENDING": "UPDATING",
+                    "CREATING": "CREATING",
+                    "UPDATE_FAILED": "FAILED",
+                }
+                state = state_mapping.get(state_str, "UPDATING")
+                
+                # Convert timestamp if present (Unix timestamp in milliseconds)
+                creation_timestamp = None
+                if hasattr(ep, 'creation_timestamp') and ep.creation_timestamp:
+                    try:
+                        # Convert from milliseconds to datetime, then to ISO string
+                        dt = datetime.fromtimestamp(ep.creation_timestamp / 1000)
+                        creation_timestamp = dt.isoformat() + 'Z'
+                    except (ValueError, TypeError):
+                        creation_timestamp = None
+                
                 endpoint_data = {
                     "endpoint_name": ep.name,
-                    "endpoint_id": ep.id if hasattr(ep, 'id') else ep.name,
+                    "endpoint_id": None,  # Not typically available in list response
                     "model_name": served_model.model_name if served_model else "unknown",
-                    "model_version": served_model.model_version if served_model else "unknown",
-                    "state": ep.state.config_update.value if ep.state and ep.state.config_update else "UNKNOWN",
-                    "creation_timestamp": ep.creation_timestamp if hasattr(ep, 'creation_timestamp') else None
+                    "model_version": str(served_model.model_version) if served_model and served_model.model_version else None,
+                    "state": state,
+                    "creation_timestamp": creation_timestamp
                 }
                 
                 endpoints.append(endpoint_data)
@@ -108,7 +128,7 @@ class ModelServingService:
             state = state_mapping.get(state_str, EndpointState.UPDATING)
             
             # Build workload URL (endpoint invocation URL)
-            workspace_url = os.getenv('DATABRICKS_HOST', 'https://example.cloud.databricks.com')
+            workspace_url = os.getenv('DATABRICKS_HOST', 'https://example.cloud.databricks.com').rstrip('/')
             workload_url = f"{workspace_url}/serving-endpoints/{endpoint_name}/invocations"
             
             endpoint = ModelEndpoint(
@@ -184,7 +204,7 @@ class ModelServingService:
             )
             
             end_time = datetime.utcnow()
-            execution_time_ms = int((end_time - start_time).total_seconds() * 1000)
+            execution_time_ms = max(1, int((end_time - start_time).total_seconds() * 1000))
             
             # Create success response
             response = ModelInferenceResponse(
@@ -229,6 +249,9 @@ class ModelServingService:
             )
             
         except (httpx.HTTPError, DatabricksError, ValueError) as e:
+            end_time = datetime.utcnow()
+            execution_time_ms = max(1, int((end_time - start_time).total_seconds() * 1000))
+            
             logger.error(
                 f"Inference error: {str(e)}",
                 exc_info=True,
@@ -242,9 +265,9 @@ class ModelServingService:
                 endpoint_name=endpoint_name,
                 predictions={},
                 status=InferenceStatus.ERROR,
-                execution_time_ms=0,
+                execution_time_ms=execution_time_ms,
                 error_message=str(e),
-                completed_at=datetime.utcnow()
+                completed_at=end_time
             )
     
     async def _invoke_with_retry(
@@ -268,9 +291,11 @@ class ModelServingService:
         Raises:
             httpx.HTTPError: If all retries fail
         """
-        token = os.getenv('DATABRICKS_TOKEN')
+        # Get authentication token from WorkspaceClient
+        # This works with both PAT and OAuth authentication
+        token = self.client.config.authenticate()
         if not token:
-            raise ValueError("DATABRICKS_TOKEN environment variable is required")
+            raise ValueError("Failed to authenticate with Databricks. Please check your credentials.")
         
         headers = {
             'Authorization': f'Bearer {token}',
@@ -285,7 +310,7 @@ class ModelServingService:
                 try:
                     response = await client.post(
                         url,
-                        json={"inputs": inputs},
+                        json=inputs,
                         headers=headers
                     )
                     response.raise_for_status()
@@ -295,6 +320,20 @@ class ModelServingService:
                 except (httpx.HTTPError, httpx.TimeoutException) as e:
                     retry_count += 1
                     last_exception = e
+                    
+                    # Log detailed error information for 4xx errors
+                    if isinstance(e, httpx.HTTPStatusError):
+                        try:
+                            error_body = e.response.text
+                            logger.error(
+                                f"HTTP {e.response.status_code} error from model endpoint",
+                                url=url,
+                                status_code=e.response.status_code,
+                                error_body=error_body,
+                                request_body=inputs
+                            )
+                        except Exception:
+                            pass
                     
                     # Only retry on server errors (5xx) or timeouts
                     if isinstance(e, httpx.HTTPStatusError) and 400 <= e.response.status_code < 500:

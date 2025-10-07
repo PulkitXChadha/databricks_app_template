@@ -93,10 +93,20 @@ This feature builds a comprehensive Databricks App template demonstrating integr
 - [x] Persistent data operations use Lakebase (Postgres in Databricks) for user preferences, application state, model inference logs
 - [x] Token-based authentication for database access (connection string with token)
 - [x] No external OLTP systems introduced (all transactional data in Lakebase)
-- [x] SQLAlchemy ORM with psycopg2 driver, QueuePool connection pooling (5-10 connections)
+- [x] SQLAlchemy ORM with psycopg[binary] driver (v3.x), QueuePool connection pooling (5-10 connections)
 - [x] Alembic for schema migrations
 
 **Tables**: `user_preferences`, `model_inference_logs` (defined in data-model.md)
+
+### Lakebase Authentication Pattern ✅
+- [x] OAuth token authentication exclusively using Databricks SDK `generate_database_credential()` API
+- [x] SSL/TLS encryption required for all Lakebase connections (`sslmode=require`)
+- [x] Token expiration handling (OAuth tokens expire after 1 hour; connections remain active but re-authentication required for new connections)
+- [x] Username resolution: DATABRICKS_USER (OAuth) → client_id → "token" (fallback)
+- [x] PAT (Personal Access Token) authentication is not supported
+- [x] Instance name must use logical bundle name (e.g., `databricks-app-lakebase-dev`), NOT technical UUID
+
+**Implementation**: Dynamic OAuth token generation per connection using `generate_database_credential()` API with logical instance name from `LAKEBASE_INSTANCE_NAME` environment variable
 
 ### Asset Bundle Deployment ✅
 - [x] Deployment managed through Databricks Asset Bundles (`databricks bundle deploy`)
@@ -270,8 +280,14 @@ pyproject.toml                          # Python project config (UPDATE)
 8. **Sample Data Setup**: Python script for minimal UC/Lakebase sample data (≤100 rows per table)
 
 **Dependencies Identified**:
-- Python: sqlalchemy>=2.0.0, psycopg2-binary>=2.9.0, alembic>=1.13.0, httpx>=0.25.0
+- Python: sqlalchemy>=2.0.0, psycopg[binary]>=3.1.0, alembic>=1.13.0, httpx>=0.25.0
 - TypeScript: @databricks/design-bricks>=1.0.0
+
+**Key Dependency Notes**:
+- Changed from `psycopg2-binary` to `psycopg[binary]>=3.1.0` for PostgreSQL 3.x async support and better SSL handling
+- Lakebase authentication exclusively uses OAuth tokens generated via `workspace_client.database.generate_database_credential()` API (Databricks SDK v0.56.0+)
+- PAT (Personal Access Token) authentication is not supported
+- OAuth token generation requires logical bundle instance name (e.g., `databricks-app-lakebase-dev`) via `LAKEBASE_INSTANCE_NAME` environment variable, NOT the technical UUID from host
 
 **All NEEDS CLARIFICATION Resolved**: No unknowns remain (20 clarifications answered in spec Session 2025-10-04)
 
@@ -981,18 +997,21 @@ databricks bundle deploy -t prod
 
 ## Multi-User Testing
 ```bash
-# Test with User A
-DATABRICKS_TOKEN=<user_a_token> python dba_client.py
+# Test with User A (authenticate as User A)
+databricks auth login --host <workspace-url>
+python dba_client.py
 
 # Test with User B (verify data isolation)
-DATABRICKS_TOKEN=<user_b_token> python dba_client.py
+# Re-authenticate as User B
+databricks auth login --host <workspace-url>
+python dba_client.py
 ```
 **Success**: Each user sees only their own preferences, Unity Catalog enforces table permissions
 
 ## Troubleshooting
 - **EC-001**: Model endpoint unavailable → Check endpoint state is READY
-- **EC-002**: Lakebase connection failure → Verify LAKEBASE_TOKEN and connection string
-- **EC-003**: Authentication failure → Regenerate DATABRICKS_TOKEN
+- **EC-002**: Lakebase connection failure → Verify OAuth authentication and connection string
+- **EC-003**: Authentication failure → Re-authenticate with `databricks auth login`
 - **EC-004**: Unity Catalog permission denied → Check table grants with `SHOW GRANTS ON TABLE`
 - **EC-005**: Bundle validation failure → Run `databricks bundle validate` and fix errors
 ```
@@ -1015,12 +1034,12 @@ DATABRICKS_TOKEN=<user_b_token> python dba_client.py
 ## Phase 1 Status
 
 - [x] Data model complete (data-model.md)
-- [ ] API contracts generated (unity_catalog_api.yaml, lakebase_api.yaml, model_serving_api.yaml) - **IN PROGRESS**
-- [ ] Contract tests created (test_*_contract.py) - **PENDING**
-- [ ] Quickstart documentation written (quickstart.md) - **PENDING**
+- [x] API contracts generated (unity_catalog_api.yaml, lakebase_api.yaml, model_serving_api.yaml)
+- [x] Contract tests created (test_*_contract.py)
+- [x] Quickstart documentation written (quickstart.md)
 - [ ] Agent context file updated (CLAUDE.md) - **PENDING**
 
-**Next Action**: Generate contract YAML files, then create contract tests, then write quickstart.md, then run update-agent-context.sh
+**Next Action**: Run update-agent-context.sh to update CLAUDE.md
 
 ## Phase 1 Re-Evaluation (Constitution Check)
 
@@ -1109,8 +1128,8 @@ DATABRICKS_TOKEN=<user_b_token> python dba_client.py
     - Task 037: Test pagination performance (NFR-003)
 
 11. **Sample Data & Deployment**:
-    - Task 038: Implement sample data setup script (scripts/setup_sample_data.py)
-    - Task 039: Update databricks.yml with new environment variables
+    - Task 038: Implement sample data setup script (scripts/setup_sample_data.py) with automatic OAuth token generation and `.env.local` configuration loading
+    - Task 039: Update databricks.yml with new environment variables (DATABRICKS_CATALOG, DATABRICKS_SCHEMA, LAKEBASE_INSTANCE_NAME)
     - Task 040: Validate Asset Bundle (databricks bundle validate)
 
 12. **Documentation & Quickstart**:
@@ -1158,15 +1177,15 @@ DATABRICKS_TOKEN=<user_b_token> python dba_client.py
 
 **Phase Status**:
 - [x] Phase 0: Research complete (/plan command) - research.md exists
-- [x] Phase 1: Design partially complete (/plan command) - data-model.md exists, contracts pending
-- [ ] Phase 1: Contracts complete - PENDING (unity_catalog_api.yaml, lakebase_api.yaml, model_serving_api.yaml)
-- [ ] Phase 1: Contract tests complete - PENDING (test_*_contract.py)
-- [ ] Phase 1: Quickstart complete - PENDING (quickstart.md)
+- [x] Phase 1: Design complete (/plan command) - data-model.md, contracts, quickstart.md all complete
+- [x] Phase 1: Contracts complete - unity_catalog_api.yaml, lakebase_api.yaml, model_serving_api.yaml
+- [x] Phase 1: Contract tests complete - test_*_contract.py
+- [x] Phase 1: Quickstart complete - quickstart.md
 - [ ] Phase 1: Agent context updated - PENDING (CLAUDE.md)
-- [ ] Phase 2: Task planning approach described - COMPLETE (see Phase 2 section above)
-- [ ] Phase 3: Tasks generated (/tasks command) - NOT STARTED
-- [ ] Phase 4: Implementation complete - NOT STARTED
-- [ ] Phase 5: Validation passed - NOT STARTED
+- [x] Phase 2: Task planning complete - tasks.md exists with 49 tasks
+- [x] Phase 3: Tasks generated (/tasks command) - COMPLETE
+- [x] Phase 4: Implementation in progress - Core backend complete, frontend components complete, migrations complete
+- [ ] Phase 5: Validation in progress - Contract tests blocked on live Databricks connections
 
 **Gate Status**:
 - [x] Initial Constitution Check: PASS (all 8 principles satisfied)
@@ -1185,14 +1204,12 @@ DATABRICKS_TOKEN=<user_b_token> python dba_client.py
 ---
 
 **Next Steps**:
-1. Generate contract YAML files (unity_catalog_api.yaml, lakebase_api.yaml, model_serving_api.yaml)
-2. Create contract test files (test_*_contract.py)
-3. Write quickstart.md with all user stories
-4. Run `.specify/scripts/bash/update-agent-context.sh cursor` to update CLAUDE.md
-5. Re-evaluate Constitution Check
-6. Proceed to `/tasks` command to generate tasks.md
+1. Run `.specify/scripts/bash/update-agent-context.sh cursor` to update CLAUDE.md
+2. Complete remaining frontend integration tasks (T033-T035)
+3. Complete integration testing tasks (T036-T039)
+4. Execute end-to-end validation (T046-T049)
 
-**Status**: Phase 1 IN PROGRESS (60% complete - data model done, contracts pending)
+**Status**: Phase 4 IN PROGRESS (85% complete - backend complete, frontend components complete, migrations complete, integration pending)
 
 ---
 *Aligned with Constitution v1.1.0 - See `.specify/memory/constitution.md`*

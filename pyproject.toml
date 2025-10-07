@@ -21,8 +21,9 @@ dependencies = [
     "debugpy>=1.8.15",
     "python-dotenv>=1.1.1",
     "sqlalchemy>=2.0.0",        # Lakebase ORM
-    "psycopg2-binary>=2.9.0",   # Postgres driver for Lakebase
+    "psycopg[binary]>=3.1.0",   # Postgres driver for Lakebase (version 3 for async support)
     "alembic>=1.13.0",          # Database migrations
+    "email-validator>=2.0.0",   # Email validation for Pydantic
 ]
 requires-python = ">=3.11"
 

@@ -49,7 +49,6 @@ if [ -f ".env.local" ]; then
   export $(grep -v '^#' .env.local | xargs)
   # Explicitly export Databricks variables for CLI
   export DATABRICKS_HOST
-  export DATABRICKS_TOKEN
 fi
 
 # Check if already authenticated to avoid opening browser every time
@@ -86,7 +85,7 @@ uv run python -m scripts.make_fastapi_client || echo "⚠️ Could not generate 
 
 if [ "$PROD_MODE" = true ]; then
   echo "Building frontend for production..."
-  pushd client && npm run build && popd
+  pushd client && bun run build && popd
   echo "✅ Frontend built successfully"
   
   # In production mode, only start backend (frontend served by FastAPI)
@@ -98,7 +97,7 @@ if [ "$PROD_MODE" = true ]; then
 else
   # Development mode: start both frontend and backend
   echo "🌐 Starting frontend development server..."
-  (cd client && BROWSER=none npm run dev) &
+  (cd client && BROWSER=none bun run dev) &
   FRONTEND_PID=$!
   echo "Frontend PID: $FRONTEND_PID"
 

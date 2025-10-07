@@ -28,8 +28,11 @@ class DatabricksAppClient:
     """
     if app_url:
       self.app_url = app_url.rstrip('/')
+      # Detect if this is a local development URL
+      self.is_local = 'localhost' in app_url or '127.0.0.1' in app_url
     else:
       self.app_url = self._get_app_url()
+      self.is_local = False
     self._token_cache: Optional[str] = None
 
   def _get_app_url(self) -> str:
@@ -158,15 +161,20 @@ class DatabricksAppClient:
 
   def _get_headers(self) -> Dict[str, str]:
     """Get request headers with authentication."""
-    if not self._token_cache or not self._validate_token(self._token_cache):
-      self._token_cache = self._get_oauth_token()
-
     headers = {
-      'Authorization': f'Bearer {self._token_cache}',
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/event-stream',
     }
 
+    # Skip authentication for local development
+    if self.is_local:
+      print('DEBUG: Using local development mode (no authentication)')
+      return headers
+
+    if not self._token_cache or not self._validate_token(self._token_cache):
+      self._token_cache = self._get_oauth_token()
+
+    headers['Authorization'] = f'Bearer {self._token_cache}'
     print(f'DEBUG: Using token authentication (token preview: {self._token_cache[:50]}...)')
 
     return headers
@@ -237,12 +245,18 @@ def main():
     formatter_class=argparse.RawDescriptionHelpFormatter,
     epilog="""
 Examples:
-  # Auto-detect app URL from DATABRICKS_APP_NAME
+  # Auto-detect app URL from DATABRICKS_APP_NAME (deployed app)
   python dba_client.py /api/config/
   python dba_client.py /api/user/me
   python dba_client.py /api/data POST '{"key":"value"}'
   
-  # Or specify app URL explicitly  
+  # Local development (no authentication required)
+  # Use port 8000 for FastAPI backend
+  python dba_client.py /api/config/ --app_url http://localhost:8000
+  python dba_client.py /api/user/me --app_url http://localhost:8000
+  python dba_client.py /health --app_url http://localhost:8000
+  
+  # Or specify deployed app URL explicitly  
   python dba_client.py /api/config/ --app_url https://my-app.aws.databricksapps.com
   python dba_client.py /api/user/me --app_url https://my-app.aws.databricksapps.com
   python dba_client.py /api/data POST '{"key":"value"}' --app_url https://my-app.aws.databricksapps.com

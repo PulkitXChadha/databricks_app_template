@@ -16,5 +16,5 @@ mlflow[databricks]>=3.1.1
 debugpy>=1.8.15
 python-dotenv>=1.1.1
 sqlalchemy>=2.0.0
-psycopg2-binary>=2.9.0
+psycopg[binary]>=3.1.0
 alembic>=1.13.0

@@ -2,3 +2,33 @@ command: [
   "uvicorn",
   "server.app:app"
 ]
+
+env:
+  # Databricks SDK Configuration (OAuth authentication is automatic)
+  - name: DATABRICKS_HOST
+  
+  # Unity Catalog Configuration
+  - name: DATABRICKS_WAREHOUSE_ID
+  - name: DATABRICKS_CATALOG
+    value: "main"
+  - name: DATABRICKS_SCHEMA
+    value: "samples"
+  
+  # Lakebase Configuration (OAuth authentication is automatic)
+  - name: PGHOST
+  - name: LAKEBASE_HOST
+  - name: LAKEBASE_PORT
+    value: "5432"
+  - name: LAKEBASE_DATABASE
+    value: "app_database"
+  
+  # Model Serving Configuration
+  - name: MODEL_SERVING_ENDPOINT
+  - name: MODEL_SERVING_TIMEOUT
+    value: "30"
+  
+  # Observability Configuration
+  - name: LOG_LEVEL
+    value: "INFO"
+  - name: LOG_FORMAT
+    value: "json"

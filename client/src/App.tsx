@@ -1,11 +1,7 @@
-import { WelcomePage } from "./pages/WelcomePage";
+import { DatabricksServicesPage } from "./pages/DatabricksServicesPage";
 
 function App() {
-  return (
-    <div className="min-h-screen bg-background">
-      <WelcomePage />
-    </div>
-  );
+  return <DatabricksServicesPage />;
 }
 
 export default App;

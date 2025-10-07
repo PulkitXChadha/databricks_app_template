@@ -60,8 +60,8 @@ class UnityCatalogService:
             tables = []
             
             # Default to 'main' catalog if not specified
-            catalog_name = catalog or os.getenv('UNITY_CATALOG_NAME', 'main')
-            schema_name = schema or os.getenv('UNITY_CATALOG_SCHEMA', 'samples')
+            catalog_name = catalog or os.getenv('DATABRICKS_CATALOG', 'main')
+            schema_name = schema or os.getenv('DATABRICKS_SCHEMA', 'samples')
             
             # List tables in catalog.schema
             table_list = self.client.tables.list(
@@ -167,12 +167,33 @@ class UnityCatalogService:
             execution_time_ms = int((end_time - start_time).total_seconds() * 1000)
             
             # Check query status
+            if not hasattr(response, 'status') or not response.status:
+                raise AttributeError("Response object missing 'status' attribute")
+            
             if response.status.state == StatementState.SUCCEEDED:
-                # Parse results
-                rows = self._parse_result_data(response.result)
+                # Parse results and extract column metadata
+                result_data = response.result if hasattr(response, 'result') else None
+                rows, result_column_names = self._parse_result_data(result_data)
+                columns = self._extract_columns_from_result(result_data)
                 
                 # Get table metadata (reuse from list_tables)
-                data_source = await self._get_table_metadata(catalog, schema, table)
+                # Use columns from query result if metadata fetch fails
+                data_source = await self._get_table_metadata(catalog, schema, table, fallback_columns=columns)
+                
+                # If we got generic column names (col_0, col_1, etc) but have proper column definitions,
+                # remap the row data to use the correct column names
+                if rows and not result_column_names and data_source.columns:
+                    logger.info("Remapping generic column names to actual column names from metadata")
+                    remapped_rows = []
+                    for row in rows:
+                        remapped_row = {}
+                        for idx, col_def in enumerate(data_source.columns):
+                            generic_key = f"col_{idx}"
+                            if generic_key in row:
+                                remapped_row[col_def.name] = row[generic_key]
+                        remapped_rows.append(remapped_row)
+                    rows = remapped_rows
+                    logger.info(f"Remapped rows to use columns: {[col.name for col in data_source.columns]}")
                 
                 query_result = QueryResult(
                     query_id=query_id,
@@ -209,7 +230,7 @@ class UnityCatalogService:
                 )
                 
                 # Get table metadata even for failed queries
-                data_source = await self._get_table_metadata(catalog, schema, table)
+                data_source = await self._get_table_metadata(catalog, schema, table, fallback_columns=None)
                 
                 return QueryResult(
                     query_id=query_id,
@@ -237,39 +258,110 @@ class UnityCatalogService:
                 raise PermissionError(f"No access to table {catalog}.{schema}.{table}") from e
             raise
     
-    def _parse_result_data(self, result: Any) -> list[dict[str, Any]]:
-        """Parse SQL statement result into list of dictionaries.
+    def _extract_columns_from_result(self, result: Any) -> list[ColumnDefinition]:
+        """Extract column definitions from query result.
         
         Args:
             result: Statement execution result
             
         Returns:
-            List of row dictionaries
+            List of ColumnDefinition objects
         """
-        if not result or not result.data_array:
-            return []
+        columns = []
+        try:
+            if result and hasattr(result, 'manifest') and result.manifest:
+                if hasattr(result.manifest, 'schema') and result.manifest.schema:
+                    if hasattr(result.manifest.schema, 'columns') and result.manifest.schema.columns:
+                        for col in result.manifest.schema.columns:
+                            # Extract type name - handle both string and object types
+                            type_name = "STRING"
+                            if hasattr(col, 'type_name'):
+                                if hasattr(col.type_name, 'value'):
+                                    type_name = col.type_name.value
+                                else:
+                                    type_name = str(col.type_name)
+                            
+                            columns.append(ColumnDefinition(
+                                name=col.name,
+                                data_type=type_name,
+                                nullable=True  # Assume nullable for query results
+                            ))
+        except Exception as e:
+            logger.warning(f"Could not extract columns from result: {e}")
         
-        # Get column names from schema
-        column_names = [col.name for col in result.manifest.schema.columns] if result.manifest and result.manifest.schema else []
-        
-        # Convert rows to dictionaries
-        rows = []
-        for row_data in result.data_array:
-            row_dict = {}
-            for idx, value in enumerate(row_data):
-                column_name = column_names[idx] if idx < len(column_names) else f"col_{idx}"
-                row_dict[column_name] = value
-            rows.append(row_dict)
-        
-        return rows
+        return columns
     
-    async def _get_table_metadata(self, catalog: str, schema: str, table: str) -> DataSource:
+    def _parse_result_data(self, result: Any) -> tuple[list[dict[str, Any]], list[str]]:
+        """Parse SQL statement result into list of dictionaries and extract column names.
+        
+        Args:
+            result: Statement execution result
+            
+        Returns:
+            Tuple of (rows, column_names)
+        """
+        try:
+            if not result:
+                logger.warning("No result object returned from query")
+                return [], []
+            
+            if not hasattr(result, 'data_array') or not result.data_array:
+                logger.warning("Result has no data_array or data_array is empty")
+                return [], []
+            
+            # Try multiple ways to get column names
+            column_names = []
+            
+            # Method 1: From manifest.schema.columns
+            if hasattr(result, 'manifest') and result.manifest:
+                if hasattr(result.manifest, 'schema') and result.manifest.schema:
+                    if hasattr(result.manifest.schema, 'columns') and result.manifest.schema.columns:
+                        column_names = [col.name for col in result.manifest.schema.columns]
+                        logger.info(f"Extracted column names from manifest.schema: {column_names}")
+            
+            # Method 2: From chunks (alternative path in SDK)
+            if not column_names and hasattr(result, 'manifest') and result.manifest:
+                if hasattr(result.manifest, 'chunks') and result.manifest.chunks:
+                    # Sometimes column info is in chunks
+                    logger.info(f"Checking chunks for column info")
+            
+            if not column_names:
+                logger.warning("Could not extract column names from result, will use table metadata order")
+            
+            # Convert rows to dictionaries
+            rows = []
+            for row_data in result.data_array:
+                row_dict = {}
+                for idx, value in enumerate(row_data):
+                    column_name = column_names[idx] if idx < len(column_names) else f"col_{idx}"
+                    row_dict[column_name] = value
+                rows.append(row_dict)
+            
+            logger.info(f"Parsed {len(rows)} rows with {len(column_names) if column_names else 'generic'} column names")
+            
+            return rows, column_names
+            
+        except Exception as e:
+            logger.error(
+                f"Error parsing result data: {str(e)}",
+                exc_info=True
+            )
+            raise
+    
+    async def _get_table_metadata(
+        self, 
+        catalog: str, 
+        schema: str, 
+        table: str,
+        fallback_columns: list[ColumnDefinition] | None = None
+    ) -> DataSource:
         """Get table metadata for DataSource.
         
         Args:
             catalog: Catalog name
             schema: Schema name
             table: Table name
+            fallback_columns: Columns to use if metadata fetch fails
             
         Returns:
             DataSource with table metadata
@@ -289,18 +381,19 @@ class UnityCatalogService:
                 catalog_name=catalog,
                 schema_name=schema,
                 table_name=table,
-                columns=columns if columns else [ColumnDefinition(name="unknown", data_type="STRING", nullable=True)],
+                columns=columns if columns else (fallback_columns or [ColumnDefinition(name="unknown", data_type="STRING", nullable=True)]),
                 owner=table_info.owner or "unknown",
                 access_level=AccessLevel.READ,
                 last_refreshed=datetime.utcnow()
             )
-        except Exception:
-            # Fallback if metadata fetch fails
+        except Exception as e:
+            logger.warning(f"Failed to fetch table metadata, using fallback columns: {e}")
+            # Fallback if metadata fetch fails - use columns from query result
             return DataSource(
                 catalog_name=catalog,
                 schema_name=schema,
                 table_name=table,
-                columns=[ColumnDefinition(name="unknown", data_type="STRING", nullable=True)],
+                columns=fallback_columns or [ColumnDefinition(name="unknown", data_type="STRING", nullable=True)],
                 owner="unknown",
                 access_level=AccessLevel.READ,
                 last_refreshed=datetime.utcnow()

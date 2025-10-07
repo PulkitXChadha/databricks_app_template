@@ -26,11 +26,11 @@ class InvokeModelRequest(BaseModel):
 class ModelEndpointResponse(BaseModel):
     """Response model for endpoint metadata."""
     endpoint_name: str
-    endpoint_id: str
+    endpoint_id: str | None = None
     model_name: str
-    model_version: str
+    model_version: str | None = None
     state: str
-    creation_timestamp: str | None
+    creation_timestamp: str | None = None
 
 
 async def get_current_user_id() -> str:

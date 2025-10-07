@@ -2,14 +2,32 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export { ApiError } from "./core/ApiError";
-export { CancelablePromise, CancelError } from "./core/CancelablePromise";
-export { OpenAPI } from "./core/OpenAPI";
-export type { OpenAPIConfig } from "./core/OpenAPI";
+export { ApiError } from './core/ApiError';
+export { CancelablePromise, CancelError } from './core/CancelablePromise';
+export { OpenAPI } from './core/OpenAPI';
+export type { OpenAPIConfig } from './core/OpenAPI';
 
-export type { UserInfo } from "./models/UserInfo";
-export type { UserWorkspaceInfo } from "./models/UserWorkspaceInfo";
+export type { AccessLevel } from './models/AccessLevel';
+export type { ColumnDefinition } from './models/ColumnDefinition';
+export type { DataSource } from './models/DataSource';
+export type { HTTPValidationError } from './models/HTTPValidationError';
+export type { InferenceStatus } from './models/InferenceStatus';
+export type { InvokeModelRequest } from './models/InvokeModelRequest';
+export type { ModelEndpointResponse } from './models/ModelEndpointResponse';
+export type { ModelInferenceResponse } from './models/ModelInferenceResponse';
+export type { PreferenceKey } from './models/PreferenceKey';
+export type { QueryResult } from './models/QueryResult';
+export type { QueryStatus } from './models/QueryStatus';
+export type { QueryTableRequest } from './models/QueryTableRequest';
+export type { SavePreferenceRequest } from './models/SavePreferenceRequest';
+export type { UserInfo } from './models/UserInfo';
+export type { UserPreferenceResponse } from './models/UserPreferenceResponse';
+export type { UserWorkspaceInfo } from './models/UserWorkspaceInfo';
+export type { ValidationError } from './models/ValidationError';
 
-export { ApiService } from "./services/ApiService";
-export { DefaultService } from "./services/DefaultService";
-export { UserService } from "./services/UserService";
+export { ApiService } from './services/ApiService';
+export { DefaultService } from './services/DefaultService';
+export { LakebaseService } from './services/LakebaseService';
+export { ModelServingService } from './services/ModelServingService';
+export { UnityCatalogService } from './services/UnityCatalogService';
+export { UserService } from './services/UserService';

@@ -33,20 +33,20 @@ class ModelEndpoint(BaseModel):
     """
     
     endpoint_name: str = Field(..., min_length=1, description="Unique endpoint name")
-    endpoint_id: str = Field(..., min_length=1, description="Databricks endpoint ID")
+    endpoint_id: str | None = Field(default=None, description="Databricks endpoint ID")
     model_name: str = Field(..., min_length=1, description="Model name")
-    model_version: str = Field(..., min_length=1, description="Model version")
+    model_version: str | None = Field(default=None, description="Model version")
     state: EndpointState = Field(..., description="Endpoint state")
-    workload_url: str = Field(..., description="Endpoint invocation URL")
-    creation_timestamp: datetime = Field(..., description="Creation time")
-    last_updated_timestamp: datetime = Field(..., description="Last update time")
+    workload_url: str | None = Field(default=None, description="Endpoint invocation URL")
+    creation_timestamp: datetime | None = Field(default=None, description="Creation time")
+    last_updated_timestamp: datetime | None = Field(default=None, description="Last update time")
     config: dict[str, Any] = Field(default={}, description="Endpoint configuration")
     
     @field_validator('workload_url')
     @classmethod
-    def validate_workload_url(cls, v: str) -> str:
+    def validate_workload_url(cls, v: str | None) -> str | None:
         """Validate workload URL is HTTPS."""
-        if not v.startswith('https://'):
+        if v and not v.startswith('https://'):
             raise ValueError('workload_url must use HTTPS')
         return v
     

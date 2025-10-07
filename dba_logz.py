@@ -54,7 +54,16 @@ class LogzClient:
       return logs if isinstance(logs, list) else []
       
     except Exception as e:
-      print(f'❌ Error fetching logs: {e}')
+      if self.client.is_local:
+        print(f'❌ Error fetching logs: {e}')
+        print('')
+        print('💡 Note: The /logz/batch endpoint is provided by the Databricks Apps platform.')
+        print('   When running locally, make sure you\'re using: databricks apps run-local')
+        print('   The endpoint may not be available when running FastAPI directly with uvicorn.')
+        print('')
+        print('   For local development, check logs directly in your terminal where the app is running.')
+      else:
+        print(f'❌ Error fetching logs: {e}')
       return []
 
   def display_logs(self, logs: List[Dict[str, Any]], last_timestamp: Optional[int] = None) -> int:
@@ -176,29 +185,34 @@ def main():
     formatter_class=argparse.RawDescriptionHelpFormatter,
     epilog="""
 Examples:
-  # Fetch and display latest logs once (auto-detects app URL)
+  # Fetch and display latest logs once (auto-detects deployed app URL)
   python dba_logz.py
   
+  # Local development - fetch logs from local FastAPI server
+  # Note: /logz/batch is a Databricks Apps platform endpoint
+  # For local dev, logs appear in the terminal where the app runs
+  python dba_logz.py --app_url http://localhost:8000
+  
   # Stream logs for 30 seconds (fetch every 5 seconds)
-  python dba_logz.py --duration 30
+  python dba_logz.py --duration 30 --app_url http://localhost:8000
   
   # Stream logs continuously
-  python dba_logz.py --duration -1
+  python dba_logz.py --duration -1 --app_url http://localhost:8000
   
   # Search for ERROR messages
-  python dba_logz.py --search ERROR
+  python dba_logz.py --search ERROR --app_url http://localhost:8000
   
   # Search for specific text for 60 seconds
-  python dba_logz.py --search "database" --duration 60
+  python dba_logz.py --search "database" --duration 60 --app_url http://localhost:8000
   
   # Fetch logs every 2 seconds
-  python dba_logz.py --duration 30 --interval 2
+  python dba_logz.py --duration 30 --interval 2 --app_url http://localhost:8000
   
-  # Or specify app URL explicitly
+  # Or specify deployed app URL explicitly
   python dba_logz.py --app_url https://app.databricksapps.com
     """
   )
-  parser.add_argument('--app_url', help='Base URL of the Databricks app (optional, auto-detected from DATABRICKS_APP_NAME if not provided)')
+  parser.add_argument('--app_url', help='Base URL of the Databricks app. For local: http://localhost:8000 (FastAPI) or auto-detect deployed app if not provided)')
   parser.add_argument('--search', default='', help='Search query to filter logs')
   parser.add_argument('--duration', type=int, default=0, 
                       help='How long to stream logs in seconds (0=once, -1=forever)')

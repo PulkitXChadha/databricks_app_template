@@ -95,7 +95,7 @@ The `setup.sh` script will help you install any missing dependencies with intera
 
 ### Databricks Setup
 - Valid Databricks workspace
-- Personal Access Token (PAT) or CLI profile configured
+- Databricks CLI authenticated via OAuth (`databricks auth login`)
 - Appropriate permissions for app deployment
 
 ---
@@ -109,6 +109,161 @@ The `setup.sh` script will help you install any missing dependencies with intera
 - **📦 Package Management** - uv for Python, bun for frontend
 - **🚀 Databricks Apps Ready** - Pre-configured for deployment to Databricks Apps platform
 - **🤖 Claude Integration** - Natural language development commands documented
+- **🗄️ Databricks Service Integrations** - Unity Catalog, Lakebase, and Model Serving out-of-the-box
+
+## 🔌 Databricks Service Integrations
+
+This template includes production-ready integrations with core Databricks services:
+
+### Unity Catalog Integration
+Query Unity Catalog tables with:
+- **Fine-grained access control** - Enforces user-specific table permissions
+- **Pagination support** - Efficient data browsing with limit/offset
+- **Read-only queries** - Safe SELECT-only operations
+- **Schema metadata** - Column types, table statistics, and access levels
+
+### Lakebase (Transactional Data)
+Store and manage user-specific application state:
+- **User preferences** - Theme, layout, favorites (CRUD operations)
+- **Data isolation** - Each user sees only their own data
+- **Connection pooling** - Optimized with SQLAlchemy QueuePool
+- **Schema migrations** - Version-controlled with Alembic
+
+### Model Serving
+Invoke ML models deployed to Databricks Model Serving:
+- **Model inference** - Real-time predictions from Unity Catalog models
+- **Endpoint management** - List and monitor serving endpoints
+- **Timeout handling** - Configurable request timeouts (1-300s)
+- **Error recovery** - Exponential backoff retry logic
+
+### Observability
+Built-in structured logging and distributed tracing:
+- **Structured JSON logs** - Machine-readable with correlation IDs
+- **Request tracing** - Track requests across services with X-Request-ID
+- **Performance metrics** - Execution time, latency, error rates
+- **No PII logging** - Compliant with data privacy requirements
+
+### Design Bricks UI Components
+Databricks-native frontend components:
+- **Consistent styling** - Matches Databricks workspace UI
+- **Accessibility** - WCAG 2.1 Level A compliant
+- **Web components** - Modern standard for UI composition
+
+### Getting Started with Integrations
+
+1. **Quick Setup Guide**: See [quickstart.md](specs/001-databricks-integrations/quickstart.md) for complete setup instructions
+2. **API Contracts**: Review [contracts/](specs/001-databricks-integrations/contracts/) for OpenAPI specifications
+3. **Data Model**: Understand entities in [data-model.md](specs/001-databricks-integrations/data-model.md)
+4. **Sample Data**: Create test data with `uv run python scripts/setup_sample_data.py create-all`
+
+### Architecture
+
+- **Backend Services**: `server/services/` - Unity Catalog, Lakebase, Model Serving service layers
+- **API Routers**: `server/routers/` - FastAPI endpoints matching OpenAPI contracts
+- **Pydantic Models**: `server/models/` - Type-safe data validation
+- **Frontend Components**: `client/src/components/ui/` - DataTable, PreferencesForm, ModelInvokeForm
+- **TypeScript Client**: `client/src/fastapi_client/` - Auto-generated from OpenAPI spec
+
+### Environment Variables
+
+Add to your `.env.local`:
+
+```bash
+# Databricks Workspace
+DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
+
+# Unity Catalog
+DATABRICKS_WAREHOUSE_ID=your-warehouse-id
+DATABRICKS_CATALOG=main
+DATABRICKS_SCHEMA=samples
+
+# Lakebase
+LAKEBASE_HOST=your-workspace.cloud.databricks.com
+LAKEBASE_PORT=5432
+LAKEBASE_DATABASE=your_database
+LAKEBASE_INSTANCE_NAME=databricks-app-lakebase-dev  # Logical bundle name
+
+# Model Serving
+MODEL_SERVING_ENDPOINT=your-endpoint-name
+MODEL_SERVING_TIMEOUT=30
+
+# Observability
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+```
+
+**Note**: Authentication is handled via OAuth through the Databricks CLI. Run `databricks auth login` to authenticate.
+
+### Databricks Asset Bundle (DAB) Configuration
+
+This template includes a `databricks.yml` file that defines Lakebase resources using Databricks Asset Bundles. When you deploy using `databricks bundle deploy`, it automatically provisions:
+
+#### Resources Defined
+- **Database Instance** (`database_instances`) - Creates a Lakebase PostgreSQL instance
+- **Database Catalog** (`database_catalogs`) - Registers the database as a Unity Catalog catalog
+- **App Configuration** - Automatically injects connection details as environment variables
+
+#### Environments
+
+**Development** (`dev`):
+```yaml
+database_instances:
+  lakebase_dev:
+    name: databricks-app-lakebase-dev
+    capacity: CU_1
+
+database_catalogs:
+  lakebase_catalog_dev:
+    database_instance_name: ${resources.database_instances.lakebase_dev.name}
+    name: lakebase_catalog_dev
+    database_name: app_database
+```
+
+**Production** (`prod`):
+```yaml
+database_instances:
+  lakebase_prod:
+    name: databricks-app-lakebase
+    capacity: CU_1
+
+database_catalogs:
+  lakebase_catalog_prod:
+    database_instance_name: ${resources.database_instances.lakebase_prod.name}
+    name: lakebase_catalog
+    database_name: app_database
+```
+
+#### Deployment Commands
+
+```bash
+# Deploy to development environment
+databricks bundle deploy --target dev
+
+# Deploy to production environment
+databricks bundle deploy --target prod
+
+# Validate bundle configuration
+databricks bundle validate
+
+# View deployed resources
+databricks bundle resources list
+```
+
+#### Automatic Environment Variables
+
+When Lakebase resources are defined in the bundle, the following environment variables are automatically set:
+- `PGHOST` - Lakebase instance hostname (auto-generated)
+- `LAKEBASE_HOST` - Same as PGHOST for compatibility
+- `LAKEBASE_DATABASE` - Database name from configuration
+- `LAKEBASE_PORT` - Port (default: 5432)
+
+#### Customizing Lakebase Configuration
+
+Edit `databricks.yml` to customize:
+- **Instance name**: Change `lakebase_instance_name` variable
+- **Capacity**: Change `lakebase_capacity` (CU_1, CU_2, CU_4, etc.)
+- **Catalog name**: Change `lakebase_catalog_name` variable
+- **Database name**: Change `lakebase_database` variable
 
 ## 🏗️ Project Structure
 
@@ -160,7 +315,7 @@ The `setup.sh` script will help you install any missing dependencies with intera
 This interactive script will:
 - **Check system dependencies** (Git, uv, Bun, Node.js 18+)
 - **Install missing dependencies** with interactive prompts and OS-specific commands
-- **Set up Databricks authentication** (PAT or profile)
+- **Set up Databricks authentication** (OAuth via CLI)
 - **Install Python dependencies** with uv (including Python 3.11+ if needed)
 - **Install frontend dependencies** with bun
 - **Configure environment variables**
@@ -266,32 +421,30 @@ See `CLAUDE.md` for the complete development guide.
 The setup script creates `.env.local` with your configuration:
 
 ```bash
-# Authentication Type
-DATABRICKS_AUTH_TYPE=pat  # or "databricks-cli"
-
-# For PAT Authentication
+# Databricks Workspace
 DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
-DATABRICKS_TOKEN=your-personal-access-token
-
-# For Profile Authentication  
-DATABRICKS_CONFIG_PROFILE=your-profile-name
 
 # App Configuration
 DATABRICKS_APP_NAME=your-app-name
 DBA_SOURCE_CODE_PATH=/Workspace/Users/you@company.com/your-app-name
 ```
 
-### Authentication Methods
+### Authentication Method
 
-#### 1. Personal Access Token (PAT) - Recommended for Development
-- **Pros**: Simple setup, works everywhere
-- **Cons**: Token needs periodic renewal
-- **Setup**: Generate PAT in Databricks workspace → User Settings → Access Tokens
+#### OAuth via Databricks CLI (Recommended)
+- **Pros**: Secure, no token management required, supports SSO
+- **Cons**: Requires CLI authentication
+- **Setup**: Run `databricks auth login --host <workspace-url>`
 
-#### 2. CLI Profile - Recommended for Production
-- **Pros**: More secure, supports OAuth
-- **Cons**: Requires CLI configuration
-- **Setup**: Run `databricks auth login --host <workspace-url> --profile <profile-name>`
+To authenticate:
+```bash
+databricks auth login --host https://your-workspace.cloud.databricks.com
+```
+
+To verify authentication:
+```bash
+databricks auth env
+```
 
 ### Validation
 The setup script automatically validates your configuration and tests connectivity.
@@ -408,10 +561,16 @@ cp client/src/lib/utils.ts src/lib/utils.ts
 
 #### Authentication Issues
 ```bash
-# Test authentication (works for both PAT and profile)
-source .env.local && export DATABRICKS_HOST && export DATABRICKS_TOKEN && databricks current-user me
+# Test authentication
+databricks auth env
 
-# Reconfigure if needed
+# View current user
+databricks current-user me
+
+# Re-authenticate if needed
+databricks auth login --host https://your-workspace.cloud.databricks.com
+
+# Or reconfigure
 ./setup.sh
 ```
 
@@ -426,7 +585,7 @@ source .env.local && export DATABRICKS_HOST && export DATABRICKS_TOKEN && databr
 ./app_status.sh --verbose
 
 # Check workspace files
-source .env.local && export DATABRICKS_HOST && export DATABRICKS_TOKEN && databricks workspace list "$DBA_SOURCE_CODE_PATH"
+source .env.local && databricks workspace list "$DBA_SOURCE_CODE_PATH"
 ```
 
 #### Local Testing Before Deployment
