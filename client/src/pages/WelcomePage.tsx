@@ -34,7 +34,11 @@ async function fetchUserInfo(): Promise<UserInfo> {
   return response.json();
 }
 
-export function WelcomePage() {
+interface WelcomePageProps {
+  embedded?: boolean;
+}
+
+export function WelcomePage({ embedded = false }: WelcomePageProps) {
   const { data: userInfo } = useQuery({
     queryKey: ["userInfo"],
     queryFn: fetchUserInfo,
@@ -42,19 +46,19 @@ export function WelcomePage() {
   });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
+    <div className={embedded ? "" : "min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800"}>
       <div className="container mx-auto px-4 py-12">
         {/* Header */}
         <div className="text-center mb-12">
           <div className="flex justify-center items-center gap-3 mb-4">
-            <Sparkles className="h-10 w-10 text-blue-600" />
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Welcome to your Databricks FastAPI app!
+
+            <h1 className="text-4xl font-bold text-black dark:text-white">
+              Welcome to your Databricks Full Stack App
             </h1>
           </div>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
             A modern, full-stack application template with Python FastAPI
-            backend and React TypeScript frontend
+            backend and React TypeScript frontend (using <a href="https://pulkitxchadha.github.io/DesignBricks/?path=/docs/designbricks-introduction--docs" target="_blank" rel="noopener noreferrer" className="underline text-blue-600 dark:text-blue-400">DesignBricks Design System Components</a>)
           </p>
         </div>
 
@@ -269,7 +273,7 @@ export function WelcomePage() {
             <CardContent>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <h4 className="font-semibold mb-3 text-blue-600">Backend</h4>
+                <h4 className="font-semibold mb-3 text-black dark:text-white">Backend</h4>
                   <ul className="space-y-2 text-sm">
                     <li className="flex items-center gap-2">
                       <Badge variant="secondary" className="text-xs">
@@ -298,7 +302,7 @@ export function WelcomePage() {
                   </ul>
                 </div>
                 <div>
-                  <h4 className="font-semibold mb-3 text-purple-600">
+                  <h4 className="font-semibold mb-3 text-black dark:text-white">
                     Frontend
                   </h4>
                   <ul className="space-y-2 text-sm">

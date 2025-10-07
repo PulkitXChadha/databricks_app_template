@@ -9,7 +9,6 @@
 
 import React, { useState } from "react";
 import { TopBar, Sidebar, type SidebarItem } from "designbricks";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
   CardContent,
@@ -20,10 +19,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Database, Settings, Brain } from "lucide-react";
+import { Database, Settings, Brain, Home } from "lucide-react";
 import { DataTable } from "@/components/ui/DataTable";
 import { PreferencesForm } from "@/components/ui/PreferencesForm";
 import { ModelInvokeForm } from "@/components/ui/ModelInvokeForm";
+import { WelcomePage } from "./WelcomePage";
 import {
   UnityCatalogService,
   LakebaseService,
@@ -36,7 +36,7 @@ import {
 export function DatabricksServicesPage() {
   const [userInfo, setUserInfo] = React.useState<UserInfo | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [activeTab, setActiveTab] = useState("unity-catalog");
+  const [activeTab, setActiveTab] = useState("welcome");
 
   // Unity Catalog state
   const [catalog, setCatalog] = useState("main");
@@ -196,6 +196,12 @@ export function DatabricksServicesPage() {
   // Sidebar configuration
   const sidebarItems: SidebarItem[] = [
     {
+      id: "welcome",
+      label: "Welcome",
+      icon: <Home className="h-4 w-4" />,
+      onClick: () => setActiveTab("welcome"),
+    },
+    {
       id: "unity-catalog",
       label: "Unity Catalog",
       icon: <Database className="h-4 w-4" />,
@@ -251,8 +257,6 @@ export function DatabricksServicesPage() {
           items={sidebarItems}
           activeItem={activeTab}
           collapsed={sidebarCollapsed}
-          onCollapsedChange={setSidebarCollapsed}
-          collapsible={true}
           variant="light"
           width={240}
         />
@@ -260,174 +264,139 @@ export function DatabricksServicesPage() {
         {/* Main Content Area */}
         <div className="flex-1 overflow-auto">
           <div className="container mx-auto px-4 py-8">
-            {/* Header */}
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold mb-2">
-                Databricks App Template
-              </h1>
-              <p className="text-muted-foreground">
-                Integrated Unity Catalog, Lakebase, and Model Serving
-              </p>
-            </div>
+            {/* Welcome Section */}
+            {activeTab === "welcome" && <WelcomePage embedded />}
 
-            {/* Tabbed Interface */}
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-8">
-            <TabsTrigger
-              value="unity-catalog"
-              className="flex items-center gap-2"
-            >
-              <Database className="h-4 w-4" />
-              Unity Catalog
-            </TabsTrigger>
-            <TabsTrigger
-              value="model-serving"
-              className="flex items-center gap-2"
-            >
-              <Brain className="h-4 w-4" />
-              Model Serving
-            </TabsTrigger>
-            <TabsTrigger
-              value="preferences"
-              className="flex items-center gap-2"
-            >
-              <Settings className="h-4 w-4" />
-              Preferences
-            </TabsTrigger>
-          </TabsList>
+            {/* Unity Catalog Section */}
+            {activeTab === "unity-catalog" && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Query Unity Catalog Tables</CardTitle>
+                  <CardDescription>
+                    Select a catalog, schema, and table to query data with
+                    pagination
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {/* Query Form */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label
+                          htmlFor="catalog"
+                          className="block text-sm font-medium mb-2"
+                        >
+                          Catalog
+                        </label>
+                        <Input
+                          id="catalog"
+                          value={catalog}
+                          onChange={(e) => setCatalog(e.target.value)}
+                          placeholder="main"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="schema"
+                          className="block text-sm font-medium mb-2"
+                        >
+                          Schema
+                        </label>
+                        <Input
+                          id="schema"
+                          value={schema}
+                          onChange={(e) => setSchema(e.target.value)}
+                          placeholder="samples"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="table"
+                          className="block text-sm font-medium mb-2"
+                        >
+                          Table
+                        </label>
+                        <Input
+                          id="table"
+                          value={table}
+                          onChange={(e) => setTable(e.target.value)}
+                          placeholder="demo_data"
+                        />
+                      </div>
+                    </div>
 
-          {/* Unity Catalog Tab */}
-          <TabsContent value="unity-catalog">
-            <Card>
-              <CardHeader>
-                <CardTitle>Query Unity Catalog Tables</CardTitle>
-                <CardDescription>
-                  Select a catalog, schema, and table to query data with
-                  pagination
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {/* Query Form */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label
-                        htmlFor="catalog"
-                        className="block text-sm font-medium mb-2"
-                      >
-                        Catalog
-                      </label>
-                      <Input
-                        id="catalog"
-                        value={catalog}
-                        onChange={(e) => setCatalog(e.target.value)}
-                        placeholder="main"
+                    <Button onClick={handleQueryTable} disabled={ucLoading}>
+                      {ucLoading ? "Querying..." : "Query Table"}
+                    </Button>
+
+                    {/* Results */}
+                    {ucError && (
+                      <Alert variant="destructive">
+                        <AlertDescription>{ucError}</AlertDescription>
+                      </Alert>
+                    )}
+
+                    {ucData && (
+                      <DataTable
+                        catalog={catalog}
+                        schema={schema}
+                        table={table}
+                        columns={ucData.data_source?.columns || []}
+                        data={ucData.rows || []}
+                        totalRows={ucData.row_count || 0}
+                        loading={ucLoading}
+                        error={ucError}
+                        onPageChange={handlePageChange}
                       />
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="schema"
-                        className="block text-sm font-medium mb-2"
-                      >
-                        Schema
-                      </label>
-                      <Input
-                        id="schema"
-                        value={schema}
-                        onChange={(e) => setSchema(e.target.value)}
-                        placeholder="samples"
-                      />
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="table"
-                        className="block text-sm font-medium mb-2"
-                      >
-                        Table
-                      </label>
-                      <Input
-                        id="table"
-                        value={table}
-                        onChange={(e) => setTable(e.target.value)}
-                        placeholder="demo_data"
-                      />
-                    </div>
+                    )}
                   </div>
+                </CardContent>
+              </Card>
+            )}
 
-                  <Button onClick={handleQueryTable} disabled={ucLoading}>
-                    {ucLoading ? "Querying..." : "Query Table"}
-                  </Button>
+            {/* Model Serving Section */}
+            {activeTab === "model-serving" && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Model Serving</CardTitle>
+                  <CardDescription>
+                    Invoke ML models deployed to Databricks Model Serving
+                    endpoints
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ModelInvokeForm
+                    endpoints={endpoints}
+                    loading={endpointsLoading}
+                    error={endpointsError}
+                    onInvoke={handleInvokeModel}
+                    onRefreshEndpoints={loadEndpoints}
+                  />
+                </CardContent>
+              </Card>
+            )}
 
-                  {/* Results */}
-                  {ucError && (
-                    <Alert variant="destructive">
-                      <AlertDescription>{ucError}</AlertDescription>
-                    </Alert>
-                  )}
-
-                  {ucData && (
-                    <DataTable
-                      catalog={catalog}
-                      schema={schema}
-                      table={table}
-                      columns={ucData.data_source?.columns || []}
-                      data={ucData.rows || []}
-                      totalRows={ucData.row_count || 0}
-                      loading={ucLoading}
-                      error={ucError}
-                      onPageChange={handlePageChange}
-                    />
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Model Serving Tab */}
-          <TabsContent value="model-serving">
-            <Card>
-              <CardHeader>
-                <CardTitle>Model Serving</CardTitle>
-                <CardDescription>
-                  Invoke ML models deployed to Databricks Model Serving
-                  endpoints
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ModelInvokeForm
-                  endpoints={endpoints}
-                  loading={endpointsLoading}
-                  error={endpointsError}
-                  onInvoke={handleInvokeModel}
-                  onRefreshEndpoints={loadEndpoints}
-                />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-
-          {/* Preferences Tab */}
-          <TabsContent value="preferences">
-            <Card>
-              <CardHeader>
-                <CardTitle>User Preferences</CardTitle>
-                <CardDescription>
-                  Manage your preferences stored in Lakebase
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <PreferencesForm
-                  preferences={preferences}
-                  loading={prefsLoading}
-                  error={prefsError}
-                  onSave={handleSavePreference}
-                  onDelete={handleDeletePreference}
-                  onRefresh={loadPreferences}
-                />
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+            {/* Preferences Section */}
+            {activeTab === "preferences" && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>User Preferences</CardTitle>
+                  <CardDescription>
+                    Manage your preferences stored in Lakebase
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <PreferencesForm
+                    preferences={preferences}
+                    loading={prefsLoading}
+                    error={prefsError}
+                    onSave={handleSavePreference}
+                    onDelete={handleDeletePreference}
+                    onRefresh={loadPreferences}
+                  />
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>
