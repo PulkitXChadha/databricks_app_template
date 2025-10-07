@@ -1,13 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, Button } from "designbricks";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Code,
   ExternalLink,
@@ -15,7 +8,6 @@ import {
   Play,
   Wrench,
   User,
-  Sparkles,
   Bot,
 } from "lucide-react";
 
@@ -64,14 +56,14 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
 
         {/* User Info Card */}
         {userInfo && (
-          <Card className="mb-8 border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/50">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+          <Card className="mb-8 border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/50" padding="medium">
+            <div className="flex flex-col space-y-1.5">
+              <div className="font-semibold leading-none tracking-tight flex items-center gap-2">
                 <User className="h-5 w-5" />
                 Current User
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+              </div>
+            </div>
+            <div className="pt-4">
               <div className="flex items-center gap-4">
                 <div>
                   <p className="font-semibold">
@@ -85,24 +77,24 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                   {userInfo.active ? "Active" : "Inactive"}
                 </Badge>
               </div>
-            </CardContent>
+            </div>
           </Card>
         )}
 
         {/* Main Content Grid - First Row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Getting Started */}
-          <Card className="h-fit">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+          <Card className="h-fit" padding="medium">
+            <div className="flex flex-col space-y-1.5">
+              <div className="font-semibold leading-none tracking-tight flex items-center gap-2">
                 <Play className="h-5 w-5" />
                 Getting Started
-              </CardTitle>
-              <CardDescription>
+              </div>
+              <p className="text-sm text-muted-foreground">
                 Everything you need to know to start developing
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+              </p>
+            </div>
+            <div className="space-y-4 pt-4">
               <div>
                 <h4 className="font-semibold mb-2">Development Commands</h4>
                 <div className="space-y-2 text-sm">
@@ -155,31 +147,29 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                 </div>
               </div>
 
-              <Button asChild className="w-full">
-                <a
-                  href="http://localhost:8000/docs"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  Explore API Documentation
-                </a>
+              <Button
+                variant="primary"
+                fullWidth
+                iconBefore={<ExternalLink className="h-4 w-4" />}
+                onClick={() => window.open("http://localhost:8000/docs", "_blank")}
+              >
+                Explore API Documentation
               </Button>
-            </CardContent>
+            </div>
           </Card>
 
           {/* Claude Commands */}
-          <Card className="h-fit">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+          <Card className="h-fit" padding="medium">
+            <div className="flex flex-col space-y-1.5">
+              <div className="font-semibold leading-none tracking-tight flex items-center gap-2">
                 <Bot className="h-5 w-5" />
                 Claude Commands
-              </CardTitle>
-              <CardDescription>
+              </div>
+              <p className="text-sm text-muted-foreground">
                 Natural language commands for development workflow
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+              </p>
+            </div>
+            <div className="space-y-4 pt-4">
               <div>
                 <h4 className="font-semibold mb-2">Development</h4>
                 <div className="space-y-2 text-sm">
@@ -253,24 +243,24 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                   </div>
                 </div>
               </div>
-            </CardContent>
+            </div>
           </Card>
         </div>
 
         {/* Second Row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
           {/* Tech Stack */}
-          <Card className="h-fit">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+          <Card className="h-fit" padding="medium">
+            <div className="flex flex-col space-y-1.5">
+              <div className="font-semibold leading-none tracking-tight flex items-center gap-2">
                 <Code className="h-5 w-5" />
                 Tech Stack
-              </CardTitle>
-              <CardDescription>
+              </div>
+              <p className="text-sm text-muted-foreground">
                 Modern tools and frameworks for rapid development
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+              </p>
+            </div>
+            <div className="pt-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                 <h4 className="font-semibold mb-3 text-black dark:text-white">Backend</h4>
@@ -333,21 +323,21 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                   </ul>
                 </div>
               </div>
-            </CardContent>
+            </div>
           </Card>
 
           {/* Project Structure */}
-          <Card className="h-fit">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+          <Card className="h-fit" padding="medium">
+            <div className="flex flex-col space-y-1.5">
+              <div className="font-semibold leading-none tracking-tight flex items-center gap-2">
                 <FileText className="h-5 w-5" />
                 Project Structure
-              </CardTitle>
-              <CardDescription>
+              </div>
+              <p className="text-sm text-muted-foreground">
                 Understanding the codebase layout and key files
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+              </p>
+            </div>
+            <div className="pt-4">
               <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 font-mono text-sm">
                 <pre className="text-muted-foreground leading-relaxed">
                   {`├── server/                    # FastAPI backend
@@ -377,22 +367,22 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
 └── CLAUDE.md                 # Development guide`}
                 </pre>
               </div>
-            </CardContent>
+            </div>
           </Card>
         </div>
 
         {/* Features */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+        <Card className="mb-8" padding="medium">
+          <div className="flex flex-col space-y-1.5">
+            <div className="font-semibold leading-none tracking-tight flex items-center gap-2">
               <Wrench className="h-5 w-5" />
               Key Features
-            </CardTitle>
-            <CardDescription>
+            </div>
+            <p className="text-sm text-muted-foreground">
               Built-in capabilities to accelerate your development
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+            </p>
+          </div>
+          <div className="pt-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-4">
                 <div className="flex items-start gap-3">
@@ -460,7 +450,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                 </div>
               </div>
             </div>
-          </CardContent>
+          </div>
         </Card>
 
         {/* Footer */}

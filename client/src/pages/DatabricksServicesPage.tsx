@@ -8,15 +8,7 @@
  */
 
 import React, { useState } from "react";
-import { TopBar, Sidebar, type SidebarItem } from "designbricks";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { TopBar, Sidebar, Card, Button, type SidebarItem } from "designbricks";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Database, Settings, Brain, Home } from "lucide-react";
@@ -269,15 +261,15 @@ export function DatabricksServicesPage() {
 
             {/* Unity Catalog Section */}
             {activeTab === "unity-catalog" && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Query Unity Catalog Tables</CardTitle>
-                  <CardDescription>
+              <Card padding="medium">
+                <div className="flex flex-col space-y-1.5">
+                  <div className="font-semibold leading-none tracking-tight">Query Unity Catalog Tables</div>
+                  <p className="text-sm text-muted-foreground">
                     Select a catalog, schema, and table to query data with
                     pagination
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
+                  </p>
+                </div>
+                <div className="pt-4">
                   <div className="space-y-4">
                     {/* Query Form */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -325,8 +317,13 @@ export function DatabricksServicesPage() {
                       </div>
                     </div>
 
-                    <Button onClick={handleQueryTable} disabled={ucLoading}>
-                      {ucLoading ? "Querying..." : "Query Table"}
+                    <Button 
+                      variant="primary"
+                      onClick={handleQueryTable} 
+                      disabled={ucLoading}
+                      loading={ucLoading}
+                    >
+                      Query Table
                     </Button>
 
                     {/* Results */}
@@ -350,21 +347,21 @@ export function DatabricksServicesPage() {
                       />
                     )}
                   </div>
-                </CardContent>
+                </div>
               </Card>
             )}
 
             {/* Model Serving Section */}
             {activeTab === "model-serving" && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Model Serving</CardTitle>
-                  <CardDescription>
+              <Card padding="medium">
+                <div className="flex flex-col space-y-1.5">
+                  <div className="font-semibold leading-none tracking-tight">Model Serving</div>
+                  <p className="text-sm text-muted-foreground">
                     Invoke ML models deployed to Databricks Model Serving
                     endpoints
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
+                  </p>
+                </div>
+                <div className="pt-4">
                   <ModelInvokeForm
                     endpoints={endpoints}
                     loading={endpointsLoading}
@@ -372,20 +369,20 @@ export function DatabricksServicesPage() {
                     onInvoke={handleInvokeModel}
                     onRefreshEndpoints={loadEndpoints}
                   />
-                </CardContent>
+                </div>
               </Card>
             )}
 
             {/* Preferences Section */}
             {activeTab === "preferences" && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>User Preferences</CardTitle>
-                  <CardDescription>
+              <Card padding="medium">
+                <div className="flex flex-col space-y-1.5">
+                  <div className="font-semibold leading-none tracking-tight">User Preferences</div>
+                  <p className="text-sm text-muted-foreground">
                     Manage your preferences stored in Lakebase
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
+                  </p>
+                </div>
+                <div className="pt-4">
                   <PreferencesForm
                     preferences={preferences}
                     loading={prefsLoading}
@@ -394,7 +391,7 @@ export function DatabricksServicesPage() {
                     onDelete={handleDeletePreference}
                     onRefresh={loadPreferences}
                   />
-                </CardContent>
+                </div>
               </Card>
             )}
           </div>

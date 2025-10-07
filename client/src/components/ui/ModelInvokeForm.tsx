@@ -5,7 +5,7 @@
  */
 
 import React, { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "designbricks";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -152,7 +152,7 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
             Select Endpoint
           </label>
           {onRefreshEndpoints && (
-            <Button variant="outline" size="sm" onClick={onRefreshEndpoints}>
+            <Button variant="secondary" size="small" onClick={onRefreshEndpoints}>
               Refresh Endpoints
             </Button>
           )}
@@ -288,12 +288,14 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
       {/* Invoke Button */}
       <div style={{ marginBottom: "24px" }}>
         <Button
+          variant="primary"
           onClick={handleInvoke}
           disabled={
             invoking || !selectedEndpoint || currentEndpoint?.state !== "READY"
           }
+          loading={invoking}
         >
-          {invoking ? "Invoking..." : "Invoke Model"}
+          Invoke Model
         </Button>
       </div>
 

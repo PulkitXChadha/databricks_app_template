@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "designbricks";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -209,22 +209,28 @@ export const PreferencesForm: React.FC<PreferencesFormProps> = ({
 
       {/* Action Buttons */}
       <div style={{ display: "flex", gap: "12px", marginBottom: "24px" }}>
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? "Saving..." : currentPreference ? "Update" : "Create"}
+        <Button 
+          variant="primary"
+          onClick={handleSave} 
+          disabled={saving}
+          loading={saving}
+        >
+          {currentPreference ? "Update" : "Create"}
         </Button>
 
         {currentPreference && (
           <Button
-            variant="destructive"
+            variant="danger"
             onClick={() => handleDelete(selectedKey)}
             disabled={deleting === selectedKey}
+            loading={deleting === selectedKey}
           >
-            {deleting === selectedKey ? "Deleting..." : "Delete"}
+            Delete
           </Button>
         )}
 
         {onRefresh && (
-          <Button variant="outline" onClick={onRefresh}>
+          <Button variant="secondary" onClick={onRefresh}>
             Refresh
           </Button>
         )}

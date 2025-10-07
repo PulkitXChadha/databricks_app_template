@@ -315,7 +315,7 @@ This is a **web application** with:
 
 ## Phase 3.15: UI Component Refactoring (NEW REQUIREMENT)
 
-### T051 [P] Audit designbricks component availability
+### T051 [P] [X] Audit designbricks component availability
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/specs/001-databricks-integrations/ui-component-mapping.md` (new file)  
 **Description**: Research designbricks v0.2.2 component library documentation at https://pulkitxchadha.github.io/DesignBricks/. Create comprehensive mapping document: shadcn/ui component → designbricks equivalent. Identify gaps requiring @databricks/design-system fallback. Verify no deprecated components used.  
 **Deliverables**:
@@ -324,15 +324,17 @@ This is a **web application** with:
 3. List of gaps requiring @databricks/design-system (if any)
 4. Deprecated component check for fallbacks (must be empty)
 **Validation**: Mapping document created, all shadcn/ui components have migration path defined  
-**Estimated Time**: 1-2 hours
+**Estimated Time**: 1-2 hours  
+**Status**: ✅ COMPLETE - Component mapping document created with full audit of DesignBricks v0.2.2 components. All shadcn/ui components have viable migration paths. No deprecated components identified.
 
-### T052 [P] Install @databricks/design-system as fallback
+### T052 [P] [X] Install @databricks/design-system as fallback
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/package.json`  
 **Description**: Add `@databricks/design-system` npm package to dependencies. Run `cd client && bun install`. Verify no version conflicts with designbricks v0.2.2.  
 **Validation**: Package installed, `bun.lock` updated, no dependency conflicts in console  
-**Estimated Time**: 15 minutes
+**Estimated Time**: 15 minutes  
+**Status**: ✅ COMPLETE - @databricks/design-system@1.12.22 successfully installed with no dependency conflicts
 
-### T053 Replace Card components with designbricks equivalents
+### T053 [X] Replace Card components with designbricks equivalents
 **Files**:
 - `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/WelcomePage.tsx` (9 Card instances)
 - `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/DatabricksServicesPage.tsx` (4 Card instances)
@@ -340,9 +342,10 @@ This is a **web application** with:
 **Description**: Replace all Card, CardContent, CardHeader, CardTitle, CardDescription imports with designbricks Card component. If designbricks doesn't have Card, use @databricks/design-system equivalent. Maintain visual layout, spacing, and styling.  
 **Depends on**: T051 (requires mapping)  
 **Validation**: No imports from `@/components/ui/card`, app renders correctly, visual regression check  
-**Estimated Time**: 2-3 hours
+**Estimated Time**: 2-3 hours  
+**Status**: ✅ COMPLETE - All 13 Card instances migrated from shadcn/ui to DesignBricks Card component. WelcomePage.tsx (9 instances) and DatabricksServicesPage.tsx (4 instances) now use DesignBricks Card with padding="medium". Card structure preserved with proper header/content sections using div elements and Tailwind CSS classes.
 
-### T054 Replace Button components with designbricks equivalents
+### T054 [X] Replace Button components with designbricks equivalents
 **Files**:
 - `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/WelcomePage.tsx`
 - `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/DatabricksServicesPage.tsx`
@@ -352,7 +355,8 @@ This is a **web application** with:
 **Description**: Replace Button component with designbricks Button. Migrate variants: default, outline, destructive, ghost → designbricks equivalents. Ensure onClick handlers, disabled states, loading states work.  
 **Depends on**: T051 (requires mapping)  
 **Validation**: No imports from `@/components/ui/button`, all button interactions functional  
-**Estimated Time**: 1-2 hours
+**Estimated Time**: 1-2 hours  
+**Status**: ✅ COMPLETE - All Button components migrated from shadcn/ui to DesignBricks Button. Variant mapping: default→primary, outline→secondary, destructive→danger. All 4 files updated with proper loading states and onClick handlers. WelcomePage.tsx Button now uses onClick for external link navigation. PreferencesForm and ModelInvokeForm buttons use DesignBricks loading prop for better UX.
 
 ### T055 Replace Input/Form components with designbricks equivalents
 **Files**:
