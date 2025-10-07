@@ -152,7 +152,7 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
             Select Endpoint
           </label>
           {onRefreshEndpoints && (
-            <Button variant="secondary" size="small" onClick={onRefreshEndpoints}>
+            <Button variant="primary" size="small" onClick={onRefreshEndpoints}>
               Refresh Endpoints
             </Button>
           )}

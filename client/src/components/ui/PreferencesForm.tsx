@@ -230,7 +230,7 @@ export const PreferencesForm: React.FC<PreferencesFormProps> = ({
         )}
 
         {onRefresh && (
-          <Button variant="secondary" onClick={onRefresh}>
+          <Button variant="primary" onClick={onRefresh}>
             Refresh
           </Button>
         )}
