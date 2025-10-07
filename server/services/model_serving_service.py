@@ -12,7 +12,7 @@ import httpx
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import DatabricksError
 
-from server.models.model_endpoint import ModelEndpoint, EndpointState
+from server.models.model_endpoint import ModelEndpoint, ModelEndpointResponse, EndpointState
 from server.models.model_inference import (
     ModelInferenceRequest,
     ModelInferenceResponse,
@@ -37,11 +37,11 @@ class ModelServingService:
         self.client = WorkspaceClient()
         self.default_timeout = int(os.getenv('MODEL_SERVING_TIMEOUT', '30'))
     
-    async def list_endpoints(self) -> list[dict[str, Any]]:
+    async def list_endpoints(self) -> list[ModelEndpointResponse]:
         """List available Model Serving endpoints.
         
         Returns:
-            List of endpoint metadata dictionaries
+            List of endpoint metadata as ModelEndpointResponse objects
             
         Raises:
             DatabricksError: If API call fails
@@ -53,39 +53,63 @@ class ModelServingService:
             endpoint_list = self.client.serving_endpoints.list()
             
             for ep in endpoint_list:
-                # Extract first served model config
-                served_model = ep.config.served_models[0] if ep.config and ep.config.served_models else None
-                
-                # Map state
-                state_str = ep.state.config_update.value if ep.state and ep.state.config_update else "UNKNOWN"
-                state_mapping = {
-                    "NOT_UPDATING": "READY",
-                    "UPDATE_PENDING": "UPDATING",
-                    "CREATING": "CREATING",
-                    "UPDATE_FAILED": "FAILED",
-                }
-                state = state_mapping.get(state_str, "UPDATING")
-                
-                # Convert timestamp if present (Unix timestamp in milliseconds)
-                creation_timestamp = None
-                if hasattr(ep, 'creation_timestamp') and ep.creation_timestamp:
-                    try:
-                        # Convert from milliseconds to datetime, then to ISO string
-                        dt = datetime.fromtimestamp(ep.creation_timestamp / 1000)
-                        creation_timestamp = dt.isoformat() + 'Z'
-                    except (ValueError, TypeError):
-                        creation_timestamp = None
-                
-                endpoint_data = {
-                    "endpoint_name": ep.name,
-                    "endpoint_id": None,  # Not typically available in list response
-                    "model_name": served_model.model_name if served_model else "unknown",
-                    "model_version": str(served_model.model_version) if served_model and served_model.model_version else None,
-                    "state": state,
-                    "creation_timestamp": creation_timestamp
-                }
-                
-                endpoints.append(endpoint_data)
+                try:
+                    # Extract served model/entity config (supports both old and new formats)
+                    served_model = None
+                    served_entity = None
+                    model_name = "unknown"
+                    model_version = None
+                    
+                    if ep.config:
+                        # New format: served_entities (for foundation models)
+                        if hasattr(ep.config, 'served_entities') and ep.config.served_entities:
+                            served_entity = ep.config.served_entities[0]
+                            model_name = served_entity.entity_name if hasattr(served_entity, 'entity_name') else served_entity.name
+                            model_version = str(served_entity.entity_version) if hasattr(served_entity, 'entity_version') else None
+                        # Old format: served_models (for custom/MLflow models)
+                        elif hasattr(ep.config, 'served_models') and ep.config.served_models:
+                            served_model = ep.config.served_models[0]
+                            model_name = served_model.model_name if served_model else "unknown"
+                            model_version = str(served_model.model_version) if served_model and served_model.model_version else None
+                    
+                    # Map state
+                    state_str = ep.state.config_update.value if ep.state and ep.state.config_update else "UNKNOWN"
+                    state_mapping = {
+                        "NOT_UPDATING": "READY",
+                        "UPDATE_PENDING": "UPDATING",
+                        "CREATING": "CREATING",
+                        "UPDATE_FAILED": "FAILED",
+                    }
+                    state = state_mapping.get(state_str, "UPDATING")
+                    
+                    # Convert timestamp if present (Unix timestamp in milliseconds)
+                    creation_timestamp = None
+                    if hasattr(ep, 'creation_timestamp') and ep.creation_timestamp:
+                        try:
+                            # Convert from milliseconds to datetime, then to ISO string
+                            dt = datetime.fromtimestamp(ep.creation_timestamp / 1000)
+                            creation_timestamp = dt.isoformat() + 'Z'
+                        except (ValueError, TypeError):
+                            creation_timestamp = None
+                    
+                    endpoint_response = ModelEndpointResponse(
+                        endpoint_name=ep.name,
+                        endpoint_id=None,  # Not typically available in list response
+                        model_name=model_name,
+                        model_version=model_version,
+                        state=state,
+                        creation_timestamp=creation_timestamp
+                    )
+                    
+                    endpoints.append(endpoint_response)
+                    
+                except Exception as e:
+                    # Log error but continue processing other endpoints
+                    logger.warning(
+                        f"Error processing endpoint {ep.name if hasattr(ep, 'name') else 'unknown'}: {str(e)}",
+                        endpoint=ep.name if hasattr(ep, 'name') else None
+                    )
+                    continue
             
             logger.info(f"Listed {len(endpoints)} serving endpoints")
             
@@ -113,8 +137,26 @@ class ModelServingService:
         try:
             ep = self.client.serving_endpoints.get(endpoint_name)
             
-            # Extract served model info
-            served_model = ep.config.served_models[0] if ep.config and ep.config.served_models else None
+            # Extract served model/entity info (supports both formats)
+            served_model = None
+            served_entity = None
+            model_name = "unknown"
+            model_version = "unknown"
+            config_dict = {}
+            
+            if ep.config:
+                # New format: served_entities (foundation models)
+                if hasattr(ep.config, 'served_entities') and ep.config.served_entities:
+                    served_entity = ep.config.served_entities[0]
+                    model_name = served_entity.entity_name if hasattr(served_entity, 'entity_name') else served_entity.name
+                    model_version = str(served_entity.entity_version) if hasattr(served_entity, 'entity_version') else "unknown"
+                    config_dict = {"served_entities": [served_entity.as_dict()] if hasattr(served_entity, 'as_dict') else []}
+                # Old format: served_models (custom/MLflow models)
+                elif hasattr(ep.config, 'served_models') and ep.config.served_models:
+                    served_model = ep.config.served_models[0]
+                    model_name = served_model.model_name if served_model else "unknown"
+                    model_version = str(served_model.model_version) if served_model and served_model.model_version else "unknown"
+                    config_dict = {"served_models": [served_model.as_dict()] if served_model and hasattr(served_model, 'as_dict') else []}
             
             # Map state
             state_mapping = {
@@ -134,13 +176,13 @@ class ModelServingService:
             endpoint = ModelEndpoint(
                 endpoint_name=ep.name,
                 endpoint_id=ep.id if hasattr(ep, 'id') else ep.name,
-                model_name=served_model.model_name if served_model else "unknown",
-                model_version=served_model.model_version if served_model else "unknown",
+                model_name=model_name,
+                model_version=model_version,
                 state=state,
                 workload_url=workload_url,
                 creation_timestamp=datetime.fromtimestamp(ep.creation_timestamp / 1000) if hasattr(ep, 'creation_timestamp') else datetime.utcnow(),
                 last_updated_timestamp=datetime.utcnow(),
-                config={"served_models": [served_model.as_dict()] if served_model and hasattr(served_model, 'as_dict') else []}
+                config=config_dict
             )
             
             return endpoint
@@ -187,20 +229,25 @@ class ModelServingService:
             timeout_seconds=timeout
         )
         
+        start_time = datetime.utcnow()
+        
         try:
             # Check endpoint is ready
             endpoint = await self.get_endpoint(endpoint_name)
             if not endpoint.is_ready_for_inference():
                 raise ValueError(f"Endpoint {endpoint_name} is not ready (state: {endpoint.state})")
             
-            # Make HTTP request with retry logic
-            start_time = datetime.utcnow()
+            # Determine if this is a chat/foundation model or traditional ML model
+            # Chat models have 'messages' key in inputs, traditional models typically have other structures
+            is_chat_model = 'messages' in inputs
             
+            # Make request with retry logic
             predictions = await self._invoke_with_retry(
                 endpoint.workload_url,
                 inputs,
                 timeout,
-                max_retries=3
+                max_retries=3,
+                is_chat_model=is_chat_model
             )
             
             end_time = datetime.utcnow()
@@ -252,8 +299,23 @@ class ModelServingService:
             end_time = datetime.utcnow()
             execution_time_ms = max(1, int((end_time - start_time).total_seconds() * 1000))
             
+            # Enhance error message for 400 Bad Request errors
+            error_message = str(e)
+            if "400" in error_message and "Bad Request" in error_message:
+                error_message = (
+                    f"{error_message}\n\n"
+                    "This usually means the request format doesn't match what the model expects. "
+                    "Please check:\n"
+                    "1. For foundation models (Claude, GPT, etc.), use: "
+                    '{"messages": [{"role": "user", "content": "..."}], "max_tokens": 150}\n'
+                    "2. For traditional ML models, use: "
+                    '{"inputs": [[feature1, feature2, ...]]}\n'
+                    "3. For custom models with dataframe input, use: "
+                    '{"dataframe_split": {"columns": [...], "data": [[...]]}}'
+                )
+            
             logger.error(
-                f"Inference error: {str(e)}",
+                f"Inference error: {error_message}",
                 exc_info=True,
                 request_id=request.request_id,
                 endpoint=endpoint_name,
@@ -266,7 +328,7 @@ class ModelServingService:
                 predictions={},
                 status=InferenceStatus.ERROR,
                 execution_time_ms=execution_time_ms,
-                error_message=str(e),
+                error_message=error_message,
                 completed_at=end_time
             )
     
@@ -275,7 +337,8 @@ class ModelServingService:
         url: str,
         inputs: dict[str, Any],
         timeout: int,
-        max_retries: int = 3
+        max_retries: int = 3,
+        is_chat_model: bool = False
     ) -> dict[str, Any]:
         """Invoke endpoint with exponential backoff retry.
         
@@ -284,6 +347,7 @@ class ModelServingService:
             inputs: Model inputs
             timeout: Request timeout
             max_retries: Maximum retry attempts
+            is_chat_model: Whether this is a chat/foundation model (affects request format)
             
         Returns:
             Predictions dictionary
@@ -291,16 +355,21 @@ class ModelServingService:
         Raises:
             httpx.HTTPError: If all retries fail
         """
-        # Get authentication token from WorkspaceClient
-        # This works with both PAT and OAuth authentication
-        token = self.client.config.authenticate()
-        if not token:
+        # Get authentication headers from WorkspaceClient
+        # authenticate() returns a dict with Authorization header (works with PAT and OAuth)
+        auth_headers = self.client.config.authenticate()
+        if not auth_headers or 'Authorization' not in auth_headers:
             raise ValueError("Failed to authenticate with Databricks. Please check your credentials.")
         
         headers = {
-            'Authorization': f'Bearer {token}',
+            **auth_headers,  # Unpack authentication headers (includes Authorization)
             'Content-Type': 'application/json'
         }
+        
+        # Prepare request body based on model type
+        # For foundation models (chat models), send inputs directly without wrapping
+        # For traditional ML models, the inputs might already be wrapped correctly
+        request_body = inputs
         
         retry_count = 0
         last_exception = None
@@ -308,9 +377,16 @@ class ModelServingService:
         async with httpx.AsyncClient(timeout=timeout) as client:
             while retry_count < max_retries:
                 try:
+                    logger.debug(
+                        f"Invoking model endpoint (attempt {retry_count + 1}/{max_retries})",
+                        url=url,
+                        is_chat_model=is_chat_model,
+                        request_body_keys=list(request_body.keys())
+                    )
+                    
                     response = await client.post(
                         url,
-                        json=inputs,
+                        json=request_body,
                         headers=headers
                     )
                     response.raise_for_status()
@@ -330,8 +406,17 @@ class ModelServingService:
                                 url=url,
                                 status_code=e.response.status_code,
                                 error_body=error_body,
-                                request_body=inputs
+                                request_body_keys=list(request_body.keys()),
+                                is_chat_model=is_chat_model
                             )
+                            
+                            # For 400 errors, provide helpful guidance
+                            if e.response.status_code == 400:
+                                logger.error(
+                                    "Bad Request - Request format may not match model expectations. "
+                                    "Check the endpoint's input schema or model documentation.",
+                                    endpoint_url=url
+                                )
                         except Exception:
                             pass
                     

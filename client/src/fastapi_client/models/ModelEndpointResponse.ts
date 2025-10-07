@@ -3,14 +3,35 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * Response model for endpoint metadata.
+ * Response model for Model Serving endpoint metadata (API response).
+ *
+ * This is a simplified version of ModelEndpoint for API responses.
+ * Uses string timestamps instead of datetime for JSON serialization.
  */
 export type ModelEndpointResponse = {
+    /**
+     * Unique endpoint name
+     */
     endpoint_name: string;
+    /**
+     * Databricks endpoint ID
+     */
     endpoint_id?: (string | null);
+    /**
+     * Model name
+     */
     model_name: string;
+    /**
+     * Model version
+     */
     model_version?: (string | null);
+    /**
+     * Endpoint state
+     */
     state: string;
+    /**
+     * Creation time (ISO 8601)
+     */
     creation_timestamp?: (string | null);
 };
 

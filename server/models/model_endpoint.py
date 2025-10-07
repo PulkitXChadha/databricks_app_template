@@ -17,6 +17,21 @@ class EndpointState(str, Enum):
     FAILED = "FAILED"
 
 
+class ModelEndpointResponse(BaseModel):
+    """Response model for Model Serving endpoint metadata (API response).
+    
+    This is a simplified version of ModelEndpoint for API responses.
+    Uses string timestamps instead of datetime for JSON serialization.
+    """
+    
+    endpoint_name: str = Field(..., description="Unique endpoint name")
+    endpoint_id: str | None = Field(default=None, description="Databricks endpoint ID")
+    model_name: str = Field(..., description="Model name")
+    model_version: str | None = Field(default=None, description="Model version")
+    state: str = Field(..., description="Endpoint state")
+    creation_timestamp: str | None = Field(default=None, description="Creation time (ISO 8601)")
+
+
 class ModelEndpoint(BaseModel):
     """Databricks Model Serving endpoint metadata.
     

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from typing import Any
 
 from server.services.model_serving_service import ModelServingService
+from server.models.model_endpoint import ModelEndpointResponse
 from server.models.model_inference import ModelInferenceResponse
 from server.lib.structured_logger import StructuredLogger
 
@@ -21,16 +22,6 @@ class InvokeModelRequest(BaseModel):
     endpoint_name: str = Field(..., description="Target endpoint name")
     inputs: dict[str, Any] = Field(..., description="Model input data")
     timeout_seconds: int = Field(default=30, ge=1, le=300, description="Request timeout")
-
-
-class ModelEndpointResponse(BaseModel):
-    """Response model for endpoint metadata."""
-    endpoint_name: str
-    endpoint_id: str | None = None
-    model_name: str
-    model_version: str | None = None
-    state: str
-    creation_timestamp: str | None = None
 
 
 async def get_current_user_id() -> str:
