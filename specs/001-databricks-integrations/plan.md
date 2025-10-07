@@ -46,8 +46,8 @@ This feature builds a comprehensive Databricks App template demonstrating integr
 
 **Language/Version**: Python 3.11+ (modern type hints), Node.js 18.0+ (TypeScript 5.2+, Vite 5.0)  
 **Primary Dependencies**:
-- Backend: FastAPI, Databricks SDK, SQLAlchemy, psycopg2 (Lakebase), httpx (async HTTP), Pydantic
-- Frontend: React, TypeScript, Design Bricks UI, Vite, Bun
+- Backend: FastAPI, Databricks SDK, SQLAlchemy, psycopg[binary]>=3.1.0 (Lakebase), httpx (async HTTP), Pydantic
+- Frontend: React, TypeScript, `designbricks` (v0.2.2 - TopBar, Sidebar), shadcn/ui (static pages), Vite, Bun
 - Tooling: uv (Python), bun (frontend), ruff (linting), mypy (type checking)
 
 **Storage**:
@@ -281,7 +281,7 @@ pyproject.toml                          # Python project config (UPDATE)
 
 **Dependencies Identified**:
 - Python: sqlalchemy>=2.0.0, psycopg[binary]>=3.1.0, alembic>=1.13.0, httpx>=0.25.0
-- TypeScript: @databricks/design-bricks>=1.0.0
+- TypeScript: designbricks (v0.2.2 - published package)
 
 **Key Dependency Notes**:
 - Changed from `psycopg2-binary` to `psycopg[binary]>=3.1.0` for PostgreSQL 3.x async support and better SSL handling
@@ -1184,7 +1184,13 @@ python dba_client.py
 - [ ] Phase 1: Agent context updated - PENDING (CLAUDE.md)
 - [x] Phase 2: Task planning complete - tasks.md exists with 49 tasks
 - [x] Phase 3: Tasks generated (/tasks command) - COMPLETE
-- [x] Phase 4: Implementation in progress - Core backend complete, frontend components complete, migrations complete
+- [x] Phase 4: Implementation - 35/49 tasks complete (71%)
+  - [x] Backend complete - All models, services, routers, observability implemented
+  - [x] Frontend complete - DatabricksServicesPage with all 3 service integrations functional
+  - [x] Frontend components - DataTable, PreferencesForm, ModelInvokeForm all complete
+  - [x] Migrations complete - user_preferences, model_inference_logs tables
+  - [ ] Integration testing - Not started (T036-T039)
+  - [ ] End-to-end validation - Not started (T046-T049)
 - [ ] Phase 5: Validation in progress - Contract tests blocked on live Databricks connections
 
 **Gate Status**:
@@ -1204,12 +1210,23 @@ python dba_client.py
 ---
 
 **Next Steps**:
-1. Run `.specify/scripts/bash/update-agent-context.sh cursor` to update CLAUDE.md
-2. Complete remaining frontend integration tasks (T033-T035)
-3. Complete integration testing tasks (T036-T039)
-4. Execute end-to-end validation (T046-T049)
+1. Run `.specify/scripts/bash/update-agent-context.sh cursor` to update CLAUDE.md (T045)
+2. Validate Asset Bundle configuration with `databricks bundle validate` (T042)
+3. Complete integration testing tasks (T036-T039):
+   - Multi-user data isolation test
+   - Observability integration test  
+   - WCAG 2.1 Level A accessibility test
+   - Pagination performance test (NFR-003)
+4. Execute end-to-end validation (T046-T049):
+   - Execute quickstart.md end-to-end
+   - Verify structured logging with correlation IDs
+   - Deploy to dev environment and test
+   - Deploy to prod environment and validate permissions
 
-**Status**: Phase 4 IN PROGRESS (85% complete - backend complete, frontend components complete, migrations complete, integration pending)
+**Status**: Phase 4 NEARLY COMPLETE (71% complete - 35/49 tasks done)
+- Core implementation: ✅ COMPLETE (backend, frontend, migrations)
+- Service integrations: ✅ COMPLETE (Unity Catalog, Lakebase, Model Serving)
+- Remaining: Integration testing, validation, documentation updates
 
 ---
 *Aligned with Constitution v1.1.0 - See `.specify/memory/constitution.md`*
