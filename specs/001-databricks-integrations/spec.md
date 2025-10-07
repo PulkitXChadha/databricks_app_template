@@ -77,7 +77,16 @@ This specification uses consistent naming conventions across different contexts:
 - **TypeScript Interfaces**: PascalCase matching Python models (e.g., `UserSession`, `DataSource`)
 
 ### UI Framework Note
-The implementation uses the `designbricks` package (v0.2.2) for Databricks-styled UI components (TopBar, Sidebar). Static content pages use shadcn/ui for enhanced developer experience. This hybrid approach balances Databricks branding (via designbricks navigation components) with development velocity (via shadcn/ui for forms and content).
+**Design Bricks Full Migration**: The implementation uses `designbricks` as the primary UI component library to ensure complete alignment with Databricks brand standards and design system consistency:
+- **Primary Component Library**: All UI components MUST use `designbricks` package as the first choice
+- **Fallback Strategy**: When a required component is not available in `designbricks`, use non-deprecated components from the official `@databricks/design-system` npm package (https://www.npmjs.com/package/@databricks/design-system)
+- **Deprecated Component Prohibition**: The application MUST NOT use any deprecated UI components from `@databricks/design-system` to ensure long-term maintainability and supportability
+- **Component Source Hierarchy**: 
+  1. designbricks (primary)
+  2. @databricks/design-system non-deprecated components (fallback only)
+  3. Custom components are out of scope unless absolutely necessary
+
+This approach fully satisfies Constitution Principle I (Design Bricks First) by mandating designbricks for all UI components and establishing clear guidelines for handling missing components through the official Databricks design system fallback.
 
 ---
 
@@ -88,7 +97,24 @@ The implementation uses the `designbricks` package (v0.2.2) for Databricks-style
 - Q: Which model registry should the template demonstrate for serving models? → A: Unity Catalog model registry (modern, governance-focused)
 - Q: Which transactional database should the template use for backend data persistence? → A: Lakebase (Databricks-hosted Postgres for transactional workloads)
 - Q: Which authentication method(s) should the template support for Databricks service connections? → A: Databricks Apps built-in authentication (app service principal + user authorization)
-- Q: What authentication mechanism should be used for Lakebase database connections? → A: OAuth token authentication exclusively using Databricks SDK's `workspace_client.database.generate_database_credential()` API (introduced in SDK v0.56.0). Tokens expire after 1 hour but open connections remain active. The application should generate fresh tokens for each new connection attempt. PAT (Personal Access Token) authentication is not supported. **IMPORTANT**: The instance name parameter must use the logical bundle name (e.g., `databricks-app-lakebase-dev` from databricks.yml), NOT the technical UUID extracted from the host (e.g., `instance-0fac1568-...`). Set via `LAKEBASE_INSTANCE_NAME` environment variable.
+- Q: What authentication mechanism should be used for Lakebase database connections? → A: OAuth token authentication exclusively using Databricks SDK's `workspace_client.database.generate_database_credential()` API (introduced in SDK v0.56.0). Tokens expire after 1 hour but open connections remain active. The application should generate fresh tokens for each new connection attempt. PAT (Personal Access Token) authentication is not supported. **IMPORTANT**: The instance name parameter must use the logical bundle name (e.g., `databricks-app-lakebase-dev` from databricks.yml), NOT the technical UUID extracted from the host (e.g., `instance-0fac1568-...`). 
+
+**Environment Variable Configuration Example**:
+```bash
+# Lakebase Connection (required)
+LAKEBASE_INSTANCE_NAME=databricks-app-lakebase-dev  # Logical bundle name
+LAKEBASE_HOST=your-workspace.cloud.databricks.com
+LAKEBASE_PORT=5432
+LAKEBASE_DATABASE=lakebase_db
+
+# Unity Catalog (required)
+DATABRICKS_CATALOG=main
+DATABRICKS_SCHEMA=default
+
+# Model Serving (required if using model inference)
+MODEL_SERVING_ENDPOINT=https://your-workspace.cloud.databricks.com/serving-endpoints/your-model
+MODEL_SERVING_TIMEOUT=30
+```
 - Q: What level of customization should the template support for developers? → A: Both - provide config-based customization with clear extension points for code changes
 - Q: Should the template include automated setup scripts that create sample data for demonstration purposes? → A: Hybrid - include minimal sample data creation with clear instructions to connect real resources
 - Q: Should the template demonstrate observability and monitoring capabilities? → A: Yes - include logging, metrics, and tracing examples using Databricks observability tools
@@ -104,6 +130,18 @@ The implementation uses the `designbricks` package (v0.2.2) for Databricks-style
 - Q: How should the application behave when a user exceeds reasonable API request limits (e.g., rapidly clicking "Invoke Model" or refreshing data)? → A: No rate limiting - allow all requests (acceptable for demo/template purposes)
 - Q: What minimum accessibility (a11y) standard should the web UI meet? → A: WCAG 2.1 Level A - minimal compliance (keyboard navigation, alt text for images)
 - Q: Should Unity Catalog table queries support pagination, or is returning all results acceptable for the demo/template scope? → A: Basic pagination - support limit/offset parameters in API, demonstrate pattern in UI
+
+### Session 2025-10-07
+- Q: Should the template use shadcn/ui or fully migrate to designbricks UI components? → A: Full designbricks migration - use `designbricks` as the primary UI component library for all components. When a component is not available in designbricks, use non-deprecated components from the official `@databricks/design-system` npm package. Do NOT use deprecated UI components from `@databricks/design-system`.
+- Q: Which input/output format should the Model Serving integration demonstrate? → A: JSON objects with flexible schema (any valid JSON payload accepted, model-specific structure)
+- Q: What type of data should the Unity Catalog sample tables contain? → A: Business domain data (customers, orders, products) - demonstrates typical enterprise use cases
+- Q: Where should the application emit structured logs? → A: Lakebase table (demonstrates queryable operational logs stored in transactional database)
+- Q: How should development and production environments be separated? → A: Same workspace, different resource names (e.g., `app-dev` vs `app-prod` prefixes) - simple setup for template demonstration
+- Q: What application metrics should be collected and how should they be exposed? → A: Service-specific metrics (UC query count, model inference latency, Lakebase connection pool stats) - stored in Lakebase for queryable operational metrics
+- Q: How should model input validation work? → A: Schema validation - maintain model-specific schemas in config, validate before sending
+- Q: Which user identity attribute should isolate Lakebase records? → A: Email address - user's email from Databricks profile
+- Q: How should correlation IDs be managed? → A: Hybrid - Accept client ID if provided, else generate server-side UUID
+- Q: Should Unity Catalog sample tables support write operations? → A: Full write - support INSERT/UPDATE/DELETE through the application UI
 
 ---
 
@@ -126,55 +164,75 @@ The following features and capabilities are explicitly excluded from this templa
 As a developer evaluating Databricks for application development, I need a comprehensive template web application that demonstrates how to integrate with core Databricks services including data storage, model serving, and deployment automation through an interactive dashboard with well-documented, scalable code patterns, so that I can understand best practices and quickly bootstrap my own production-ready applications.
 
 ### Acceptance Scenarios
-1. **Given** a developer has access to a Databricks workspace, **When** they deploy the template application and access the web UI, **Then** they see an interactive dashboard displaying data from Unity Catalog tables
+1. **Given** a developer has access to a Databricks workspace, **When** they deploy the template application and access the web UI, **Then** they see an interactive dashboard displaying data from Unity Catalog tables and can create, update, and delete records through forms
 2. **Given** the template application is running, **When** a user creates, reads, updates, or deletes records (user preferences, configurations, application state), **Then** the application successfully performs CRUD operations in Lakebase (Databricks-hosted Postgres) and displays confirmation of each operation
 3. **Given** machine learning models are deployed, **When** the application needs predictions or model outputs, **Then** it successfully invokes models through serving endpoints and displays results
-4. **Given** the template code is modified, **When** a developer triggers deployment to either development or production environment, **Then** the application is packaged and deployed using Databricks Asset Bundles with environment-specific configurations (dev uses development workspace resources, prod uses production workspace resources)
+4. **Given** the template code is modified, **When** a developer triggers deployment to either development or production environment, **Then** the application is packaged and deployed using Databricks Asset Bundles with environment-specific resource names within the same workspace (e.g., `databricks-app-dev` vs `databricks-app-prod`, `lakebase-dev` vs `lakebase-prod`) and distinct configurations per target
 5. **Given** a new developer clones the template, **When** they run the provided setup scripts, **Then** minimal sample data is created and the application successfully demonstrates all service integrations
 6. **Given** a developer wants to use their own Databricks resources, **When** they follow the configuration documentation, **Then** they can replace sample data connections with their existing Unity Catalog tables, Lakebase databases, and model endpoints
 7. **Given** the application is running, **When** service operations execute (data queries, model invocations, authentication), **Then** structured logs, metrics, and traces are emitted to Databricks observability tools for monitoring and debugging
-8. **Given** multiple users access the application concurrently, **When** each user queries data or saves preferences, **Then** each user sees only data they have permission to access via Unity Catalog and their personal state is isolated in Lakebase
+8. **Given** multiple users access the application concurrently, **When** each user queries data or saves preferences, **Then** each user sees only data they have permission to access via Unity Catalog and their personal state is isolated in Lakebase using their email address as the isolation key
 9. **Given** a developer reviews the template code, **When** they examine integration implementations, **Then** they find well-commented code demonstrating scalable patterns (connection pooling, efficient queries) balanced with readability for learning purposes
+10. **Given** the application uses UI components, **When** a developer reviews component imports and usage, **Then** all UI components are sourced from either designbricks or non-deprecated @databricks/design-system components
+11. **Given** a UI component exists in designbricks, **When** that component is needed in the application, **Then** the designbricks version is used (not the @databricks/design-system version)
+12. **Given** the UI components have been implemented, **When** users interact with the application, **Then** the visual appearance follows Databricks brand standards and provides a consistent, polished experience
 
 ### Edge Cases & Error Handling Requirements
 - **EC-001 (Model Serving Unavailable)**: When a Model Serving endpoint is unavailable (connection timeout >30s) or returns 5xx error, the application MUST return HTTP 503 with JSON error response: `{"error_code": "MODEL_UNAVAILABLE", "message": "Model service temporarily unavailable. Please try again in a few moments.", "technical_details": {"endpoint": "<url>", "status": <code>}, "retry_after": 30}`. The error MUST be logged with ERROR level including request context.
+- **EC-001a (Invalid Model Input Format)**: When model input validation fails against the model-specific schema stored in configuration (invalid JSON syntax, missing required fields, type mismatches, constraint violations), the application MUST return HTTP 400 with JSON error response: `{"error_code": "INVALID_MODEL_INPUT", "message": "Invalid input format for model endpoint.", "technical_details": {"validation_error": "<description>", "expected_schema": "<schema_from_config>"}}`. The application MUST validate inputs client-side before sending to the model endpoint. If the model endpoint rejects the input with 4xx error despite validation, forward the endpoint's error details to the user.
 - **EC-002 (Lakebase Connection Failure)**: When Lakebase connection fails (network error, authentication failure, OAuth token generation failure, or connection pool exhausted), the application MUST return HTTP 503 with JSON error response: `{"error_code": "DATABASE_UNAVAILABLE", "message": "Database service temporarily unavailable.", "technical_details": {"error_type": "<postgres_error_code|oauth_error>", "instance_name": "<instance_id>"}, "retry_after": 10}`. Failed connections MUST trigger connection pool health check and emit metric. OAuth token generation failures should be logged with full error context for debugging.
 - **EC-003 (Missing Credentials/Permissions)**: When Databricks credentials are missing, invalid, or lack required permissions, the application MUST return HTTP 401 (missing/invalid credentials) or HTTP 403 (insufficient permissions) with JSON error response: `{"error_code": "AUTH_REQUIRED|PERMISSION_DENIED", "message": "<user-friendly description>", "technical_details": {"required_scope": "<scope>", "workspace": "<workspace_url>"}}`. The UI MUST display credential setup instructions from documentation.
-- **EC-004 (Empty/Inaccessible Unity Catalog Tables)**: When Unity Catalog tables are empty, the application MUST return HTTP 200 with empty results array and metadata indicating zero rows. When tables are inaccessible due to permissions, return HTTP 403 with JSON error: `{"error_code": "CATALOG_PERMISSION_DENIED", "message": "You don't have access to this table.", "technical_details": {"catalog": "<name>", "schema": "<name>", "table": "<name>"}}`. When tables don't exist, return HTTP 404.
+- **EC-004 (Empty/Inaccessible Unity Catalog Tables)**: When Unity Catalog tables are empty, the application MUST return HTTP 200 with empty results array and metadata indicating zero rows. When tables are inaccessible due to permissions (read or write), return HTTP 403 with JSON error: `{"error_code": "CATALOG_PERMISSION_DENIED", "message": "You don't have access to this table.", "technical_details": {"catalog": "<name>", "schema": "<name>", "table": "<name>", "operation": "<SELECT|INSERT|UPDATE|DELETE>"}}`. When tables don't exist, return HTTP 404. When a user has read permission but attempts write operation without write permission, return HTTP 403 with operation-specific error message.
 - **EC-005 (Invalid Asset Bundle Configuration)**: When Asset Bundle configuration is invalid (schema errors, missing required fields, invalid target references), the `databricks bundle validate` command MUST fail with exit code 1 and display specific validation errors. The application MUST NOT deploy with invalid configuration. Documentation MUST include common validation error resolutions.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
-- **FR-001**: Application MUST demonstrate reading data from Unity Catalog managed tables with fine-grained access control
+- **FR-001**: Application MUST demonstrate full CRUD operations (Create, Read, Update, Delete) on Unity Catalog managed tables with fine-grained access control
 - **FR-002**: Application MUST demonstrate full CRUD operations (Create, Read, Update, Delete) on data in Lakebase (Databricks-hosted Postgres) as the transactional database backend, including user preferences, configurations, and application state
-- **FR-003**: Application MUST demonstrate invoking machine learning models through Model Serving endpoints and displaying results
+- **FR-003**: Application MUST demonstrate invoking machine learning models through Model Serving endpoints with JSON-formatted inputs validated against model-specific schemas stored in configuration files before sending requests, and displaying results
 - **FR-004**: Application MUST demonstrate serving models from Unity Catalog model registry via Model Serving endpoints. Model inference (invoke_model) from UC-registered models is the mandatory capability. Metadata retrieval operations (list_endpoints, get_endpoint) SHOULD be implemented for UI display and debugging purposes and are considered standard practice for complete integration demonstration
-- **FR-005**: Application MUST be deployable using Databricks Asset Bundles to both development and production environments with tested, environment-specific configurations
+- **FR-005**: Application MUST be deployable using Databricks Asset Bundles to both development and production environments within the same workspace using environment-specific resource naming (e.g., `databricks-app-dev`, `databricks-app-prod` prefixes for apps; `lakebase-dev`, `lakebase-prod` for database instances). Each environment has separate tested configurations in databricks.yml with distinct target definitions
 - **FR-006**: Application MUST provide clear documentation for each service integration demonstrated: README section describing all integrations, OpenAPI specs for all endpoints (auto-generated by FastAPI and accessible at `/docs` and `/openapi.json` endpoints for validation), inline code comments (≥1 docstring per public function/method, where "public" means module-level, non-underscore-prefixed functions/methods or those documented in module `__all__`; excludes nested functions, lambdas, and private helpers), and service setup guide
 - **FR-007**: Application MUST handle and display appropriate error messages when service integrations fail (JSON format with error_code, user-friendly message, and technical details for debugging)
-- **FR-008**: Application MUST include working configurations for connecting to each service: .env.local.example with all required environment variables, databricks.yml with functional dev and prod target configurations (tested and ready to use), and sample data configuration documentation
+- **FR-008**: Application MUST include working configurations for connecting to each service: .env.local.example with all required environment variables, databricks.yml with functional dev and prod target configurations (tested and ready to use), model endpoint input schemas in JSON Schema format for validation, and sample data configuration documentation
 - **FR-009**: Application MUST authenticate securely with Databricks services using Databricks Apps built-in authentication with three distinct patterns: (a) Service Principal authentication (app-level authorization) for shared/system operations (e.g., health checks, system-level queries), (b) On-Behalf-Of-User authentication (user-level authorization) for user-specific data access (e.g., querying Unity Catalog with user's permissions, saving user preferences), and (c) Lakebase OAuth token authentication exclusively using `workspace_client.database.generate_database_credential()` API for database connections. PAT (Personal Access Token) authentication is not supported. Documentation MUST include clear examples of when to use each pattern.
 - **FR-010**: Developer users MUST be able to customize the template through configuration files (environment variables, YAML configs) with clear extension points for code modifications when deeper customization is needed
-- **FR-011**: Application MUST provide a web-based interactive dashboard with full CRUD operations including: (a) viewing data from Unity Catalog with basic pagination (limit/offset parameters in API, page navigation controls in UI), optional filtering/sorting, (b) creating, reading, updating, and deleting records in Lakebase (user preferences, configurations, application state), (c) invoking model predictions with custom inputs, (d) visual feedback showing successful integration with each service (authentication status, connection health, operation results)
-- **FR-012**: Application MUST include minimal sample data creation scripts for quick demonstration (≤1 Unity Catalog catalog, ≤2 schemas, ≤3 tables with ≤100 rows each, ≤5 Lakebase sample records), along with clear documentation for connecting to existing Databricks resources (Unity Catalog tables, Lakebase databases, Model Serving endpoints). Note: Model Serving endpoint setup requires pre-existing endpoint; see `docs/databricks_apis/model_serving_setup.md` for endpoint creation instructions via Databricks UI or CLI (sample data script does not automate endpoint creation)
-- **FR-013**: Application MUST demonstrate observability best practices including structured logging (JSON format with timestamp, log level, context fields, error details), basic application metrics examples, and correlation-ID based request tracking (simplified distributed tracing using contextvars, not full OpenTelemetry; see research.md for implementation pattern) using Databricks observability tools. All errors MUST be logged with ERROR level including timestamp, error type, error message, request context, and relevant technical details for debugging
-- **FR-014**: Application MUST demonstrate multi-user access with data isolation, where each user sees data filtered according to their Unity Catalog permissions and has separate user-specific state in Lakebase
+- **FR-011**: Application MUST provide a web-based interactive dashboard with full CRUD operations including: (a) creating, reading, updating, and deleting records in Unity Catalog managed tables with basic pagination (limit/offset parameters in API, page navigation controls in UI for reading), optional filtering/sorting, forms for inserting/editing records, (b) creating, reading, updating, and deleting records in Lakebase (user preferences, configurations, application state), (c) invoking model predictions with custom JSON-formatted inputs validated against model-specific schemas defined in configuration files, with clear validation error feedback to users, (d) visual feedback showing successful integration with each service (authentication status, connection health, operation results)
+- **FR-012**: Application MUST include minimal sample data creation scripts for quick demonstration with business domain sample data (customers, orders, products tables demonstrating typical enterprise use cases): ≤1 Unity Catalog catalog, ≤2 schemas, ≤3 tables with ≤100 rows each. Sample tables should include typical business attributes (e.g., customer_id, name, email for customers; order_id, customer_id, order_date, total for orders; product_id, name, price, category for products). Additionally, Lakebase setup must include: (a) user preferences table with ≤5 sample records, (b) application logs table (initially empty, populated during runtime) with schema supporting timestamp, log level, correlation ID, context fields, error details, and message, (c) application metrics table (initially empty, populated during runtime) with schema supporting timestamp, metric name, metric value, metric tags/dimensions (service name, operation type), and correlation ID. Provide clear documentation for connecting to existing Databricks resources (Unity Catalog tables, Lakebase databases, Model Serving endpoints). 
+
+**Model Serving Endpoint Prerequisites**: Sample data script does NOT automate Model Serving endpoint creation. Developers must create endpoints manually via:
+- Databricks UI: Serving → Endpoints → Create Endpoint → Select UC-registered model
+- Databricks CLI: `databricks serving create-endpoint --name my-endpoint --model-name <catalog>.<schema>.<model>`
+- See `docs/databricks_apis/model_serving_setup.md` for detailed instructions
+
+**Sample Model Recommendation**: For demonstration purposes, use any UC-registered model from your workspace. If no models exist, see [Databricks Model Registry Quickstart](https://docs.databricks.com/en/mlflow/model-registry.html) for creating and registering sample models in Unity Catalog. The `setup_sample_data.py` script focuses on data (Unity Catalog tables, Lakebase records) but does NOT create ML models or serving endpoints.
+
+Once endpoint is created and in READY state, configure `MODEL_SERVING_ENDPOINT` environment variable with endpoint URL (e.g., `https://your-workspace.cloud.databricks.com/serving-endpoints/my-endpoint`).
+- **FR-013**: Application MUST demonstrate observability best practices including structured logging to Lakebase tables (log entries stored as rows with columns for timestamp, log level, context fields, error details, correlation ID), service-specific metrics stored in Lakebase (Unity Catalog query count, model inference latency, Lakebase connection pool statistics - active connections, idle connections, pool utilization), and correlation-ID based request tracking using hybrid approach (accept correlation ID from client via X-Correlation-ID header if provided, else generate UUID server-side; propagate via contextvars throughout request lifecycle). This is simplified distributed tracing using contextvars, not full OpenTelemetry (see research.md for implementation pattern). This demonstrates queryable operational data using Databricks services. All errors MUST be logged with ERROR level including timestamp, error type, error message, request context, correlation ID, and relevant technical details for debugging. Logs should also be emitted to stdout during local development for convenience
+- **FR-014**: Application MUST demonstrate multi-user access with data isolation, where each user sees data filtered according to their Unity Catalog permissions and has separate user-specific state in Lakebase isolated by their email address (retrieved from Databricks profile via `WorkspaceClient.current_user.me().user_name`, which returns email format, via authentication token)
 - **FR-015**: Application code MUST balance production-ready scalability patterns (efficient queries, appropriate error handling, connection pooling) with code clarity and inline documentation to serve as a learning resource
+- **FR-016**: Application MUST use `designbricks` as the primary UI component library for all user interface elements
+- **FR-017**: Application MUST use `@databricks/design-system` as a secondary (fallback) component library only when a required component is not available in designbricks
+- **FR-018**: Application MUST NOT use any deprecated UI components from the `@databricks/design-system` library to ensure long-term maintainability
+- **FR-019**: All existing UI components MUST be audited and replaced with designbricks equivalents where available
+- **FR-020**: Application MUST maintain visual consistency and brand alignment with Databricks design standards through proper use of the official component libraries
 
 ### Non-Functional Requirements
-- **NFR-001**: Application MUST maintain readable, well-commented code that explains integration patterns and design decisions with measurable criteria: ≥1 docstring per public function/method, ≥80% of functions with type hints (measured as: count of module-level functions with return type annotation ÷ total module-level functions ≥ 0.80; verified via mypy --strict coverage report), cyclomatic complexity score ≤10 per function (measured by ruff/radon), inline comments for non-obvious logic (≥1 comment per 20 lines for functions with cyclomatic complexity >5)
+- **NFR-001**: Application MUST maintain readable, well-commented code that explains integration patterns and design decisions with measurable criteria: ≥1 docstring per public function/method, ≥80% of functions with type hints (measured as: count of module-level functions with return type annotation ÷ total module-level functions ≥ 0.80; verified via `uv run mypy server/ --strict --show-error-codes` - must report "Success" with no issues), cyclomatic complexity score ≤10 per function (measured by `uv run ruff check server/ --select C901` - must return exit code 0), inline comments for non-obvious logic (≥1 comment per 20 lines for functions with cyclomatic complexity >5)
 - **NFR-002**: Application MUST demonstrate scalable data access patterns (connection pooling for ≥10 connections, efficient query patterns) without over-optimizing at the expense of code clarity
 - **NFR-003**: Application SHOULD handle typical development/demo workloads efficiently with baseline single-user performance targets (<500ms API response time for paginated Unity Catalog queries with limit ≤100 rows per page, <2s for model inference with standard input payload) and maintain acceptable performance under load (support 10 concurrent users with uniform request distribution resulting in <20% latency increase compared to single-user baseline)
 - **NFR-004**: Web UI MUST meet WCAG 2.1 Level A accessibility standards including: all interactive elements accessible via keyboard navigation (Tab, Enter, Escape keys), all non-text content has text alternatives (alt text for images, aria-label for icon buttons), form inputs have associated labels, sufficient color contrast for text (minimum 3:1 for large text ≥18pt, 4.5:1 for normal text)
 
 ### Key Entities *(include if feature involves data)*
 - **User Workspace**: Represents a developer's Databricks workspace containing resources and configurations needed to run the application
-- **Data Source**: Represents Unity Catalog managed tables with associated fine-grained access controls that the application reads from
-- **Transactional Record**: Represents data stored in Lakebase (Databricks-hosted Postgres) for transactional workloads (e.g., user preferences, application state, audit logs). All records are strictly user-isolated (no shared records exist; each record belongs to exactly one user). Data retention policy: indefinite (no automatic cleanup; developers manually manage data lifecycle). Uniqueness constraint: each record type uses user-scoped primary keys (e.g., composite key of user_id + preference_key for user preferences)
-- **User Session**: Represents an authenticated user's interaction session with the web application, including their identity and permissions context
+- **Data Source**: Represents Unity Catalog managed tables with associated fine-grained access controls that the application performs CRUD operations on (Create, Read, Update, Delete)
+- **Transactional Record**: Represents data stored in Lakebase (Databricks-hosted Postgres) for transactional workloads (e.g., user preferences, application state). All records are strictly user-isolated using the user's email address from their Databricks profile as the isolation key (no shared records exist; each record belongs to exactly one user). Data retention policy: indefinite (no automatic cleanup; developers manually manage data lifecycle). Uniqueness constraint: each record type uses user-scoped primary keys (e.g., composite key of user_email + preference_key for user preferences)
+- **Log Entry**: Represents a structured log event stored in Lakebase for queryable operational observability. Includes timestamp, log level (INFO/WARNING/ERROR), correlation ID for request tracking (from X-Correlation-ID header if client-provided, else server-generated UUID), context fields (user, endpoint, operation), error details (if applicable), and message. Log entries are NOT user-isolated (system-wide operational data). Demonstrates using Lakebase for append-only operational data with SQL query capabilities
+- **Metric Entry**: Represents a service-specific performance or operational metric stored in Lakebase for queryable observability. Includes timestamp, metric name (e.g., "uc_query_count", "model_inference_latency_ms", "lakebase_pool_active_connections"), metric value (numeric), metric tags/dimensions (service name, operation type), and correlation ID (from X-Correlation-ID header if client-provided, else server-generated UUID). Examples: Unity Catalog query counts, model inference latency measurements, Lakebase connection pool statistics (active/idle connections, pool utilization). Metric entries are NOT user-isolated (system-wide operational data)
+- **User Session**: Represents an authenticated user's interaction session with the web application, including their identity (email address from Databricks profile) and permissions context
 - **Model**: Represents a machine learning model registered in Unity Catalog model registry and deployed to a serving endpoint that can accept requests and return predictions
-- **Model Serving Endpoint**: Represents a model deployment that exposes model inference capabilities via API
+- **Model Serving Endpoint**: Represents a model deployment that exposes model inference capabilities via API. Each endpoint has an associated input schema stored in configuration files (JSON Schema format) used for client-side validation before sending inference requests
 - **Deployment Configuration**: Represents the Asset Bundle configuration defining how the application is packaged and deployed
 - **Service Integration**: Represents a connection point between the application and a Databricks service, including connection details and status
 
@@ -208,17 +266,18 @@ As a developer evaluating Databricks for application development, I need a compr
 - [x] Requirements generated
 - [x] Entities identified
 - [x] Review checklist passed (All clarifications resolved)
-- [x] Implementation in progress (35/49 tasks complete - 71%)
+- [x] Implementation in progress (34/49 tasks complete - 69%)
 
 ## Implementation Status (October 7, 2025)
 
-**Core Implementation**: ✅ COMPLETE (71% of tasks done)
+**Core Implementation**: ✅ COMPLETE (69% of tasks done)
 - Backend services fully implemented (Unity Catalog, Lakebase, Model Serving)
 - Frontend fully functional with DatabricksServicesPage integrating all three services
 - Database migrations complete (user_preferences, model_inference_logs)
 - TypeScript client auto-generated from OpenAPI spec
 - Observability infrastructure with structured logging and correlation IDs
 - All CRUD operations working (Unity Catalog queries, Preferences management, Model inference)
+- Contract validation: ⚠️ BLOCKED on live Databricks connections (requires deployed environment)
 
 **Architecture**:
 - Main UI: DatabricksServicesPage with `designbricks` TopBar/Sidebar navigation

@@ -9,8 +9,9 @@
 ```
 Phase 0: Research complete ✅
 Phase 1: Design complete ✅
-Phase 2: Task planning complete ✅ (this file)
-Phase 3-4: Implementation pending ⏳
+Phase 2: Task planning complete ✅ (this file - updated October 7, 2025)
+Phase 3-4: Implementation 59% complete (34/58 tasks)
+  - Phase 3.15: UI Component Refactoring (NEW) - 8 tasks added ⏳
 Phase 5: Validation pending ⏳
 ```
 
@@ -172,7 +173,7 @@ This is a **web application** with:
 
 ### T019 [X] Create Lakebase database connection module
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/lib/database.py`  
-**Description**: SQLAlchemy engine with QueuePool (pool_size=5, max_overflow=10), pool_pre_ping=True, token-based connection string builder  
+**Description**: SQLAlchemy engine with QueuePool (pool_size=5, max_overflow=10), pool_pre_ping=True, OAuth token-based connection string builder (tokens generated via Databricks SDK)  
 **Depends on**: T001, T012  
 **Validation**: Test connection pool creation and verify connections with pool_pre_ping  
 **Status**: ✅ COMPLETE
@@ -312,31 +313,176 @@ This is a **web application** with:
 
 ---
 
+## Phase 3.15: UI Component Refactoring (NEW REQUIREMENT)
+
+### T051 [P] Audit designbricks component availability
+**File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/specs/001-databricks-integrations/ui-component-mapping.md` (new file)  
+**Description**: Research designbricks v0.2.2 component library documentation at https://pulkitxchadha.github.io/DesignBricks/. Create comprehensive mapping document: shadcn/ui component → designbricks equivalent. Identify gaps requiring @databricks/design-system fallback. Verify no deprecated components used.  
+**Deliverables**:
+1. Component mapping table with 3 columns: shadcn/ui component, designbricks equivalent, fallback strategy
+2. List of designbricks components available: Button, Card, Input, Table, Alert, Badge, Tabs, etc.
+3. List of gaps requiring @databricks/design-system (if any)
+4. Deprecated component check for fallbacks (must be empty)
+**Validation**: Mapping document created, all shadcn/ui components have migration path defined  
+**Estimated Time**: 1-2 hours
+
+### T052 [P] Install @databricks/design-system as fallback
+**File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/package.json`  
+**Description**: Add `@databricks/design-system` npm package to dependencies. Run `cd client && bun install`. Verify no version conflicts with designbricks v0.2.2.  
+**Validation**: Package installed, `bun.lock` updated, no dependency conflicts in console  
+**Estimated Time**: 15 minutes
+
+### T053 Replace Card components with designbricks equivalents
+**Files**:
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/WelcomePage.tsx` (9 Card instances)
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/DatabricksServicesPage.tsx` (4 Card instances)
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/card.tsx` (remove file after migration)  
+**Description**: Replace all Card, CardContent, CardHeader, CardTitle, CardDescription imports with designbricks Card component. If designbricks doesn't have Card, use @databricks/design-system equivalent. Maintain visual layout, spacing, and styling.  
+**Depends on**: T051 (requires mapping)  
+**Validation**: No imports from `@/components/ui/card`, app renders correctly, visual regression check  
+**Estimated Time**: 2-3 hours
+
+### T054 Replace Button components with designbricks equivalents
+**Files**:
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/WelcomePage.tsx`
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/DatabricksServicesPage.tsx`
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/PreferencesForm.tsx`
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/ModelInvokeForm.tsx`
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/button.tsx` (remove file)  
+**Description**: Replace Button component with designbricks Button. Migrate variants: default, outline, destructive, ghost → designbricks equivalents. Ensure onClick handlers, disabled states, loading states work.  
+**Depends on**: T051 (requires mapping)  
+**Validation**: No imports from `@/components/ui/button`, all button interactions functional  
+**Estimated Time**: 1-2 hours
+
+### T055 Replace Input/Form components with designbricks equivalents
+**Files**:
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/DatabricksServicesPage.tsx` (catalog, schema, table inputs)
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/PreferencesForm.tsx` (preference key input)
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/ModelInvokeForm.tsx` (JSON input, timeout input)
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/input.tsx` (remove file)  
+**Description**: Replace Input with designbricks TextField or Input component. Ensure: (1) value/onChange bindings work, (2) placeholder text preserved, (3) error states functional, (4) form validation preserved.  
+**Depends on**: T051 (requires mapping)  
+**Validation**: All form inputs functional, validation works, no imports from `@/components/ui/input`  
+**Estimated Time**: 2-3 hours
+
+### T056 Replace Alert/Badge components with designbricks equivalents
+**Files**:
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/WelcomePage.tsx` (Badge for user status)
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/DatabricksServicesPage.tsx` (Alert for error messages)
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/alert.tsx` (remove file)
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/badge.tsx` (remove file)  
+**Description**: Replace Alert/AlertDescription with designbricks Alert or Notification. Replace Badge with designbricks Badge. Migrate variants: destructive, default, secondary, outline.  
+**Depends on**: T051 (requires mapping)  
+**Validation**: Error messages display correctly, user status badge shows active/inactive, no shadcn/ui imports  
+**Estimated Time**: 1-2 hours
+
+### T057 Migrate DataTable component to designbricks Table
+**Files**:
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/DataTable.tsx`  
+**Description**: Rewrite DataTable using designbricks Table component with pagination support. Maintain: (1) Column rendering from Unity Catalog schema, (2) Row data display, (3) Pagination controls (prev/next buttons, page size selector), (4) Loading skeleton states, (5) Error handling display.  
+**Depends on**: T051, T053, T054 (requires Card/Button complete for layout)  
+**Acceptance Criteria**:
+1. Query Unity Catalog table, verify results display in designbricks Table
+2. Test pagination: click next page, verify API call with updated offset
+3. Test loading state: show skeleton while fetching data
+4. Test error state: display error message when query fails
+5. Verify column headers render from DataSource.columns
+6. Verify keyboard navigation (Tab through cells)
+**Validation**: Unity Catalog queries display correctly, pagination works, no visual regressions  
+**Estimated Time**: 3-4 hours
+
+### T058 Visual consistency and accessibility validation
+**File**: N/A (validation task)  
+**Description**: Comprehensive validation of UI migration for visual consistency with Databricks design standards and WCAG 2.1 Level A accessibility compliance.  
+**Depends on**: T053-T057 (all component migrations complete)  
+**Acceptance Criteria**:
+1. **Keyboard Navigation**: Tab through all interactive elements (buttons, inputs, links). Verify focus indicators visible. Test Enter/Space to activate buttons, Escape to close dialogs.
+2. **Alt Text**: Verify all images have alt attributes. Icon-only buttons have aria-label.
+3. **Form Labels**: All input fields have associated label elements or aria-label attributes.
+4. **Color Contrast**: Use browser DevTools color picker. Text ≥18pt must have ≥3:1 contrast. Normal text must have ≥4.5:1 contrast. Test both light and dark themes.
+5. **Lighthouse Audit**: Run `npx lighthouse http://localhost:5173 --only-categories=accessibility --output=json --output=html`. Verify accessibility score ≥90.
+6. **Screen Reader**: Test with VoiceOver (Mac cmd+F5) or NVDA (Windows). Verify all content announced correctly, navigation logical.
+7. **Visual QA**: Compare with Databricks Workspace UI. Verify consistent spacing, typography, colors, shadows.
+8. **Component Cleanup**: Verify all shadcn/ui component files removed from `client/src/components/ui/` (except DataTable, PreferencesForm, ModelInvokeForm if using designbricks internally).
+**Validation**: Lighthouse score ≥90, all manual accessibility checks pass, visual consistency confirmed, shadcn/ui imports eliminated  
+**Estimated Time**: 2-3 hours
+
+---
+
 ## Phase 3.11: Integration Testing
 
 ### T036 [P] Create multi-user data isolation test
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/tests/integration/test_multi_user_isolation.py`  
 **Description**: Integration test with 2+ mock users, verify User A preferences not visible to User B, Unity Catalog enforces table permissions per user  
 **Depends on**: T024  
-**Validation**: Run `pytest tests/integration/test_multi_user_isolation.py` - should pass
+**Acceptance Criteria**:
+1. User A creates preference with key='theme', value='dark'
+2. User B queries GET /api/preferences with their auth context
+3. Assert User B receives empty array (no User A preferences visible)
+4. User B creates preference with same key='theme', value='light'
+5. Assert User A and User B each see only their own preference
+6. Query Unity Catalog table with User A context, verify only User A's accessible tables returned
+**Validation**: Run `pytest tests/integration/test_multi_user_isolation.py -v` - all assertions pass
 
 ### T037 [P] Create observability integration test
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/tests/integration/test_observability.py`  
 **Description**: Test that all API calls include correlation ID in logs, verify JSON log format with required fields  
 **Depends on**: T018  
-**Validation**: Run test, check stdout for JSON logs with request_id field
+**Acceptance Criteria**:
+1. Make API request without X-Request-ID header, capture logs
+2. Parse log output as JSON, verify each log entry has 'request_id' field
+3. Assert request_id is valid UUID format
+4. Make API request with custom X-Request-ID='test-correlation-123'
+5. Verify all logs for that request contain request_id='test-correlation-123'
+6. Trigger ERROR scenario (e.g., invalid model endpoint), verify ERROR level log contains: timestamp, level='ERROR', message, error_type, request_id, user_id
+7. Assert no PII (tokens, passwords) in any log entry
+**Validation**: Run `pytest tests/integration/test_observability.py -v -s` - check stdout for JSON logs, all assertions pass
 
 ### T038 Test WCAG 2.1 Level A accessibility compliance
 **File**: N/A (manual testing task)  
 **Description**: Test keyboard navigation (Tab, Enter, Escape), verify alt text on images, check form labels, validate contrast ratios (4.5:1 normal, 3:1 large text)  
 **Depends on**: T028, T033, T034, T035  
-**Validation**: Use browser DevTools Accessibility tab, lighthouse audit
+**Acceptance Criteria**:
+1. **Keyboard Navigation**: Tab through all interactive elements (buttons, inputs, tabs), verify focus visible, Enter activates buttons, Escape closes modals
+2. **Alt Text**: All `<img>` tags have alt attribute, icon buttons have aria-label
+3. **Form Labels**: All `<input>`, `<select>`, `<textarea>` have associated `<label>` or aria-label
+4. **Contrast Ratios**: Run browser DevTools color picker, verify text ≥18pt has ≥3:1 contrast, normal text has ≥4.5:1 contrast
+5. **Lighthouse Audit**: Run `lighthouse http://localhost:8000 --only-categories=accessibility --output=json`, verify accessibility score ≥90
+6. **Screen Reader**: Test with VoiceOver (Mac) or NVDA (Windows), verify all content is announced correctly
+**Validation**: All manual checks pass, Lighthouse score ≥90, no critical accessibility errors in DevTools Accessibility tab
 
 ### T039 Test pagination performance (NFR-003)
 **File**: N/A (performance testing task)  
 **Description**: Query Unity Catalog table with 100 rows, verify response time <500ms. Test with 10 concurrent users, verify <20% latency increase.  
 **Depends on**: T033  
-**Validation**: Use `dba_client.py` for load testing, measure response times
+**Acceptance Criteria**:
+1. **Baseline Single-User**: Query Unity Catalog table with limit=100, offset=0
+2. **Measure end-to-end API response time** using `time.perf_counter()` around API call (not `QueryResult.execution_time_ms` from response payload, which excludes network overhead)
+3. Assert end-to-end response time < 500ms for 5 consecutive requests (average baseline)
+4. **Concurrent Load**: Use `python dba_client.py` or `locust` to simulate 10 concurrent users making same query
+5. Measure 95th percentile end-to-end response time under load (p95_latency)
+6. Calculate latency increase: ((p95_latency - baseline) / baseline) * 100
+7. Assert latency increase < 20%
+8. **Model Inference**: Invoke model with standard payload, measure end-to-end response time < 2000ms
+9. **Documentation**: Log both `execution_time_ms` (DB query time) and end-to-end response time for analysis
+**Validation**: All assertions pass, document baseline and p95 latency in test output
+
+### T040A Test model input schema validation (EC-001a)
+**File**: N/A (integration testing task)  
+**Description**: Test model input validation against model-specific schemas stored in configuration files. Verify application returns HTTP 400 with INVALID_MODEL_INPUT error code for: (1) invalid JSON syntax, (2) missing required fields, (3) type mismatches, (4) constraint violations. Test client-side validation before sending to endpoint, and test server-side handling when endpoint rejects input despite validation.  
+**Depends on**: T022 (ModelServingService), T035 (Model Serving frontend integration)  
+**Acceptance Criteria**:
+1. Test invalid JSON syntax: Send malformed JSON to model invoke endpoint
+2. Assert HTTP 400 response with error_code='INVALID_MODEL_INPUT'
+3. Test missing required field: Send payload without required field from schema
+4. Assert error message includes "missing required field" and schema reference
+5. Test type mismatch: Send string value for integer field
+6. Assert validation error includes "expected_schema" from config
+7. Test constraint violation: Send value outside allowed range (if schema defines constraints)
+8. Verify client-side validation catches errors before API call (check network tab, no request sent)
+9. Mock model endpoint 4xx rejection despite validation, verify error forwarded to user
+10. Verify ERROR level log includes: request_id, user_id, validation_error details
+**Validation**: All test scenarios pass, EC-001a error response format validated
 
 ---
 
@@ -362,9 +508,17 @@ This is a **web application** with:
 
 ### T042 Validate Asset Bundle configuration
 **File**: N/A (validation task)  
-**Description**: Run `databricks bundle validate` to check databricks.yml syntax and resource definitions  
+**Description**: Run `databricks bundle validate` to check databricks.yml syntax and resource definitions. Document common validation errors in quickstart.md troubleshooting section (EC-005 compliance).  
 **Depends on**: T041  
-**Validation**: Command exits with 0, no errors reported
+**Acceptance Criteria**:
+1. Run `databricks bundle validate` - exits with code 0
+2. Add troubleshooting section to quickstart.md with common Asset Bundle validation errors:
+   - Missing required fields (name, source_code_path, description)
+   - Invalid target references (nonexistent workspace paths)
+   - Schema version mismatch
+   - Permission configuration errors
+3. Include resolution steps for each error type
+**Validation**: Command exits with 0, no errors reported, troubleshooting section added to quickstart.md
 
 ---
 
@@ -390,6 +544,13 @@ This is a **web application** with:
 ---
 
 ## Phase 3.14: End-to-End Validation (FINAL GATE)
+
+### T050 Validate code quality metrics (FR-015, NFR-001)
+**File**: N/A (validation task)  
+**Description**: Verify code quality standards are met: (1) Run `uv run mypy server/ --strict --show-error-codes` to verify ≥80% of module-level functions have return type annotations, (2) Run `uv run ruff check server/ --select C901` to verify cyclomatic complexity ≤10 per function, (3) Review docstring coverage - verify ≥1 docstring per public function (module-level, non-underscore-prefixed, or in __all__), (4) Check inline comments for functions with complexity >5 (≥1 comment per 20 lines)  
+**Depends on**: All implementation tasks (T001-T045)  
+**Validation**: mypy reports "Success: no issues found in X source files", ruff returns 0 exit code, manual docstring review passes  
+**Status**: PENDING
 
 ### T046 Execute quickstart.md end-to-end
 **File**: N/A (validation task)  
@@ -436,11 +597,15 @@ Frontend Migration (T028-T031) [P] + Client Regen (T032)
   ↓
 Frontend Integration (T033-T035)
   ↓
+UI Component Refactoring (T051-T058) ← NEW PHASE 3.15
+  ↓ (T051-T052 [P], T053-T056 sequential, T057 depends on T051+T053+T054, T058 final)
 Integration Tests (T036-T039) [P]
   ↓
 Sample Data & Config (T040-T042)
   ↓
 Documentation (T043-T045) [P]
+  ↓
+Code Quality Validation (T050) ← GATE
   ↓
 Validation (T046-T049) ← FINAL GATE
 ```
@@ -503,13 +668,14 @@ Task: "Create ModelInvokeForm component in client/src/components/ui/ModelInvokeF
 
 ## Task Summary
 
-**Total Tasks**: 49  
-**Parallel Tasks**: 23 (marked with [P])  
-**Sequential Tasks**: 26  
-**Gates**: 2 (T027 contract validation, T046-T049 final validation)
+**Total Tasks**: 59 (was 50, +8 for Phase 3.15 UI refactoring, +1 for EC-001a validation)  
+**Parallel Tasks**: 26 (marked with [P]) - includes T051-T052  
+**Sequential Tasks**: 33  
+**Gates**: 3 (T027 contract validation, T050 code quality, T046-T049 final validation)
 
-**Completion Status**: 35/49 tasks complete (71%)  
-**Current Phase**: Integration Testing (Phase 3.11)
+**Completion Status**: 34/59 tasks complete (58%)  
+**Current Phase**: UI Component Refactoring (Phase 3.15) - NEW REQUIREMENT  
+**Blockers**: T027 (Contract validation) requires live Databricks environment
 
 ### By Phase
 - **Setup**: 5 tasks (T001-T005) ✅ COMPLETE
@@ -522,9 +688,11 @@ Task: "Create ModelInvokeForm component in client/src/components/ui/ModelInvokeF
 - **Contract Validation**: 1 task (T027) ⚠️ BLOCKED
 - **Frontend Migration**: 4 tasks (T028-T031) ✅ COMPLETE
 - **Frontend Integration**: 4 tasks (T032-T035) ✅ COMPLETE
-- **Integration Testing**: 4 tasks (T036-T039) ⏳ PENDING
+- **UI Component Refactoring**: 8 tasks (T051-T058) ⏳ NEW REQUIREMENT - PENDING
+- **Integration Testing**: 5 tasks (T036-T039, T040A) ⏳ PENDING
 - **Sample Data & Config**: 3 tasks (T040-T042) - 2 complete, 1 pending
 - **Documentation**: 3 tasks (T043-T045) - 2 complete, 1 pending
+- **Code Quality Validation**: 1 task (T050) ⏳ PENDING
 - **Final Validation**: 4 tasks (T046-T049) ⏳ PENDING
 
 ---
@@ -539,10 +707,11 @@ Task: "Create ModelInvokeForm component in client/src/components/ui/ModelInvokeF
 - **Performance**: Unity Catalog queries must respond <500ms for ≤100 rows
 - **Commit Strategy**: Commit after each task completion
 - **Testing**: Run contract tests after each router implementation to ensure compliance
-- **OAuth Token Generation**: Databricks SDK successfully generates OAuth tokens for Lakebase when using logical bundle instance name (e.g., `databricks-app-lakebase-dev`) instead of technical UUID. Set via `LAKEBASE_INSTANCE_NAME` environment variable.
+- **OAuth Token Generation**: Databricks SDK successfully generates OAuth tokens for Lakebase when using logical bundle instance name (see spec.md Technical Prerequisites for details). Set via `LAKEBASE_INSTANCE_NAME` environment variable.
 - **Environment Variables**: Use `DATABRICKS_CATALOG` and `DATABRICKS_SCHEMA` (not `UNITY_CATALOG_NAME`/`UNITY_CATALOG_SCHEMA`)
-- **Design Bricks Package**: Using `designbricks` package (v0.2.2). Main components implemented: TopBar, Sidebar. Static content pages use shadcn/ui for better developer experience.
+- **Design Bricks Package**: Using `designbricks` package (v0.2.2). Main components implemented: TopBar, Sidebar. **Phase 3.15 added**: Migrate all remaining shadcn/ui components to designbricks to ensure full Constitutional compliance (Principle I: Design Bricks First, FR-016 through FR-020).
 - **Frontend Architecture**: DatabricksServicesPage serves as main application with tabbed interface. WelcomePage embedded as one tab. All three service integrations (Unity Catalog, Lakebase, Model Serving) functional with full CRUD operations.
+- **UI Component Migration**: Current implementation uses shadcn/ui for Card, Button, Input, Alert, Badge, DataTable. Phase 3.15 (T051-T058) systematically migrates to designbricks with @databricks/design-system fallback for gaps.
 
 ---
 
@@ -557,6 +726,46 @@ Task: "Create ModelInvokeForm component in client/src/components/ui/ModelInvokeF
 - [x] No [P] task modifies same file as another [P] task
 - [x] Gate at T027 ensures contract compliance before frontend work
 - [x] Final gate (T046-T049) ensures end-to-end validation
+
+## Code Review Checklist
+*Apply during code review and before T050 validation*
+
+### Terminology Conventions (from spec.md)
+- [ ] **Specification Prose**: Multi-word entity names with spaces (e.g., "User Session", "Data Source")
+- [ ] **Python Classes**: PascalCase without spaces (e.g., `UserSession`, `DataSource`)
+  - ✓ Correct: `class UserSession(BaseModel):`
+  - ✗ Incorrect: `class User_Session(BaseModel):` or `class user_session(BaseModel):`
+- [ ] **SQL Tables**: snake_case (e.g., `user_preferences`, `model_inference_logs`)
+  - ✓ Correct: `CREATE TABLE user_preferences (...)`
+  - ✗ Incorrect: `CREATE TABLE UserPreferences (...)` or `CREATE TABLE userPreferences (...)`
+- [ ] **JSON Fields**: snake_case for API contracts (e.g., `user_id`, `preference_key`)
+  - ✓ Correct: `{"user_id": "abc123", "preference_key": "theme"}`
+  - ✗ Incorrect: `{"userId": "abc123"}` or `{"PreferenceKey": "theme"}`
+- [ ] **TypeScript Interfaces**: PascalCase matching Python models (e.g., `UserSession`, `DataSource`)
+  - ✓ Correct: `interface UserSession { userId: string; }`
+  - ✗ Incorrect: `interface user_session { user_id: string; }`
+
+### Authentication Terminology
+- [ ] Use "OAuth token authentication" (not "token-based authentication" or generic "token auth")
+- [ ] Reference Databricks SDK `generate_database_credential()` API for Lakebase
+- [ ] Use "Databricks SDK authentication context" for Model Serving
+
+### Code Quality (NFR-001)
+- [ ] ≥1 docstring per public function (module-level, non-underscore-prefixed, or in `__all__`)
+- [ ] ≥80% type hints coverage (verified via `uv run mypy server/ --strict`)
+- [ ] Cyclomatic complexity ≤10 per function (verified via `uv run ruff check server/ --select C901`)
+- [ ] Inline comments for non-obvious logic (≥1 comment per 20 lines for complexity >5)
+
+### Observability (Principle VIII)
+- [ ] All API endpoints include correlation ID middleware
+- [ ] ERROR level logs include: timestamp, level, message, error_type, request_id, user_id, technical_details
+- [ ] No PII (tokens, passwords) in any log entry
+- [ ] Performance tracking logs execution time for API calls, DB queries, model inference
+
+### Data Isolation (Principle IX)
+- [ ] All Lakebase queries filter by `user_id` in WHERE clause
+- [ ] User identity extracted from Databricks authentication context (never client-provided)
+- [ ] FastAPI endpoints use `Depends(get_current_user_id)` for user context injection
 
 ---
 

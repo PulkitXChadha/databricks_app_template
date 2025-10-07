@@ -41,7 +41,7 @@ All persistent data operations MUST use Lakebase (Postgres hosted in Databricks)
 **Rules:**
 - Database connections through Lakebase endpoints
 - Use SQLAlchemy or similar ORMs with Postgres dialect
-- Token-based authentication for Lakebase access
+- OAuth token authentication for Lakebase access (tokens generated via Databricks SDK `generate_database_credential()` API)
 - No external OLTP systems or manual database management
 - Transaction support for data integrity
 - Alembic for database schema migrations and versioning
@@ -81,7 +81,7 @@ Applications MUST be ready to integrate with Databricks Model Serving endpoints.
 - Configuration-based model endpoint URLs (via environment variables)
 - Error handling for model serving failures
 - Response parsing for model outputs (JSON, streaming, batch)
-- Token authentication for serving endpoint access
+- OAuth token authentication for serving endpoint access (via Databricks SDK authentication context)
 - Timeout configuration (default 30s, max 300s)
 - Retry logic with exponential backoff for transient errors
 
@@ -179,7 +179,7 @@ Applications MUST implement two distinct authentication patterns based on operat
 Database access MUST follow Databricks security best practices.
 
 **Requirements:**
-- Token-based authentication for Lakebase connections
+- OAuth token authentication for Lakebase connections (via Databricks SDK `generate_database_credential()` API)
 - Row-level security via user_id filtering for multi-tenant scenarios
 - Audit logging of data access operations
 - Least privilege principle for service accounts
