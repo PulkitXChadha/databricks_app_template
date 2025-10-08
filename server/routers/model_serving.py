@@ -6,14 +6,12 @@ FastAPI endpoints for Model Serving inference.
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field
 from typing import Any
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.core import Config
-import os
 
 from server.services.model_serving_service import ModelServingService
 from server.models.model_endpoint import ModelEndpointResponse
 from server.models.model_inference import ModelInferenceResponse
 from server.lib.structured_logger import StructuredLogger
+from server.lib.auth import get_current_user_id, get_user_token
 
 router = APIRouter()
 logger = StructuredLogger(__name__)
@@ -25,70 +23,6 @@ class InvokeModelRequest(BaseModel):
     endpoint_name: str = Field(..., description="Target endpoint name")
     inputs: dict[str, Any] = Field(..., description="Model input data")
     timeout_seconds: int = Field(default=30, ge=1, le=300, description="Request timeout")
-
-
-async def get_user_token(request: Request) -> str | None:
-    """Extract user access token from request state.
-    
-    The token is set by middleware from the x-forwarded-access-token header.
-    This enables user authorization (on-behalf-of-user).
-    
-    Args:
-        request: FastAPI request object
-        
-    Returns:
-        User access token or None if not available
-    """
-    return getattr(request.state, 'user_token', None)
-
-
-async def get_current_user_id(request: Request) -> str:
-    """Extract user ID (email) from authentication context.
-    
-    In Databricks Apps, extracts the actual user's email from the user token.
-    In local development, returns a development user identifier.
-    
-    Args:
-        request: FastAPI request object
-        
-    Returns:
-        User email string
-    """
-    user_token = await get_user_token(request)
-    databricks_host = os.getenv('DATABRICKS_HOST')
-    
-    # Only try to get user info if we have both token and host (Databricks Apps environment)
-    if user_token and databricks_host:
-        try:
-            # Get user information using the user's access token
-            cfg = Config(
-                host=databricks_host,
-                token=user_token
-            )
-            client = WorkspaceClient(config=cfg)
-            user = client.current_user.me()
-            
-            # Get user email (primary email)
-            user_email = user.user_name or "unknown-user@databricks.com"
-            
-            logger.info(
-                "Retrieved user information from token",
-                user_id=user_email,
-                display_name=user.display_name
-            )
-            
-            return user_email
-            
-        except Exception as e:
-            logger.warning(
-                f"Failed to get user info from token: {str(e)}",
-                exc_info=True
-            )
-            # Fall back to generic identifier
-            return "authenticated-user@databricks.com"
-    else:
-        # Local development mode - return development user identifier
-        return "dev-user@example.com"
 
 
 @router.get("/endpoints", response_model=list[ModelEndpointResponse])

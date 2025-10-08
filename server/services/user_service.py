@@ -1,15 +1,33 @@
 """User service for Databricks user operations."""
 
+import os
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
 from databricks.sdk.service.iam import User
 
 
 class UserService:
   """Service for managing Databricks user operations."""
 
-  def __init__(self):
-    """Initialize the user service with Databricks workspace client."""
-    self.client = WorkspaceClient()
+  def __init__(self, user_token: str | None = None):
+    """Initialize the user service with Databricks workspace client.
+    
+    Args:
+        user_token: Optional user access token for user-specific operations.
+                   If None, uses service principal credentials.
+    """
+    if user_token:
+      # Use user token for user-specific operations
+      databricks_host = os.getenv('DATABRICKS_HOST')
+      if databricks_host:
+        cfg = Config(host=databricks_host, token=user_token)
+        self.client = WorkspaceClient(config=cfg)
+      else:
+        # Fallback to default client in local dev
+        self.client = WorkspaceClient()
+    else:
+      # Use service principal credentials (default)
+      self.client = WorkspaceClient()
 
   def get_current_user(self) -> User:
     """Get the current authenticated user."""
