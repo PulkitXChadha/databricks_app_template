@@ -173,6 +173,11 @@ class ModelServingService:
             
             # Build workload URL (endpoint invocation URL)
             workspace_url = os.getenv('DATABRICKS_HOST', 'https://example.cloud.databricks.com').rstrip('/')
+            # Ensure HTTPS is used (required by ModelEndpoint validator)
+            if workspace_url.startswith('http://'):
+                workspace_url = workspace_url.replace('http://', 'https://', 1)
+            elif not workspace_url.startswith('https://'):
+                workspace_url = f"https://{workspace_url}"
             workload_url = f"{workspace_url}/serving-endpoints/{endpoint_name}/invocations"
             
             endpoint = ModelEndpoint(
