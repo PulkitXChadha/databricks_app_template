@@ -328,7 +328,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
               </Typography.Text>
             </div>
             <div className="pt-4">
-              <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 font-mono text-sm">
+              <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 font-mono text-sm overflow-x-auto">
                 <pre className="text-muted-foreground leading-relaxed">
                   {`├── server/                    # FastAPI backend
 │   ├── app.py                 # Main application
