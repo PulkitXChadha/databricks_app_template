@@ -3,7 +3,7 @@
 FastAPI endpoints for Unity Catalog table querying.
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from typing import Any
 
@@ -31,22 +31,52 @@ class QueryTableRequest(BaseModel):
     }
 
 
-async def get_current_user_id() -> str:
+async def get_user_token(request: Request) -> str | None:
+    """Extract user access token from request state.
+    
+    The token is set by middleware from the x-forwarded-access-token header.
+    This enables user authorization (on-behalf-of-user).
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        User access token or None if not available
+    """
+    return getattr(request.state, 'user_token', None)
+
+
+async def get_current_user_id(request: Request) -> str:
     """Extract user ID from authentication context.
     
-    TODO: Implement proper authentication extraction from Databricks Apps context.
-    For now, returns placeholder for development.
+    In Databricks Apps, the user identity is managed by Databricks.
+    For development/testing, returns a placeholder.
     
+    Args:
+        request: FastAPI request object
+        
     Returns:
         User ID string
     """
-    # Placeholder - in production, extract from Databricks authentication context
-    return "dev-user@example.com"
+    # In production with user authorization, you could decode the token
+    # or use Databricks SDK to get user info
+    # For now, check if we have a user token
+    user_token = await get_user_token(request)
+    
+    if user_token:
+        # User authorization enabled - return generic identifier
+        # In production, you might decode the token to get actual user email
+        return "authenticated-user"
+    else:
+        # App authorization (service principal)
+        return "app-service-principal"
 
 
 @router.get("/catalogs", response_model=list[str])
 async def list_catalogs(
-    user_id: str = Depends(get_current_user_id)
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+    user_token: str | None = Depends(get_user_token)
 ):
     """List accessible Unity Catalog catalogs.
     
@@ -59,7 +89,7 @@ async def list_catalogs(
         503: Database unavailable (EC-002)
     """
     try:
-        service = UnityCatalogService()
+        service = UnityCatalogService(user_token=user_token)
         catalogs = await service.list_catalogs(user_id=user_id)
         return catalogs
         
@@ -82,8 +112,10 @@ async def list_catalogs(
 
 @router.get("/schemas", response_model=list[str])
 async def list_schemas(
+    request: Request,
     catalog: str,
-    user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id),
+    user_token: str | None = Depends(get_user_token)
 ):
     """List schemas in a Unity Catalog catalog.
     
@@ -99,7 +131,7 @@ async def list_schemas(
         503: Database unavailable (EC-002)
     """
     try:
-        service = UnityCatalogService()
+        service = UnityCatalogService(user_token=user_token)
         schemas = await service.list_schemas(
             catalog=catalog,
             user_id=user_id
@@ -141,9 +173,11 @@ async def list_schemas(
 
 @router.get("/table-names", response_model=list[str])
 async def list_table_names(
+    request: Request,
     catalog: str,
     schema: str,
-    user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id),
+    user_token: str | None = Depends(get_user_token)
 ):
     """List table names in a Unity Catalog schema.
     
@@ -160,7 +194,7 @@ async def list_table_names(
         503: Database unavailable (EC-002)
     """
     try:
-        service = UnityCatalogService()
+        service = UnityCatalogService(user_token=user_token)
         table_names = await service.list_table_names(
             catalog=catalog,
             schema=schema,
@@ -205,9 +239,11 @@ async def list_table_names(
 
 @router.get("/tables", response_model=list[DataSource])
 async def list_tables(
+    request: Request,
     catalog: str | None = None,
     schema: str | None = None,
-    user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id),
+    user_token: str | None = Depends(get_user_token)
 ):
     """List accessible Unity Catalog tables.
     
@@ -224,7 +260,7 @@ async def list_tables(
         503: Database unavailable (EC-002)
     """
     try:
-        service = UnityCatalogService()
+        service = UnityCatalogService(user_token=user_token)
         tables = await service.list_tables(
             catalog=catalog,
             schema=schema,
@@ -269,12 +305,14 @@ async def list_tables(
 
 @router.get("/query", response_model=QueryResult)
 async def query_table_get(
+    request: Request,
     catalog: str,
     schema: str,
     table: str,
     limit: int = 100,
     offset: int = 0,
-    user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id),
+    user_token: str | None = Depends(get_user_token)
 ):
     """Execute SELECT query on Unity Catalog table (GET method).
     
@@ -295,7 +333,7 @@ async def query_table_get(
         503: Database unavailable (EC-002)
     """
     try:
-        service = UnityCatalogService()
+        service = UnityCatalogService(user_token=user_token)
         result = await service.query_table(
             catalog=catalog,
             schema=schema,
@@ -368,8 +406,10 @@ async def query_table_get(
 
 @router.post("/query", response_model=QueryResult)
 async def query_table_post(
+    http_request: Request,
     request: QueryTableRequest,
-    user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id),
+    user_token: str | None = Depends(get_user_token)
 ):
     """Execute SELECT query on Unity Catalog table (POST method).
     
@@ -391,7 +431,7 @@ async def query_table_post(
         503: Database unavailable (EC-002)
     """
     try:
-        service = UnityCatalogService()
+        service = UnityCatalogService(user_token=user_token)
         result = await service.query_table(
             catalog=request.catalog,
             schema=request.schema,

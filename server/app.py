@@ -68,10 +68,16 @@ async def add_correlation_id(request: Request, call_next):
   - Sets correlation ID in context for logging
   - Adds X-Request-ID to response headers
   - Logs request with performance metrics
+  - Extracts user access token for user authorization
   """
   # Extract from header or generate new UUID
   request_id = request.headers.get('X-Request-ID', str(uuid4()))
   set_correlation_id(request_id)
+  
+  # Extract user access token from Databricks Apps header
+  # This enables user authorization (on-behalf-of-user)
+  user_token = request.headers.get('x-forwarded-access-token')
+  request.state.user_token = user_token  # Store in request state
   
   # Track request start time
   start_time = time.time()

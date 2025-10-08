@@ -3,6 +3,30 @@ command: [
   "server.app:app"
 ]
 
+# User Authorization Configuration
+# These scopes define what the app can access on behalf of users
+# See: https://docs.databricks.com/dev-tools/databricks-apps/auth.html
+user_authorization:
+  scopes:
+    # SQL and Data Access
+    - sql                                    # Execute SQL and manage SQL related resources
+    - catalog.catalogs:read                  # Read catalogs in Unity Catalog
+    - catalog.schemas:read                   # Read schemas in Unity Catalog
+    - catalog.tables:read                    # Read tables in Unity Catalog
+    - catalog.connections                    # Manage connections to external services and Lakehouse Federation
+    
+    # Model Serving and Vector Search
+    - serving.serving-endpoints              # Manage model serving endpoints
+    - vectorsearch.vector-search-indexes     # Manage vector search indexes
+    
+    # Dashboards and Files
+    - dashboards.genie                       # Manage Genie spaces
+    - files.files                            # Manage files and directories
+    
+    # IAM (Default scopes - required)
+    - iam.access-control:read                # Read access control settings and permissions (default)
+    - iam.current-user:read                  # Read authenticated user's basic information (default)
+
 env:
   # Databricks SDK Configuration (OAuth authentication is automatic)
   - name: DATABRICKS_HOST

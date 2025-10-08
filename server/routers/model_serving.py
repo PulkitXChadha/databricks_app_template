@@ -3,7 +3,7 @@
 FastAPI endpoints for Model Serving inference.
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field
 from typing import Any
 
@@ -24,21 +24,46 @@ class InvokeModelRequest(BaseModel):
     timeout_seconds: int = Field(default=30, ge=1, le=300, description="Request timeout")
 
 
-async def get_current_user_id() -> str:
+async def get_user_token(request: Request) -> str | None:
+    """Extract user access token from request state.
+    
+    The token is set by middleware from the x-forwarded-access-token header.
+    This enables user authorization (on-behalf-of-user).
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        User access token or None if not available
+    """
+    return getattr(request.state, 'user_token', None)
+
+
+async def get_current_user_id(request: Request) -> str:
     """Extract user ID from authentication context.
     
-    TODO: Implement proper authentication extraction from Databricks Apps context.
-    For now, returns placeholder for development.
+    In Databricks Apps, the user identity is managed by Databricks.
+    For development/testing, returns a placeholder.
     
+    Args:
+        request: FastAPI request object
+        
     Returns:
         User ID string
     """
-    # Placeholder - in production, extract from Databricks authentication context
-    return "dev-user@example.com"
+    user_token = await get_user_token(request)
+    
+    if user_token:
+        return "authenticated-user"
+    else:
+        return "app-service-principal"
 
 
 @router.get("/endpoints", response_model=list[ModelEndpointResponse])
-async def list_endpoints():
+async def list_endpoints(
+    request: Request,
+    user_token: str | None = Depends(get_user_token)
+):
     """List available Model Serving endpoints.
     
     Returns:
@@ -49,7 +74,7 @@ async def list_endpoints():
         503: Service unavailable
     """
     try:
-        service = ModelServingService()
+        service = ModelServingService(user_token=user_token)
         endpoints = await service.list_endpoints()
         return endpoints
         
@@ -71,8 +96,10 @@ async def list_endpoints():
 
 @router.post("/invoke", response_model=ModelInferenceResponse)
 async def invoke_model(
+    http_request: Request,
     request: InvokeModelRequest,
-    user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id),
+    user_token: str | None = Depends(get_user_token)
 ):
     """Invoke model for inference.
     
@@ -89,7 +116,7 @@ async def invoke_model(
         503: Model unavailable (EC-001)
     """
     try:
-        service = ModelServingService()
+        service = ModelServingService(user_token=user_token)
         response = await service.invoke_model(
             endpoint_name=request.endpoint_name,
             inputs=request.inputs,

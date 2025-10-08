@@ -1,6 +1,7 @@
 """Model Serving Service
 
 Service for invoking Databricks Model Serving endpoints for inference.
+Supports both app authorization (service principal) and user authorization.
 """
 
 import os
@@ -10,6 +11,7 @@ from typing import Any
 
 import httpx
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
 from databricks.sdk.errors import DatabricksError
 from sqlalchemy import text
 
@@ -32,11 +34,35 @@ class ModelServingService:
     - List available serving endpoints
     - Invoke model endpoints for predictions
     - Log inference requests to Lakebase
+    
+    Supports two authorization modes:
+    - App authorization: Uses service principal (default)
+    - User authorization: Uses user access token (when provided)
     """
     
-    def __init__(self):
-        """Initialize Model Serving service."""
-        self.client = WorkspaceClient()
+    def __init__(self, user_token: str | None = None):
+        """Initialize Model Serving service.
+        
+        Args:
+            user_token: Optional user access token for user authorization.
+                        If None, uses app authorization (service principal).
+        """
+        # Create WorkspaceClient based on authorization mode
+        if user_token:
+            # User authorization: Use user's access token
+            cfg = Config(
+                host=os.getenv('DATABRICKS_HOST'),
+                token=user_token
+            )
+            self.client = WorkspaceClient(config=cfg)
+            self.auth_mode = "user"
+            logger.info("Model Serving service initialized with user authorization")
+        else:
+            # App authorization: Use service principal (automatic OAuth)
+            self.client = WorkspaceClient()
+            self.auth_mode = "app"
+            logger.info("Model Serving service initialized with app authorization")
+        
         self.default_timeout = int(os.getenv('MODEL_SERVING_TIMEOUT', '30'))
     
     async def list_endpoints(self) -> list[ModelEndpointResponse]:

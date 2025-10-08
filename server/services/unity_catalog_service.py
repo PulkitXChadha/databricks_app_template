@@ -1,6 +1,7 @@
 """Unity Catalog Service
 
 Service for querying Unity Catalog tables with user-specific permissions.
+Supports both app authorization (service principal) and user authorization.
 """
 
 import os
@@ -9,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
 from databricks.sdk.service.sql import StatementState
 from databricks.sdk.errors import DatabricksError
 
@@ -26,11 +28,37 @@ class UnityCatalogService:
     - List accessible tables with metadata
     - Query tables with pagination
     - Enforce user-level access control via Unity Catalog
+    
+    Supports two authorization modes:
+    - App authorization: Uses service principal (default)
+    - User authorization: Uses user access token (when provided)
     """
     
-    def __init__(self):
-        """Initialize Unity Catalog service with Workspace client."""
-        self.client = WorkspaceClient()
+    def __init__(self, user_token: str | None = None):
+        """Initialize Unity Catalog service with Workspace client.
+        
+        Args:
+            user_token: Optional user access token for user authorization.
+                        If None, uses app authorization (service principal).
+        """
+        # Create WorkspaceClient based on authorization mode
+        if user_token:
+            # User authorization: Use user's access token
+            # This enforces the user's Unity Catalog permissions
+            cfg = Config(
+                host=os.getenv('DATABRICKS_HOST'),
+                token=user_token
+            )
+            self.client = WorkspaceClient(config=cfg)
+            self.auth_mode = "user"
+            logger.info("Unity Catalog service initialized with user authorization")
+        else:
+            # App authorization: Use service principal (automatic OAuth)
+            # This uses the app's service principal permissions
+            self.client = WorkspaceClient()
+            self.auth_mode = "app"
+            logger.info("Unity Catalog service initialized with app authorization")
+        
         self.warehouse_id = os.getenv('DATABRICKS_WAREHOUSE_ID')
         
         if not self.warehouse_id:
