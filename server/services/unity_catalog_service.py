@@ -156,6 +156,31 @@ class UnityCatalogService:
         try:
             start_time = datetime.utcnow()
             
+            # Execute COUNT query to get total row count
+            count_statement = f"SELECT COUNT(*) as total_count FROM {catalog}.{schema}.{table}"
+            total_row_count = None
+            
+            try:
+                count_response = self.client.statement_execution.execute_statement(
+                    warehouse_id=self.warehouse_id,
+                    statement=count_statement,
+                    wait_timeout='30s'
+                )
+                
+                if (hasattr(count_response, 'status') and 
+                    count_response.status and 
+                    count_response.status.state == StatementState.SUCCEEDED and
+                    hasattr(count_response, 'result') and 
+                    count_response.result and
+                    hasattr(count_response.result, 'data_array') and
+                    count_response.result.data_array):
+                    # Extract total count from first row
+                    total_row_count = int(count_response.result.data_array[0][0])
+                    logger.info(f"Total row count for {catalog}.{schema}.{table}: {total_row_count}")
+            except Exception as count_error:
+                logger.warning(f"Failed to get total row count: {count_error}")
+                # Continue without total count - pagination will still work based on returned rows
+            
             # Execute query via SQL Warehouse
             response = self.client.statement_execution.execute_statement(
                 warehouse_id=self.warehouse_id,
@@ -201,6 +226,7 @@ class UnityCatalogService:
                     sql_statement=sql_statement,
                     rows=rows,
                     row_count=len(rows),
+                    total_row_count=total_row_count,
                     execution_time_ms=execution_time_ms,
                     user_id=user_id or "unknown",
                     executed_at=end_time,
@@ -238,6 +264,7 @@ class UnityCatalogService:
                     sql_statement=sql_statement,
                     rows=[],
                     row_count=0,
+                    total_row_count=None,
                     execution_time_ms=execution_time_ms,
                     user_id=user_id or "unknown",
                     executed_at=end_time,

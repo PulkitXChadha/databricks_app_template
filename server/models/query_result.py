@@ -27,7 +27,8 @@ class QueryResult(BaseModel):
         data_source: The table that was queried
         sql_statement: The SQL query that was executed
         rows: Query result rows (array of dictionaries)
-        row_count: Number of rows returned
+        row_count: Number of rows returned in this page
+        total_row_count: Total number of rows in the table
         execution_time_ms: Query execution time in milliseconds
         user_id: User who executed the query
         executed_at: When query was executed
@@ -39,7 +40,8 @@ class QueryResult(BaseModel):
     data_source: DataSource = Field(..., description="Queried table metadata")
     sql_statement: str = Field(..., min_length=1, description="Executed SQL statement")
     rows: list[dict[str, Any]] = Field(default=[], description="Result rows")
-    row_count: int = Field(..., ge=0, description="Number of rows returned")
+    row_count: int = Field(..., ge=0, description="Number of rows returned in this page")
+    total_row_count: int | None = Field(default=None, ge=0, description="Total number of rows in the table")
     execution_time_ms: int = Field(..., gt=0, description="Execution time in milliseconds")
     user_id: str = Field(..., description="User who executed query")
     executed_at: datetime = Field(default_factory=datetime.utcnow, description="Execution timestamp")
@@ -93,6 +95,7 @@ class QueryResult(BaseModel):
                 "sql_statement": "SELECT * FROM main.samples.demo_data LIMIT 10",
                 "rows": [{"id": 1, "name": "Sample"}],
                 "row_count": 1,
+                "total_row_count": 1000,
                 "execution_time_ms": 250,
                 "user_id": "user@example.com",
                 "executed_at": "2025-10-05T12:00:00Z",

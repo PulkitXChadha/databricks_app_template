@@ -326,7 +326,7 @@ export function DatabricksServicesPage() {
                         table={table}
                         columns={ucData.data_source?.columns || []}
                         data={ucData.rows || []}
-                        totalRows={ucData.row_count || 0}
+                        totalRows={ucData.total_row_count || ucData.row_count || 0}
                         loading={ucLoading}
                         error={ucError}
                         onPageChange={handlePageChange}

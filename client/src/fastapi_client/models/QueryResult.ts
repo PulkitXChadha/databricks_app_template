@@ -12,7 +12,8 @@ import type { QueryStatus } from './QueryStatus';
  * data_source: The table that was queried
  * sql_statement: The SQL query that was executed
  * rows: Query result rows (array of dictionaries)
- * row_count: Number of rows returned
+ * row_count: Number of rows returned in this page
+ * total_row_count: Total number of rows in the table
  * execution_time_ms: Query execution time in milliseconds
  * user_id: User who executed the query
  * executed_at: When query was executed
@@ -37,9 +38,13 @@ export type QueryResult = {
      */
     rows?: Array<Record<string, any>>;
     /**
-     * Number of rows returned
+     * Number of rows returned in this page
      */
     row_count: number;
+    /**
+     * Total number of rows in the table
+     */
+    total_row_count?: (number | null);
     /**
      * Execution time in milliseconds
      */

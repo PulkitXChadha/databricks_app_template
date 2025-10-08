@@ -126,6 +126,15 @@ class TestUnityCatalogQueryContract:
             assert data['row_count'] == len(data['rows']), \
                 'row_count must equal len(rows)'
             
+            # Validate total_row_count if present
+            if 'total_row_count' in data and data['total_row_count'] is not None:
+                assert isinstance(data['total_row_count'], int), \
+                    'total_row_count must be an integer'
+                assert data['total_row_count'] >= 0, \
+                    'total_row_count must be non-negative'
+                assert data['total_row_count'] >= data['row_count'], \
+                    'total_row_count must be >= row_count'
+            
             # Validate execution_time_ms is positive
             assert data['execution_time_ms'] > 0, \
                 'execution_time_ms must be positive'

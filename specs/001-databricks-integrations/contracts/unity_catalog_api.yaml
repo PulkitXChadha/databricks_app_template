@@ -159,6 +159,7 @@ paths:
                     name: Sample B
                     value: 200
                 row_count: 2
+                total_row_count: 1000
                 execution_time_ms: 245
                 user_id: user@example.com
                 executed_at: '2025-10-04T12:00:00Z'
@@ -293,7 +294,12 @@ components:
         row_count:
           type: integer
           minimum: 0
-          description: Number of rows returned (must equal len(rows))
+          description: Number of rows returned in this page (must equal len(rows))
+        total_row_count:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Total number of rows in the table (for pagination)
         execution_time_ms:
           type: integer
           minimum: 1
