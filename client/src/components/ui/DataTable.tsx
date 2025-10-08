@@ -171,6 +171,8 @@ export const DataTable: React.FC<DataTableProps> = ({
               fontSize: "14px",
               borderRadius: "4px",
               border: "1px solid #ddd",
+              backgroundColor: "#fff",
+              color: "#000",
             }}
           >
             <option value="10">10</option>
