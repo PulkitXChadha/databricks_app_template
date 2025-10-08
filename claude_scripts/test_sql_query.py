@@ -5,7 +5,34 @@ import os
 import sys
 
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
 from databricks.sdk.service.sql import StatementState
+
+
+def _create_workspace_client() -> WorkspaceClient:
+  """Create WorkspaceClient with explicit OAuth configuration.
+  
+  This explicitly uses OAuth credentials to avoid conflicts with PAT tokens
+  that might be present in the environment.
+  
+  Returns:
+      WorkspaceClient configured with OAuth or default auth
+  """
+  databricks_host = os.getenv('DATABRICKS_HOST')
+  client_id = os.getenv('DATABRICKS_CLIENT_ID')
+  client_secret = os.getenv('DATABRICKS_CLIENT_SECRET')
+  
+  # If OAuth credentials are available, use them explicitly
+  if databricks_host and client_id and client_secret:
+    cfg = Config(
+      host=databricks_host,
+      client_id=client_id,
+      client_secret=client_secret
+    )
+    return WorkspaceClient(config=cfg)
+  
+  # Otherwise, let SDK auto-configure (will use single available method)
+  return WorkspaceClient()
 
 
 def execute_sql_query(sql_query):
@@ -13,8 +40,8 @@ def execute_sql_query(sql_query):
   print('Connecting to Databricks workspace...')
 
   try:
-    # Initialize Databricks client
-    client = WorkspaceClient()
+    # Initialize Databricks client with explicit OAuth configuration
+    client = _create_workspace_client()
 
     # List available SQL warehouses
     print('Available SQL warehouses:')

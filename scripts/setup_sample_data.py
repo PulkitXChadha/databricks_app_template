@@ -20,6 +20,7 @@ from pathlib import Path
 
 import click
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
@@ -34,6 +35,32 @@ if env_path.exists():
   console.print(f'[dim]Loaded environment from {env_path}[/dim]')
 else:
   console.print(f'[dim]No .env.local file found at {env_path}, using system environment[/dim]')
+
+
+def _create_workspace_client() -> WorkspaceClient:
+  """Create WorkspaceClient with explicit OAuth configuration.
+  
+  This explicitly uses OAuth credentials to avoid conflicts with PAT tokens
+  that might be present in the environment.
+  
+  Returns:
+      WorkspaceClient configured with OAuth or default auth
+  """
+  databricks_host = os.getenv('DATABRICKS_HOST')
+  client_id = os.getenv('DATABRICKS_CLIENT_ID')
+  client_secret = os.getenv('DATABRICKS_CLIENT_SECRET')
+  
+  # If OAuth credentials are available, use them explicitly
+  if databricks_host and client_id and client_secret:
+    cfg = Config(
+      host=databricks_host,
+      client_id=client_id,
+      client_secret=client_secret
+    )
+    return WorkspaceClient(config=cfg)
+  
+  # Otherwise, let SDK auto-configure (will use single available method)
+  return WorkspaceClient()
 
 
 def get_databricks_oauth_token() -> str:
@@ -86,8 +113,8 @@ def unity_catalog(catalog, schema, table, rows):
   console.print(f'Target: {catalog}.{schema}.{table}')
 
   try:
-    # Initialize Databricks client
-    client = WorkspaceClient()
+    # Initialize Databricks client with explicit OAuth configuration
+    client = _create_workspace_client()
     warehouse_id = os.getenv('DATABRICKS_WAREHOUSE_ID')
 
     if not warehouse_id:
@@ -205,8 +232,8 @@ def lakebase(num_records):
       pool_recycle=3600  # Recycle connections after 1 hour (token expiry)
     )
     
-    # Set up OAuth token authentication
-    workspace_client = WorkspaceClient()
+    # Set up OAuth token authentication with explicit configuration
+    workspace_client = _create_workspace_client()
     
     # Get instance name - prioritize explicit LAKEBASE_INSTANCE_NAME
     # This should be the logical bundle name like 'databricks-app-lakebase-dev'
@@ -381,7 +408,7 @@ def cleanup(catalog, schema, table, confirm):
   try:
     # Unity Catalog cleanup
     console.print(f'[cyan]1. Dropping Unity Catalog table {catalog}.{schema}.{table}...[/cyan]')
-    client = WorkspaceClient()
+    client = _create_workspace_client()
     warehouse_id = os.getenv('DATABRICKS_WAREHOUSE_ID')
 
     if warehouse_id:
@@ -405,8 +432,8 @@ def cleanup(catalog, schema, table, confirm):
       )
       engine = create_engine(connection_string, pool_recycle=3600)
       
-      # Set up OAuth token authentication
-      workspace_client_cleanup = WorkspaceClient()
+      # Set up OAuth token authentication with explicit configuration
+      workspace_client_cleanup = _create_workspace_client()
       # Use logical bundle name, not technical UUID
       instance_name_cleanup = os.getenv('LAKEBASE_INSTANCE_NAME', 'databricks-app-lakebase-dev')
       

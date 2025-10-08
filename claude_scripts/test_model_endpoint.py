@@ -8,14 +8,42 @@ This script helps determine what input format your endpoint expects by:
 
 import asyncio
 import json
+import os
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
 import httpx
+
+
+def _create_workspace_client() -> WorkspaceClient:
+    """Create WorkspaceClient with explicit OAuth configuration.
+    
+    This explicitly uses OAuth credentials to avoid conflicts with PAT tokens
+    that might be present in the environment.
+    
+    Returns:
+        WorkspaceClient configured with OAuth or default auth
+    """
+    databricks_host = os.getenv('DATABRICKS_HOST')
+    client_id = os.getenv('DATABRICKS_CLIENT_ID')
+    client_secret = os.getenv('DATABRICKS_CLIENT_SECRET')
+    
+    # If OAuth credentials are available, use them explicitly
+    if databricks_host and client_id and client_secret:
+        cfg = Config(
+            host=databricks_host,
+            client_id=client_id,
+            client_secret=client_secret
+        )
+        return WorkspaceClient(config=cfg)
+    
+    # Otherwise, let SDK auto-configure (will use single available method)
+    return WorkspaceClient()
 
 
 async def test_endpoint_formats(endpoint_name: str):
     """Test different input formats for a model serving endpoint."""
     
-    client = WorkspaceClient()
+    client = _create_workspace_client()
     
     print(f"\n{'='*80}")
     print(f"Testing endpoint: {endpoint_name}")

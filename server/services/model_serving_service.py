@@ -58,12 +58,39 @@ class ModelServingService:
             self.auth_mode = "user"
             logger.info("Model Serving service initialized with user authorization")
         else:
-            # App authorization: Use service principal (automatic OAuth)
-            self.client = WorkspaceClient()
+            # App authorization: Use service principal (explicit OAuth)
+            # Explicitly use OAuth to avoid conflict with PAT token in environment
+            cfg = self._create_service_principal_config()
+            self.client = WorkspaceClient(config=cfg)
             self.auth_mode = "app"
             logger.info("Model Serving service initialized with app authorization")
         
         self.default_timeout = int(os.getenv('MODEL_SERVING_TIMEOUT', '30'))
+    
+    def _create_service_principal_config(self) -> Config:
+        """Create Config for service principal authentication (OAuth).
+        
+        This explicitly uses OAuth credentials to avoid conflicts with PAT tokens
+        that might be present in the environment.
+        
+        Returns:
+            Config object with OAuth authentication
+        """
+        databricks_host = os.getenv('DATABRICKS_HOST')
+        client_id = os.getenv('DATABRICKS_CLIENT_ID')
+        client_secret = os.getenv('DATABRICKS_CLIENT_SECRET')
+        
+        # If OAuth credentials are available, use them explicitly
+        if databricks_host and client_id and client_secret:
+            return Config(
+                host=databricks_host,
+                client_id=client_id,
+                client_secret=client_secret
+            )
+        
+        # Otherwise, return empty config and let SDK auto-configure
+        # (this will use whatever single method is available)
+        return Config()
     
     async def list_endpoints(self) -> list[ModelEndpointResponse]:
         """List available Model Serving endpoints.

@@ -10,6 +10,32 @@ from sqlalchemy import pool
 
 from alembic import context
 
+
+def _create_workspace_client() -> WorkspaceClient:
+    """Create WorkspaceClient with explicit OAuth configuration.
+    
+    This explicitly uses OAuth credentials to avoid conflicts with PAT tokens
+    that might be present in the environment.
+    
+    Returns:
+        WorkspaceClient configured with OAuth or default auth
+    """
+    databricks_host = os.getenv('DATABRICKS_HOST')
+    client_id = os.getenv('DATABRICKS_CLIENT_ID')
+    client_secret = os.getenv('DATABRICKS_CLIENT_SECRET')
+    
+    # If OAuth credentials are available, use them explicitly
+    if databricks_host and client_id and client_secret:
+        cfg = DatabricksConfig(
+            host=databricks_host,
+            client_id=client_id,
+            client_secret=client_secret
+        )
+        return WorkspaceClient(config=cfg)
+    
+    # Otherwise, let SDK auto-configure (will use single available method)
+    return WorkspaceClient()
+
 # Load environment variables from .env.local
 load_dotenv(dotenv_path='.env.local')
 
@@ -93,7 +119,8 @@ def run_migrations_online() -> None:
     )
     
     # Set up authentication via event listener
-    workspace_client = WorkspaceClient()
+    # Use explicit OAuth configuration to avoid conflicts with PAT tokens
+    workspace_client = _create_workspace_client()
     
     # Get Lakebase instance name from host (extract instance UID and look up name)
     lakebase_host = os.getenv("PGHOST") or os.getenv("LAKEBASE_HOST")

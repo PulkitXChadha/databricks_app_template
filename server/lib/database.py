@@ -15,6 +15,32 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
 
+def _create_workspace_client() -> WorkspaceClient:
+    """Create WorkspaceClient with explicit OAuth configuration.
+    
+    This explicitly uses OAuth credentials to avoid conflicts with PAT tokens
+    that might be present in the environment.
+    
+    Returns:
+        WorkspaceClient configured with OAuth or default auth
+    """
+    databricks_host = os.getenv('DATABRICKS_HOST')
+    client_id = os.getenv('DATABRICKS_CLIENT_ID')
+    client_secret = os.getenv('DATABRICKS_CLIENT_SECRET')
+    
+    # If OAuth credentials are available, use them explicitly
+    if databricks_host and client_id and client_secret:
+        cfg = Config(
+            host=databricks_host,
+            client_id=client_id,
+            client_secret=client_secret
+        )
+        return WorkspaceClient(config=cfg)
+    
+    # Otherwise, let SDK auto-configure (will use single available method)
+    return WorkspaceClient()
+
+
 def get_lakebase_connection_string() -> str:
     """Build Lakebase connection string using Databricks SDK.
     
@@ -90,7 +116,8 @@ def create_lakebase_engine(
     )
     
     # Set up authentication via event listener
-    workspace_client = WorkspaceClient()
+    # Use explicit OAuth configuration to avoid conflicts with PAT tokens
+    workspace_client = _create_workspace_client()
     
     # Get Lakebase instance name
     # Use LAKEBASE_INSTANCE_NAME if provided (logical name from bundle)
