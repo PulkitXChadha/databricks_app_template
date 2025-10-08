@@ -88,8 +88,15 @@ class ModelServingService:
                 client_secret=client_secret
             )
         
-        # Otherwise, return empty config and let SDK auto-configure
-        # (this will use whatever single method is available)
+        # Otherwise, use host-only config and let SDK auto-detect auth
+        # (CLI auth, profile-based auth, etc.)
+        logger.warning(
+            "OAuth credentials not found, falling back to SDK auto-detection. "
+            "Set DATABRICKS_HOST, DATABRICKS_CLIENT_ID, and DATABRICKS_CLIENT_SECRET for explicit OAuth."
+        )
+        if databricks_host:
+            return Config(host=databricks_host)
+        # If no host either, return empty config for full auto-detection
         return Config()
     
     async def list_endpoints(self) -> list[ModelEndpointResponse]:

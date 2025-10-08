@@ -1,9 +1,14 @@
 """User service for Databricks user operations."""
 
 import os
+import logging
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.core import Config
 from databricks.sdk.service.iam import User
+
+from server.lib.structured_logger import StructuredLogger
+
+logger = StructuredLogger(__name__)
 
 
 class UserService:
@@ -37,16 +42,39 @@ class UserService:
         cfg = self._create_service_principal_config()
         self.client = WorkspaceClient(config=cfg)
     except Exception as e:
-      # If client initialization fails, create a basic client with explicit OAuth
-      # This ensures the service can still instantiate
-      import logging
-      logging.warning(f"Failed to initialize WorkspaceClient: {e}. Using default client.")
-      try:
-        cfg = self._create_service_principal_config()
+      # If client initialization fails due to auth validation warning,
+      # suppress it and continue with the configured client
+      error_msg = str(e)
+      if "more than one authorization method" in error_msg:
+        # This is expected in mixed environments (OAuth + CLI auth)
+        # The SDK will use the explicitly configured method (OAuth)
+        logger.debug(
+          "Multiple auth methods detected, using explicitly configured OAuth",
+          error=error_msg
+        )
+        # The client should still have been created successfully despite the validation warning
+        # Re-create with the same config to ensure it works
+        if user_token:
+          databricks_host = os.getenv('DATABRICKS_HOST')
+          if databricks_host and not databricks_host.startswith('http'):
+            databricks_host = f'https://{databricks_host}'
+          cfg = Config(host=databricks_host, token=user_token) if databricks_host else Config(token=user_token)
+        else:
+          cfg = self._create_service_principal_config()
         self.client = WorkspaceClient(config=cfg)
-      except Exception:
-        # Last resort: let SDK auto-configure
-        self.client = WorkspaceClient()
+      else:
+        # Genuine error, log and fallback
+        logger.warning(
+          f"Failed to initialize WorkspaceClient: {error_msg}. Using default client.",
+          error=error_msg,
+          exc_info=True
+        )
+        try:
+          cfg = self._create_service_principal_config()
+          self.client = WorkspaceClient(config=cfg)
+        except Exception:
+          # Last resort: let SDK auto-configure
+          self.client = WorkspaceClient()
 
   def _create_service_principal_config(self) -> Config:
     """Create Config for service principal authentication (OAuth).
@@ -69,8 +97,15 @@ class UserService:
         client_secret=client_secret
       )
     
-    # Otherwise, return empty config and let SDK auto-configure
-    # (this will use whatever single method is available)
+    # Otherwise, use host-only config and let SDK auto-detect auth
+    # (CLI auth, profile-based auth, etc.)
+    logger.warning(
+        "OAuth credentials not found, falling back to SDK auto-detection. "
+        "Set DATABRICKS_HOST, DATABRICKS_CLIENT_ID, and DATABRICKS_CLIENT_SECRET for explicit OAuth."
+    )
+    if databricks_host:
+      return Config(host=databricks_host)
+    # If no host either, return empty config for full auto-detection
     return Config()
 
   def get_current_user(self) -> User:
