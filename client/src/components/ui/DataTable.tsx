@@ -2,12 +2,12 @@
  * DataTable Component
  *
  * Displays Unity Catalog query results with pagination controls.
+ * Uses DesignBricks Table component for data display.
  */
 
 import React, { useState, useEffect } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, Alert, Table, type Column as DBColumn } from "designbricks";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface Column {
   name: string;
@@ -71,8 +71,8 @@ export const DataTable: React.FC<DataTableProps> = ({
   if (error) {
     return (
       <div className="data-table-container">
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
+        <Alert severity="error">
+          {error}
         </Alert>
       </div>
     );
@@ -93,14 +93,32 @@ export const DataTable: React.FC<DataTableProps> = ({
   if (data.length === 0) {
     return (
       <div className="data-table-container">
-        <Alert>
-          <AlertDescription>
-            No data available in {catalog}.{schema}.{table}
-          </AlertDescription>
+        <Alert severity="info">
+          No data available in {catalog}.{schema}.{table}
         </Alert>
       </div>
     );
   }
+
+  // Convert Unity Catalog columns to DesignBricks Table columns
+  const tableColumns: DBColumn[] = columns.map((col) => ({
+    key: col.name,
+    header: (
+      <>
+        {col.name}
+        <span style={{ fontSize: "12px", color: "#666", marginLeft: "4px", fontWeight: "normal" }}>
+          ({col.data_type})
+        </span>
+      </>
+    ),
+    align: "left" as const,
+    render: (value: any) => {
+      if (value !== null && value !== undefined) {
+        return String(value);
+      }
+      return <span style={{ color: "#999", fontStyle: "italic" }}>NULL</span>;
+    },
+  }));
 
   return (
     <div className="data-table-container">
@@ -115,76 +133,17 @@ export const DataTable: React.FC<DataTableProps> = ({
         </p>
       </div>
 
-      {/* Data Table */}
-      <div
-        className="table-wrapper"
-        style={{ overflowX: "auto", marginBottom: "16px" }}
-      >
-        <table
-          className="databricks-table"
-          style={{ width: "100%", borderCollapse: "collapse" }}
-        >
-          <thead>
-            <tr
-              style={{
-                backgroundColor: "#f5f5f5",
-                borderBottom: "2px solid #ddd",
-              }}
-            >
-              {columns.map((col) => (
-                <th
-                  key={col.name}
-                  style={{
-                    padding: "12px",
-                    textAlign: "left",
-                    fontWeight: 600,
-                    fontSize: "14px",
-                  }}
-                >
-                  {col.name}
-                  <span
-                    style={{
-                      fontSize: "12px",
-                      color: "#666",
-                      marginLeft: "4px",
-                    }}
-                  >
-                    ({col.data_type})
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((row, rowIndex) => (
-              <tr
-                key={rowIndex}
-                style={{
-                  borderBottom: "1px solid #eee",
-                  backgroundColor: rowIndex % 2 === 0 ? "#fff" : "#fafafa",
-                }}
-              >
-                {columns.map((col) => (
-                  <td
-                    key={col.name}
-                    style={{
-                      padding: "12px",
-                      fontSize: "14px",
-                    }}
-                  >
-                    {row[col.name] !== null && row[col.name] !== undefined ? (
-                      String(row[col.name])
-                    ) : (
-                      <span style={{ color: "#999", fontStyle: "italic" }}>
-                        NULL
-                      </span>
-                    )}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* DesignBricks Table */}
+      <div style={{ marginBottom: "16px" }}>
+        <Table
+          columns={tableColumns}
+          data={data}
+          striped
+          hoverable
+          bordered
+          loading={loading}
+          emptyMessage={`No data available in ${catalog}.${schema}.${table}`}
+        />
       </div>
 
       {/* Pagination Controls */}
@@ -232,8 +191,8 @@ export const DataTable: React.FC<DataTableProps> = ({
 
           <div style={{ display: "flex", gap: "8px" }}>
             <Button
-              variant="outline"
-              size="sm"
+              variant="secondary"
+              size="small"
               disabled={currentPage === 1}
               onClick={handlePrevPage}
             >
@@ -241,8 +200,8 @@ export const DataTable: React.FC<DataTableProps> = ({
             </Button>
 
             <Button
-              variant="outline"
-              size="sm"
+              variant="secondary"
+              size="small"
               disabled={currentPage === totalPages}
               onClick={handleNextPage}
             >

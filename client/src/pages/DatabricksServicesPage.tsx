@@ -8,9 +8,7 @@
  */
 
 import React, { useState } from "react";
-import { TopBar, Sidebar, Card, Button, type SidebarItem } from "designbricks";
-import { Input } from "@/components/ui/input";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { TopBar, Sidebar, Card, Button, TextField, Alert, type SidebarItem } from "designbricks";
 import { Database, Settings, Brain, Home } from "lucide-react";
 import { DataTable } from "@/components/ui/DataTable";
 import { PreferencesForm } from "@/components/ui/PreferencesForm";
@@ -214,7 +212,7 @@ export function DatabricksServicesPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" data-theme="light">
       {/* TopBar from DesignBricks */}
       <TopBar
         height={64}
@@ -274,45 +272,33 @@ export function DatabricksServicesPage() {
                     {/* Query Form */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
-                        <label
-                          htmlFor="catalog"
-                          className="block text-sm font-medium mb-2"
-                        >
-                          Catalog
-                        </label>
-                        <Input
+                        <TextField
                           id="catalog"
+                          label="Catalog"
                           value={catalog}
                           onChange={(e) => setCatalog(e.target.value)}
                           placeholder="main"
+                          fullWidth
                         />
                       </div>
                       <div>
-                        <label
-                          htmlFor="schema"
-                          className="block text-sm font-medium mb-2"
-                        >
-                          Schema
-                        </label>
-                        <Input
+                        <TextField
                           id="schema"
+                          label="Schema"
                           value={schema}
                           onChange={(e) => setSchema(e.target.value)}
                           placeholder="samples"
+                          fullWidth
                         />
                       </div>
                       <div>
-                        <label
-                          htmlFor="table"
-                          className="block text-sm font-medium mb-2"
-                        >
-                          Table
-                        </label>
-                        <Input
+                        <TextField
                           id="table"
+                          label="Table"
                           value={table}
                           onChange={(e) => setTable(e.target.value)}
                           placeholder="demo_data"
+                          fullWidth
                         />
                       </div>
                     </div>
@@ -328,8 +314,8 @@ export function DatabricksServicesPage() {
 
                     {/* Results */}
                     {ucError && (
-                      <Alert variant="destructive">
-                        <AlertDescription>{ucError}</AlertDescription>
+                      <Alert severity="error">
+                        {ucError}
                       </Alert>
                     )}
 

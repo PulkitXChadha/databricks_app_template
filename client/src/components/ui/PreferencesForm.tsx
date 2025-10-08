@@ -5,9 +5,8 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { Button } from "designbricks";
+import { Button, Alert } from "designbricks";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface UserPreference {
   id: number;
@@ -139,15 +138,15 @@ export const PreferencesForm: React.FC<PreferencesFormProps> = ({
 
       {/* Success Message */}
       {successMessage && (
-        <Alert className="mb-4">
-          <AlertDescription>{successMessage}</AlertDescription>
+        <Alert severity="success" className="mb-4">
+          {successMessage}
         </Alert>
       )}
 
       {/* Error Message */}
       {error && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertDescription>{error}</AlertDescription>
+        <Alert severity="error" className="mb-4">
+          {error}
         </Alert>
       )}
 
@@ -242,10 +241,8 @@ export const PreferencesForm: React.FC<PreferencesFormProps> = ({
           Current Preferences
         </h3>
         {preferences.length === 0 ? (
-          <Alert>
-            <AlertDescription>
-              No preferences found. Create your first preference above.
-            </AlertDescription>
+          <Alert severity="info">
+            No preferences found. Create your first preference above.
           </Alert>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>

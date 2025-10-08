@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Card, Button } from "designbricks";
-import { Badge } from "@/components/ui/badge";
+import { Card, Button, Badge } from "designbricks";
 import {
   Code,
   ExternalLink,
@@ -73,7 +72,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                     {userInfo.emails[0] || userInfo.userName}
                   </p>
                 </div>
-                <Badge variant={userInfo.active ? "default" : "secondary"}>
+                <Badge variant={userInfo.active ? "success" : "warning"}>
                   {userInfo.active ? "Active" : "Inactive"}
                 </Badge>
               </div>
@@ -138,11 +137,11 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between items-center">
                     <span>Frontend (React + Vite)</span>
-                    <Badge variant="outline">:5173</Badge>
+                    <Badge variant="info">:5173</Badge>
                   </div>
                   <div className="flex justify-between items-center">
                     <span>Backend (FastAPI)</span>
-                    <Badge variant="outline">:8000</Badge>
+                    <Badge variant="info">:8000</Badge>
                   </div>
                 </div>
               </div>
@@ -266,25 +265,25 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                 <h4 className="font-semibold mb-3 text-black dark:text-white">Backend</h4>
                   <ul className="space-y-2 text-sm">
                     <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="info" size="small">
                         Python
                       </Badge>
                       <span>FastAPI + uvicorn</span>
                     </li>
                     <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="info" size="small">
                         Package
                       </Badge>
                       <span>uv for dependencies</span>
                     </li>
                     <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="info" size="small">
                         SDK
                       </Badge>
                       <span>Databricks SDK</span>
                     </li>
                     <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="info" size="small">
                         Quality
                       </Badge>
                       <span>ruff for linting</span>
@@ -297,25 +296,25 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                   </h4>
                   <ul className="space-y-2 text-sm">
                     <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="info" size="small">
                         React
                       </Badge>
                       <span>TypeScript + Vite</span>
                     </li>
                     <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="info" size="small">
                         UI
                       </Badge>
-                      <span>shadcn/ui + Tailwind</span>
+                      <span>DesignBricks + Tailwind</span>
                     </li>
                     <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="info" size="small">
                         Data
                       </Badge>
                       <span>React Query</span>
                     </li>
                     <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="info" size="small">
                         Package
                       </Badge>
                       <span>bun for speed</span>
@@ -386,7 +385,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-4">
                 <div className="flex items-start gap-3">
-                  <Badge className="mt-1">Auto</Badge>
+                  <Badge variant="primary" className="mt-1">Auto</Badge>
                   <div>
                     <h5 className="font-semibold">
                       TypeScript Client Generation
@@ -398,7 +397,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <Badge className="mt-1">Hot</Badge>
+                  <Badge variant="primary" className="mt-1">Hot</Badge>
                   <div>
                     <h5 className="font-semibold">Hot Reloading</h5>
                     <p className="text-sm text-muted-foreground">
@@ -408,7 +407,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <Badge className="mt-1">Auth</Badge>
+                  <Badge variant="primary" className="mt-1">Auth</Badge>
                   <div>
                     <h5 className="font-semibold">Databricks Authentication</h5>
                     <p className="text-sm text-muted-foreground">
@@ -420,7 +419,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
               </div>
               <div className="space-y-4">
                 <div className="flex items-start gap-3">
-                  <Badge className="mt-1">Deploy</Badge>
+                  <Badge variant="primary" className="mt-1">Deploy</Badge>
                   <div>
                     <h5 className="font-semibold">Databricks Apps Ready</h5>
                     <p className="text-sm text-muted-foreground">
@@ -429,7 +428,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <Badge className="mt-1">Quality</Badge>
+                  <Badge variant="primary" className="mt-1">Quality</Badge>
                   <div>
                     <h5 className="font-semibold">Code Quality Tools</h5>
                     <p className="text-sm text-muted-foreground">
@@ -439,7 +438,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <Badge className="mt-1">Logs</Badge>
+                  <Badge variant="primary" className="mt-1">Logs</Badge>
                   <div>
                     <h5 className="font-semibold">Background Development</h5>
                     <p className="text-sm text-muted-foreground">

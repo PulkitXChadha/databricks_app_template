@@ -5,9 +5,8 @@
  */
 
 import React, { useState } from "react";
-import { Button } from "designbricks";
+import { Button, Alert, TextField, Select } from "designbricks";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface ModelEndpoint {
   endpoint_name: string;
@@ -79,8 +78,8 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
     }
   };
 
-  const handleEndpointChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedEndpoint(e.target.value);
+  const handleEndpointChange = (value: string | number | (string | number)[]) => {
+    setSelectedEndpoint(value as string);
     setResponse(null);
     setInvocationError(null);
   };
@@ -96,6 +95,12 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
   const currentEndpoint = endpoints.find(
     (ep) => ep.endpoint_name === selectedEndpoint,
   );
+
+  // Convert endpoints to Select options
+  const endpointOptions = endpoints.map((ep) => ({
+    value: ep.endpoint_name,
+    label: `${ep.endpoint_name} (${ep.model_name} v${ep.model_version}) - ${ep.state}`,
+  }));
 
   // Loading state
   if (loading) {
@@ -123,18 +128,16 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
 
       {/* Error Message */}
       {error && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertDescription>{error}</AlertDescription>
+        <Alert severity="error" className="mb-4">
+          {error}
         </Alert>
       )}
 
       {/* No endpoints available */}
       {endpoints.length === 0 && !loading && (
-        <Alert className="mb-4">
-          <AlertDescription>
-            No Model Serving endpoints available. Please create an endpoint
-            first.
-          </AlertDescription>
+        <Alert severity="info" className="mb-4">
+          No Model Serving endpoints available. Please create an endpoint
+          first.
         </Alert>
       )}
 
@@ -143,41 +146,27 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
+            justifyContent: "flex-end",
             alignItems: "center",
             marginBottom: "8px",
           }}
         >
-          <label htmlFor="endpoint-selector" style={{ fontWeight: 600 }}>
-            Select Endpoint
-          </label>
           {onRefreshEndpoints && (
             <Button variant="primary" size="small" onClick={onRefreshEndpoints}>
               Refresh Endpoints
             </Button>
           )}
         </div>
-        <select
-          id="endpoint-selector"
+        <Select
+          options={endpointOptions}
           value={selectedEndpoint}
           onChange={handleEndpointChange}
-          style={{
-            width: "100%",
-            padding: "10px 12px",
-            fontSize: "14px",
-            borderRadius: "4px",
-            border: "1px solid #ddd",
-            backgroundColor: "#fff",
-          }}
-        >
-          <option value="">-- Select an endpoint --</option>
-          {endpoints.map((ep) => (
-            <option key={ep.endpoint_name} value={ep.endpoint_name}>
-              {ep.endpoint_name} ({ep.model_name} v{ep.model_version}) -{" "}
-              {ep.state}
-            </option>
-          ))}
-        </select>
+          placeholder="-- Select an endpoint --"
+          label="Select Endpoint"
+          fullWidth
+          searchable
+          clearable
+        />
       </div>
 
       {/* Endpoint Details */}
@@ -219,10 +208,8 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
             </div>
           </div>
           {currentEndpoint.state !== "READY" && (
-            <Alert className="mt-2">
-              <AlertDescription>
-                Endpoint must be in READY state for inference
-              </AlertDescription>
+            <Alert severity="warning" className="mt-2">
+              Endpoint must be in READY state for inference
             </Alert>
           )}
         </div>
@@ -259,30 +246,17 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
 
       {/* Timeout Setting */}
       <div style={{ marginBottom: "24px" }}>
-        <label
-          htmlFor="timeout-input"
-          style={{ display: "block", marginBottom: "8px", fontWeight: 600 }}
-        >
-          Timeout (seconds)
-        </label>
-        <input
+        <TextField
           id="timeout-input"
           type="number"
-          value={timeout}
+          label="Timeout (seconds)"
+          description="Request timeout (1-300 seconds)"
+          value={timeout.toString()}
           onChange={handleTimeoutChange}
           min={1}
           max={300}
-          style={{
-            width: "100%",
-            padding: "10px 12px",
-            fontSize: "14px",
-            borderRadius: "4px",
-            border: "1px solid #ddd",
-          }}
+          fullWidth
         />
-        <p style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-          Request timeout (1-300 seconds)
-        </p>
       </div>
 
       {/* Invoke Button */}
@@ -301,8 +275,8 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
 
       {/* Invocation Error */}
       {invocationError && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertDescription>{invocationError}</AlertDescription>
+        <Alert severity="error" className="mb-4">
+          {invocationError}
         </Alert>
       )}
 
@@ -322,10 +296,8 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
                 border: "1px solid #bfdbfe",
               }}
             >
-              <Alert className="mb-3">
-                <AlertDescription>
-                  Inference completed in {response.execution_time_ms}ms
-                </AlertDescription>
+              <Alert severity="success" className="mb-3">
+                Inference completed in {response.execution_time_ms}ms
               </Alert>
 
               <div style={{ marginBottom: "8px", fontSize: "14px" }}>
@@ -358,11 +330,9 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
                 border: "1px solid #fecaca",
               }}
             >
-              <Alert variant="destructive">
-                <AlertDescription>
-                  Inference {response.status}:{" "}
-                  {response.error_message || "Unknown error"}
-                </AlertDescription>
+              <Alert severity="error">
+                Inference {response.status}:{" "}
+                {response.error_message || "Unknown error"}
               </Alert>
               <div style={{ marginTop: "12px", fontSize: "14px" }}>
                 <strong>Request ID:</strong> {response.request_id}
