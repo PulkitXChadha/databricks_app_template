@@ -53,7 +53,7 @@ def get_lakebase_connection_string() -> str:
 
 def create_lakebase_engine(
     connection_string: str | None = None,
-    pool_size: int = 5,
+    pool_size: int = 10,
     max_overflow: int = 10,
     pool_pre_ping: bool = True
 ) -> Engine:
@@ -72,7 +72,7 @@ def create_lakebase_engine(
         Configured SQLAlchemy engine with OAuth token authentication
         
     Example:
-        engine = create_lakebase_engine(pool_size=5, max_overflow=10)
+        engine = create_lakebase_engine(pool_size=10, max_overflow=10)
         with engine.connect() as conn:
             result = conn.execute(text("SELECT 1"))
     """

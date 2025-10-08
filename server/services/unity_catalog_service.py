@@ -117,6 +117,88 @@ class UnityCatalogService:
                 raise PermissionError(f"No access to catalog {catalog}.{schema}") from e
             raise
     
+    def _validate_pagination_params(self, limit: int, offset: int) -> None:
+        """Validate pagination parameters.
+        
+        Args:
+            limit: Maximum rows to return
+            offset: Row offset for pagination
+            
+        Raises:
+            ValueError: If parameters are invalid
+        """
+        if limit < 1 or limit > 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        if offset < 0:
+            raise ValueError("offset must be non-negative")
+    
+    async def _execute_count_query(self, catalog: str, schema: str, table: str) -> int | None:
+        """Execute COUNT query to get total row count.
+        
+        Args:
+            catalog: Catalog name
+            schema: Schema name
+            table: Table name
+            
+        Returns:
+            Total row count or None if query fails
+        """
+        count_statement = f"SELECT COUNT(*) as total_count FROM {catalog}.{schema}.{table}"
+        
+        try:
+            count_response = self.client.statement_execution.execute_statement(
+                warehouse_id=self.warehouse_id,
+                statement=count_statement,
+                wait_timeout='30s'
+            )
+            
+            if (hasattr(count_response, 'status') and 
+                count_response.status and 
+                count_response.status.state == StatementState.SUCCEEDED and
+                hasattr(count_response, 'result') and 
+                count_response.result and
+                hasattr(count_response.result, 'data_array') and
+                count_response.result.data_array):
+                total_row_count = int(count_response.result.data_array[0][0])
+                logger.info(f"Total row count for {catalog}.{schema}.{table}: {total_row_count}")
+                return total_row_count
+        except Exception as count_error:
+            logger.warning(f"Failed to get total row count: {count_error}")
+        
+        return None
+    
+    def _remap_column_names(
+        self, 
+        rows: list[dict[str, Any]], 
+        data_source: DataSource,
+        result_column_names: list[str]
+    ) -> list[dict[str, Any]]:
+        """Remap generic column names to actual column names from metadata.
+        
+        Args:
+            rows: Query result rows with generic column names
+            data_source: DataSource with actual column definitions
+            result_column_names: Column names from query result
+            
+        Returns:
+            Rows with remapped column names
+        """
+        if not rows or result_column_names or not data_source.columns:
+            return rows
+        
+        logger.info("Remapping generic column names to actual column names from metadata")
+        remapped_rows = []
+        for row in rows:
+            remapped_row = {}
+            for idx, col_def in enumerate(data_source.columns):
+                generic_key = f"col_{idx}"
+                if generic_key in row:
+                    remapped_row[col_def.name] = row[generic_key]
+            remapped_rows.append(remapped_row)
+        
+        logger.info(f"Remapped rows to use columns: {[col.name for col in data_source.columns]}")
+        return remapped_rows
+    
     async def query_table(
         self,
         catalog: str,
@@ -145,10 +227,7 @@ class UnityCatalogService:
             PermissionError: If user lacks table access (EC-004)
         """
         # Validate parameters
-        if limit < 1 or limit > 1000:
-            raise ValueError("limit must be between 1 and 1000")
-        if offset < 0:
-            raise ValueError("offset must be non-negative")
+        self._validate_pagination_params(limit, offset)
         
         query_id = str(uuid4())
         sql_statement = f"SELECT * FROM {catalog}.{schema}.{table} LIMIT {limit} OFFSET {offset}"
@@ -157,29 +236,7 @@ class UnityCatalogService:
             start_time = datetime.utcnow()
             
             # Execute COUNT query to get total row count
-            count_statement = f"SELECT COUNT(*) as total_count FROM {catalog}.{schema}.{table}"
-            total_row_count = None
-            
-            try:
-                count_response = self.client.statement_execution.execute_statement(
-                    warehouse_id=self.warehouse_id,
-                    statement=count_statement,
-                    wait_timeout='30s'
-                )
-                
-                if (hasattr(count_response, 'status') and 
-                    count_response.status and 
-                    count_response.status.state == StatementState.SUCCEEDED and
-                    hasattr(count_response, 'result') and 
-                    count_response.result and
-                    hasattr(count_response.result, 'data_array') and
-                    count_response.result.data_array):
-                    # Extract total count from first row
-                    total_row_count = int(count_response.result.data_array[0][0])
-                    logger.info(f"Total row count for {catalog}.{schema}.{table}: {total_row_count}")
-            except Exception as count_error:
-                logger.warning(f"Failed to get total row count: {count_error}")
-                # Continue without total count - pagination will still work based on returned rows
+            total_row_count = await self._execute_count_query(catalog, schema, table)
             
             # Execute query via SQL Warehouse
             response = self.client.statement_execution.execute_statement(
@@ -205,20 +262,8 @@ class UnityCatalogService:
                 # Use columns from query result if metadata fetch fails
                 data_source = await self._get_table_metadata(catalog, schema, table, fallback_columns=columns)
                 
-                # If we got generic column names (col_0, col_1, etc) but have proper column definitions,
-                # remap the row data to use the correct column names
-                if rows and not result_column_names and data_source.columns:
-                    logger.info("Remapping generic column names to actual column names from metadata")
-                    remapped_rows = []
-                    for row in rows:
-                        remapped_row = {}
-                        for idx, col_def in enumerate(data_source.columns):
-                            generic_key = f"col_{idx}"
-                            if generic_key in row:
-                                remapped_row[col_def.name] = row[generic_key]
-                        remapped_rows.append(remapped_row)
-                    rows = remapped_rows
-                    logger.info(f"Remapped rows to use columns: {[col.name for col in data_source.columns]}")
+                # Remap generic column names to actual column names if needed
+                rows = self._remap_column_names(rows, data_source, result_column_names)
                 
                 query_result = QueryResult(
                     query_id=query_id,
@@ -318,6 +363,59 @@ class UnityCatalogService:
         
         return columns
     
+    def _extract_column_names_from_result(self, result: Any) -> list[str]:
+        """Extract column names from query result.
+        
+        Args:
+            result: Statement execution result
+            
+        Returns:
+            List of column names (empty if not found)
+        """
+        column_names = []
+        
+        # Method 1: From manifest.schema.columns
+        if hasattr(result, 'manifest') and result.manifest:
+            if hasattr(result.manifest, 'schema') and result.manifest.schema:
+                if hasattr(result.manifest.schema, 'columns') and result.manifest.schema.columns:
+                    column_names = [col.name for col in result.manifest.schema.columns]
+                    logger.info(f"Extracted column names from manifest.schema: {column_names}")
+        
+        # Method 2: From chunks (alternative path in SDK)
+        if not column_names and hasattr(result, 'manifest') and result.manifest:
+            if hasattr(result.manifest, 'chunks') and result.manifest.chunks:
+                logger.info("Checking chunks for column info")
+        
+        if not column_names:
+            logger.warning("Could not extract column names from result, will use table metadata order")
+        
+        return column_names
+    
+    def _convert_rows_to_dicts(
+        self, 
+        data_array: list[list[Any]], 
+        column_names: list[str]
+    ) -> list[dict[str, Any]]:
+        """Convert row arrays to dictionaries.
+        
+        Args:
+            data_array: List of row data arrays
+            column_names: List of column names
+            
+        Returns:
+            List of row dictionaries
+        """
+        rows = []
+        for row_data in data_array:
+            row_dict = {}
+            for idx, value in enumerate(row_data):
+                column_name = column_names[idx] if idx < len(column_names) else f"col_{idx}"
+                row_dict[column_name] = value
+            rows.append(row_dict)
+        
+        logger.info(f"Converted {len(rows)} rows to dictionaries")
+        return rows
+    
     def _parse_result_data(self, result: Any) -> tuple[list[dict[str, Any]], list[str]]:
         """Parse SQL statement result into list of dictionaries and extract column names.
         
@@ -336,33 +434,11 @@ class UnityCatalogService:
                 logger.warning("Result has no data_array or data_array is empty")
                 return [], []
             
-            # Try multiple ways to get column names
-            column_names = []
-            
-            # Method 1: From manifest.schema.columns
-            if hasattr(result, 'manifest') and result.manifest:
-                if hasattr(result.manifest, 'schema') and result.manifest.schema:
-                    if hasattr(result.manifest.schema, 'columns') and result.manifest.schema.columns:
-                        column_names = [col.name for col in result.manifest.schema.columns]
-                        logger.info(f"Extracted column names from manifest.schema: {column_names}")
-            
-            # Method 2: From chunks (alternative path in SDK)
-            if not column_names and hasattr(result, 'manifest') and result.manifest:
-                if hasattr(result.manifest, 'chunks') and result.manifest.chunks:
-                    # Sometimes column info is in chunks
-                    logger.info(f"Checking chunks for column info")
-            
-            if not column_names:
-                logger.warning("Could not extract column names from result, will use table metadata order")
+            # Extract column names from result
+            column_names = self._extract_column_names_from_result(result)
             
             # Convert rows to dictionaries
-            rows = []
-            for row_data in result.data_array:
-                row_dict = {}
-                for idx, value in enumerate(row_data):
-                    column_name = column_names[idx] if idx < len(column_names) else f"col_{idx}"
-                    row_dict[column_name] = value
-                rows.append(row_dict)
+            rows = self._convert_rows_to_dicts(result.data_array, column_names)
             
             logger.info(f"Parsed {len(rows)} rows with {len(column_names) if column_names else 'generic'} column names")
             
