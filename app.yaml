@@ -29,8 +29,6 @@ user_authorization:
 
 env:
   # Databricks SDK Configuration (OAuth authentication is automatic)
-  - name: DATABRICKS_HOST
-  
   # Unity Catalog Configuration
   - name: DATABRICKS_WAREHOUSE_ID
     value: "5df2ea9402e3c33b"
@@ -47,10 +45,7 @@ env:
   - name: LAKEBASE_DATABASE
     value: "app_database"
   
-  # Model Serving Configuration
-  - name: MODEL_SERVING_ENDPOINT
-  - name: MODEL_SERVING_TIMEOUT
-    value: "30"
+
   
   # Observability Configuration
   - name: LOG_LEVEL
