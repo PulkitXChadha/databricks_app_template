@@ -3,10 +3,13 @@
 FastAPI endpoints for user preferences (Lakebase CRUD operations).
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from typing import Any
 from enum import Enum
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
+import os
 
 from server.services.lakebase_service import LakebaseService
 from server.lib.structured_logger import StructuredLogger
@@ -40,21 +43,71 @@ class UserPreferenceResponse(BaseModel):
     updated_at: str
 
 
-async def get_current_user_id() -> str:
-    """Extract user ID from authentication context.
+async def get_user_token(request: Request) -> str | None:
+    """Extract user access token from request state.
     
-    TODO: Implement proper authentication extraction from Databricks Apps context.
-    For now, returns placeholder for development.
+    The token is set by middleware from the x-forwarded-access-token header.
+    This enables user authorization (on-behalf-of-user).
     
+    Args:
+        request: FastAPI request object
+        
     Returns:
-        User ID string
+        User access token or None if not available
     """
-    # Placeholder - in production, extract from Databricks authentication context
-    return "dev-user@example.com"
+    return getattr(request.state, 'user_token', None)
+
+
+async def get_current_user_id(request: Request) -> str:
+    """Extract user ID (email) from authentication context.
+    
+    In Databricks Apps, extracts the actual user's email from the user token.
+    Falls back to service principal identifier if no user token is available.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        User email string
+    """
+    user_token = await get_user_token(request)
+    
+    if user_token:
+        try:
+            # Get user information using the user's access token
+            cfg = Config(
+                host=os.getenv('DATABRICKS_HOST'),
+                token=user_token
+            )
+            client = WorkspaceClient(config=cfg)
+            user = client.current_user.me()
+            
+            # Get user email (primary email)
+            user_email = user.user_name or "unknown-user@databricks.com"
+            
+            logger.info(
+                "Retrieved user information from token",
+                user_id=user_email,
+                display_name=user.display_name
+            )
+            
+            return user_email
+            
+        except Exception as e:
+            logger.warning(
+                f"Failed to get user info from token: {str(e)}",
+                exc_info=True
+            )
+            # Fall back to generic identifier
+            return "authenticated-user@databricks.com"
+    else:
+        # App authorization (service principal) - development mode
+        return "app-service-principal@databricks.com"
 
 
 @router.get("/preferences", response_model=list[UserPreferenceResponse])
 async def get_preferences(
+    request: Request,
     preference_key: str | None = None,
     user_id: str = Depends(get_current_user_id)
 ):
@@ -69,12 +122,25 @@ async def get_preferences(
     Raises:
         503: Database unavailable (EC-002)
     """
+    logger.info(
+        "Getting user preferences",
+        user_id=user_id,
+        preference_key=preference_key
+    )
+    
     try:
         service = LakebaseService()
         preferences = await service.get_preferences(
             user_id=user_id,
             preference_key=preference_key
         )
+        
+        logger.info(
+            f"Retrieved {len(preferences)} preferences for user",
+            user_id=user_id,
+            count=len(preferences)
+        )
+        
         return preferences
         
     except ValueError as e:
@@ -124,6 +190,7 @@ async def get_preferences(
 
 @router.post("/preferences", response_model=UserPreferenceResponse)
 async def save_preference(
+    http_request: Request,
     request: SavePreferenceRequest,
     user_id: str = Depends(get_current_user_id)
 ):
@@ -140,6 +207,12 @@ async def save_preference(
         400: Invalid preference data
         503: Database unavailable (EC-002)
     """
+    logger.info(
+        "Saving user preference",
+        user_id=user_id,
+        preference_key=request.preference_key.value
+    )
+    
     try:
         service = LakebaseService()
         preference = await service.save_preference(
@@ -147,6 +220,13 @@ async def save_preference(
             preference_key=request.preference_key.value,
             preference_value=request.preference_value
         )
+        
+        logger.info(
+            "Saved user preference successfully",
+            user_id=user_id,
+            preference_key=request.preference_key.value
+        )
+        
         return preference
         
     except ValueError as e:
@@ -200,6 +280,7 @@ async def save_preference(
 
 @router.delete("/preferences/{preference_key}", status_code=204)
 async def delete_preference(
+    request: Request,
     preference_key: str,
     user_id: str = Depends(get_current_user_id)
 ):
@@ -215,6 +296,12 @@ async def delete_preference(
         404: Preference not found for this user
         503: Database unavailable (EC-002)
     """
+    logger.info(
+        "Deleting user preference",
+        user_id=user_id,
+        preference_key=preference_key
+    )
+    
     try:
         service = LakebaseService()
         deleted = await service.delete_preference(
@@ -223,6 +310,11 @@ async def delete_preference(
         )
         
         if not deleted:
+            logger.warning(
+                "Preference not found for deletion",
+                user_id=user_id,
+                preference_key=preference_key
+            )
             raise HTTPException(
                 status_code=404,
                 detail={
@@ -230,6 +322,12 @@ async def delete_preference(
                     "message": f"Preference '{preference_key}' not found for this user."
                 }
             )
+        
+        logger.info(
+            "Deleted user preference successfully",
+            user_id=user_id,
+            preference_key=preference_key
+        )
         
         return None  # 204 No Content
         
