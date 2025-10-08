@@ -146,6 +146,9 @@ def get_engine() -> Engine:
     Returns:
         Global SQLAlchemy engine instance
         
+    Raises:
+        ValueError: If Lakebase is not configured
+        
     Usage:
         engine = get_engine()
         with engine.connect() as conn:
@@ -153,8 +156,25 @@ def get_engine() -> Engine:
     """
     global _engine
     if _engine is None:
+        # Check if Lakebase is configured before creating engine
+        if not is_lakebase_configured():
+            raise ValueError(
+                "Lakebase is not configured. Please set PGHOST/LAKEBASE_HOST and LAKEBASE_DATABASE environment variables, "
+                "or configure a Lakebase resource in your databricks.yml deployment."
+            )
         _engine = create_lakebase_engine()
     return _engine
+
+
+def is_lakebase_configured() -> bool:
+    """Check if Lakebase database is configured.
+    
+    Returns:
+        True if Lakebase environment variables are set, False otherwise
+    """
+    postgres_host = os.getenv('PGHOST') or os.getenv('LAKEBASE_HOST')
+    postgres_database = os.getenv('LAKEBASE_DATABASE')
+    return bool(postgres_host and postgres_database)
 
 
 def get_session_factory() -> sessionmaker:

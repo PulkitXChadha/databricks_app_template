@@ -224,6 +224,34 @@ async def get_inference_logs(
             offset=offset
         )
         
+    except ValueError as e:
+        # Lakebase not configured
+        if "Lakebase is not configured" in str(e):
+            logger.warning(
+                f"Lakebase not configured: {str(e)}",
+                user_id=user_id
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error_code": "LAKEBASE_NOT_CONFIGURED",
+                    "message": "Inference logs are not available. Lakebase database is not configured for this deployment.",
+                    "technical_details": {
+                        "error_type": "ConfigurationError",
+                        "suggestion": "Configure Lakebase resource in databricks.yml or set PGHOST and LAKEBASE_DATABASE environment variables."
+                    },
+                    "retry_after": None
+                }
+            )
+        # Other ValueError
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "INVALID_REQUEST",
+                "message": str(e)
+            }
+        )
+    
     except Exception as e:
         logger.error(
             f"Error retrieving inference logs: {str(e)}",

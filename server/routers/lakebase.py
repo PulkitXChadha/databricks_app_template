@@ -77,6 +77,34 @@ async def get_preferences(
         )
         return preferences
         
+    except ValueError as e:
+        # Lakebase not configured
+        if "Lakebase is not configured" in str(e):
+            logger.warning(
+                f"Lakebase not configured: {str(e)}",
+                user_id=user_id
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error_code": "LAKEBASE_NOT_CONFIGURED",
+                    "message": "User preferences are not available. Lakebase database is not configured for this deployment.",
+                    "technical_details": {
+                        "error_type": "ConfigurationError",
+                        "suggestion": "Configure Lakebase resource in databricks.yml or set PGHOST and LAKEBASE_DATABASE environment variables."
+                    },
+                    "retry_after": None
+                }
+            )
+        # Other ValueError
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "INVALID_REQUEST",
+                "message": str(e)
+            }
+        )
+    
     except Exception as e:
         logger.error(
             f"Error getting preferences: {str(e)}",
@@ -122,6 +150,25 @@ async def save_preference(
         return preference
         
     except ValueError as e:
+        # Lakebase not configured
+        if "Lakebase is not configured" in str(e):
+            logger.warning(
+                f"Lakebase not configured: {str(e)}",
+                user_id=user_id
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error_code": "LAKEBASE_NOT_CONFIGURED",
+                    "message": "User preferences are not available. Lakebase database is not configured for this deployment.",
+                    "technical_details": {
+                        "error_type": "ConfigurationError",
+                        "suggestion": "Configure Lakebase resource in databricks.yml or set PGHOST and LAKEBASE_DATABASE environment variables."
+                    },
+                    "retry_after": None
+                }
+            )
+        # Other ValueError
         logger.warning(
             f"Invalid preference data: {str(e)}",
             user_id=user_id
@@ -188,6 +235,34 @@ async def delete_preference(
         
     except HTTPException:
         raise  # Re-raise 404
+    
+    except ValueError as e:
+        # Lakebase not configured
+        if "Lakebase is not configured" in str(e):
+            logger.warning(
+                f"Lakebase not configured: {str(e)}",
+                user_id=user_id
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error_code": "LAKEBASE_NOT_CONFIGURED",
+                    "message": "User preferences are not available. Lakebase database is not configured for this deployment.",
+                    "technical_details": {
+                        "error_type": "ConfigurationError",
+                        "suggestion": "Configure Lakebase resource in databricks.yml or set PGHOST and LAKEBASE_DATABASE environment variables."
+                    },
+                    "retry_after": None
+                }
+            )
+        # Other ValueError
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "INVALID_REQUEST",
+                "message": str(e)
+            }
+        )
     
     except Exception as e:
         logger.error(

@@ -467,6 +467,17 @@ class ModelServingService:
             response: Model inference response
         """
         try:
+            # Import here to avoid circular dependency
+            from server.lib.database import is_lakebase_configured
+            
+            # Skip logging if Lakebase is not configured
+            if not is_lakebase_configured():
+                logger.debug(
+                    "Skipping inference logging - Lakebase not configured",
+                    request_id=request.request_id
+                )
+                return
+            
             engine = get_engine()
             
             # Serialize inputs and predictions as JSON
