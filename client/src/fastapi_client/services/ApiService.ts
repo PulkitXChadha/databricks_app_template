@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { DataSource } from '../models/DataSource';
+import type { InferenceLogsListResponse } from '../models/InferenceLogsListResponse';
 import type { InvokeModelRequest } from '../models/InvokeModelRequest';
 import type { ModelEndpointResponse } from '../models/ModelEndpointResponse';
 import type { ModelInferenceResponse } from '../models/ModelInferenceResponse';
@@ -388,6 +389,41 @@ export class ApiService {
             url: '/api/model-serving/invoke',
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Inference Logs
+     * Get inference logs for the current user.
+     *
+     * Query Parameters:
+     * limit: Maximum number of logs to return (default: 50)
+     * offset: Offset for pagination (default: 0)
+     *
+     * Returns:
+     * InferenceLogsListResponse with logs and pagination info
+     *
+     * Raises:
+     * 401: Authentication required
+     * 503: Service unavailable
+     * @param limit
+     * @param offset
+     * @returns InferenceLogsListResponse Successful Response
+     * @throws ApiError
+     */
+    public static getInferenceLogsApiModelServingLogsGet(
+        limit: number = 50,
+        offset?: number,
+    ): CancelablePromise<InferenceLogsListResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/model-serving/logs',
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
             errors: {
                 422: `Validation Error`,
             },

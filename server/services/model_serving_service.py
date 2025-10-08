@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import DatabricksError
+from sqlalchemy import text
 
 from server.models.model_endpoint import ModelEndpoint, ModelEndpointResponse, EndpointState
 from server.models.model_inference import (
@@ -19,6 +20,7 @@ from server.models.model_inference import (
     InferenceStatus
 )
 from server.lib.structured_logger import StructuredLogger
+from server.lib.database import get_engine
 
 logger = StructuredLogger(__name__)
 
@@ -272,7 +274,8 @@ class ModelServingService:
                 execution_time_ms=execution_time_ms
             )
             
-            # TODO: Log inference to Lakebase model_inference_logs table (future task)
+            # Log inference to Lakebase model_inference_logs table
+            await self._log_inference(request, response)
             
             return response
             
@@ -285,7 +288,7 @@ class ModelServingService:
                 user_id=user_id
             )
             
-            return ModelInferenceResponse(
+            response = ModelInferenceResponse(
                 request_id=request.request_id,
                 endpoint_name=endpoint_name,
                 predictions={},
@@ -294,6 +297,11 @@ class ModelServingService:
                 error_message=f"Request timeout after {timeout} seconds",
                 completed_at=datetime.utcnow()
             )
+            
+            # Log inference to Lakebase
+            await self._log_inference(request, response)
+            
+            return response
             
         except (httpx.HTTPError, DatabricksError, ValueError) as e:
             end_time = datetime.utcnow()
@@ -322,7 +330,7 @@ class ModelServingService:
                 user_id=user_id
             )
             
-            return ModelInferenceResponse(
+            response = ModelInferenceResponse(
                 request_id=request.request_id,
                 endpoint_name=endpoint_name,
                 predictions={},
@@ -331,6 +339,11 @@ class ModelServingService:
                 error_message=error_message,
                 completed_at=end_time
             )
+            
+            # Log inference to Lakebase
+            await self._log_inference(request, response)
+            
+            return response
     
     async def _invoke_with_retry(
         self,
@@ -436,3 +449,135 @@ class ModelServingService:
                     else:
                         # Max retries reached
                         raise last_exception
+    
+    async def _log_inference(
+        self,
+        request: ModelInferenceRequest,
+        response: ModelInferenceResponse
+    ) -> None:
+        """Log inference request and response to Lakebase.
+        
+        Args:
+            request: Model inference request
+            response: Model inference response
+        """
+        try:
+            engine = get_engine()
+            
+            # Serialize inputs and predictions as JSON
+            import json
+            inputs_json = json.dumps(request.inputs)
+            predictions_json = json.dumps(response.predictions) if response.predictions else None
+            
+            # Insert log record
+            with engine.connect() as conn:
+                conn.execute(
+                    text("""
+                        INSERT INTO model_inference_logs (
+                            request_id, endpoint_name, user_id, inputs, predictions,
+                            status, execution_time_ms, error_message, created_at, completed_at
+                        ) VALUES (
+                            :request_id, :endpoint_name, :user_id, :inputs::jsonb, :predictions::jsonb,
+                            :status, :execution_time_ms, :error_message, :created_at, :completed_at
+                        )
+                    """),
+                    {
+                        "request_id": request.request_id,
+                        "endpoint_name": request.endpoint_name,
+                        "user_id": request.user_id,
+                        "inputs": inputs_json,
+                        "predictions": predictions_json,
+                        "status": response.status.value,
+                        "execution_time_ms": response.execution_time_ms,
+                        "error_message": response.error_message,
+                        "created_at": request.created_at,
+                        "completed_at": response.completed_at
+                    }
+                )
+                conn.commit()
+            
+            logger.debug(
+                f"Logged inference to database",
+                request_id=request.request_id,
+                user_id=request.user_id
+            )
+            
+        except Exception as e:
+            # Log error but don't fail the inference request
+            logger.error(
+                f"Failed to log inference to database: {str(e)}",
+                exc_info=True,
+                request_id=request.request_id
+            )
+    
+    async def get_user_inference_logs(
+        self,
+        user_id: str,
+        limit: int = 50,
+        offset: int = 0
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Get inference logs for a specific user.
+        
+        Args:
+            user_id: User ID to filter logs
+            limit: Maximum number of logs to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple of (logs list, total count)
+        """
+        try:
+            engine = get_engine()
+            
+            with engine.connect() as conn:
+                # Get total count
+                count_result = conn.execute(
+                    text("""
+                        SELECT COUNT(*) as total
+                        FROM model_inference_logs
+                        WHERE user_id = :user_id
+                    """),
+                    {"user_id": user_id}
+                )
+                total_count = count_result.fetchone()[0]
+                
+                # Get logs
+                result = conn.execute(
+                    text("""
+                        SELECT 
+                            id, request_id, endpoint_name, user_id,
+                            inputs, predictions, status, execution_time_ms,
+                            error_message, created_at, completed_at
+                        FROM model_inference_logs
+                        WHERE user_id = :user_id
+                        ORDER BY created_at DESC
+                        LIMIT :limit OFFSET :offset
+                    """),
+                    {"user_id": user_id, "limit": limit, "offset": offset}
+                )
+                
+                logs = []
+                for row in result:
+                    logs.append({
+                        "id": row[0],
+                        "request_id": row[1],
+                        "endpoint_name": row[2],
+                        "user_id": row[3],
+                        "inputs": row[4],
+                        "predictions": row[5],
+                        "status": row[6],
+                        "execution_time_ms": row[7],
+                        "error_message": row[8],
+                        "created_at": row[9].isoformat() if row[9] else None,
+                        "completed_at": row[10].isoformat() if row[10] else None
+                    })
+                
+                return logs, total_count
+                
+        except Exception as e:
+            logger.error(
+                f"Failed to retrieve inference logs: {str(e)}",
+                exc_info=True,
+                user_id=user_id
+            )
+            raise

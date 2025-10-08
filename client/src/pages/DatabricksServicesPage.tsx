@@ -13,6 +13,7 @@ import { Database, Settings, Brain, Home } from "lucide-react";
 import { DataTable } from "@/components/ui/DataTable";
 import { PreferencesForm } from "@/components/ui/PreferencesForm";
 import { ModelInvokeForm } from "@/components/ui/ModelInvokeForm";
+import { ModelHistoryTable } from "@/components/ui/ModelHistoryTable";
 import { WelcomePage } from "./WelcomePage";
 import {
   UnityCatalogService,
@@ -27,6 +28,7 @@ export function DatabricksServicesPage() {
   const [userInfo, setUserInfo] = React.useState<UserInfo | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState("welcome");
+  const [modelServingSubTab, setModelServingSubTab] = useState<"invoke" | "history">("invoke");
 
   // Unity Catalog state
   const [catalogs, setCatalogs] = useState<string[]>([]);
@@ -51,6 +53,14 @@ export function DatabricksServicesPage() {
   const [endpoints, setEndpoints] = useState<any[]>([]);
   const [endpointsLoading, setEndpointsLoading] = useState(false);
   const [endpointsError, setEndpointsError] = useState<string | null>(null);
+  
+  // Model History state
+  const [inferenceHistory, setInferenceHistory] = useState<any[]>([]);
+  const [historyTotalCount, setHistoryTotalCount] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLimit, setHistoryLimit] = useState(50);
+  const [historyOffset, setHistoryOffset] = useState(0);
 
   // Load user info on mount
   React.useEffect(() => {
@@ -260,7 +270,37 @@ export function DatabricksServicesPage() {
         timeout_seconds: timeout,
       },
     );
+    // Refresh history after successful invocation
+    if (result.status === "SUCCESS") {
+      loadInferenceHistory();
+    }
     return result;
+  };
+
+  // Load inference history
+  const loadInferenceHistory = async (limit: number = 50, offset: number = 0) => {
+    try {
+      setHistoryLoading(true);
+      setHistoryError(null);
+
+      const data = await ModelServingService.getInferenceLogsApiModelServingLogsGet(
+        limit,
+        offset
+      );
+      setInferenceHistory(data.logs);
+      setHistoryTotalCount(data.total_count);
+      setHistoryLimit(limit);
+      setHistoryOffset(offset);
+    } catch (err: any) {
+      setHistoryError(err.message || "Failed to load inference history");
+      console.error("Failed to load inference history:", err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleHistoryPageChange = async (limit: number, offset: number) => {
+    await loadInferenceHistory(limit, offset);
   };
 
   // Sidebar configuration
@@ -432,18 +472,78 @@ export function DatabricksServicesPage() {
                 <div className="flex flex-col space-y-1.5">
                   <Typography.Title level={2} withoutMargins>Model Serving</Typography.Title>
                   <Typography.Text color="secondary">
-                    Invoke ML models deployed to Databricks Model Serving
-                    endpoints
+                    Invoke ML models and view inference history
                   </Typography.Text>
                 </div>
-                <div className="pt-4">
-                  <ModelInvokeForm
-                    endpoints={endpoints}
-                    loading={endpointsLoading}
-                    error={endpointsError}
-                    onInvoke={handleInvokeModel}
-                    onRefreshEndpoints={loadEndpoints}
-                  />
+                
+                {/* Sub-tabs for Invoke and History */}
+                <div style={{ marginTop: "24px" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      borderBottom: "2px solid #e5e7eb",
+                      marginBottom: "24px",
+                    }}
+                  >
+                    <button
+                      style={{
+                        padding: "12px 24px",
+                        border: "none",
+                        background: "none",
+                        cursor: "pointer",
+                        fontWeight: modelServingSubTab === "invoke" ? 600 : 400,
+                        color: modelServingSubTab === "invoke" ? "#1d4ed8" : "#6b7280",
+                        borderBottom: modelServingSubTab === "invoke" ? "2px solid #1d4ed8" : "none",
+                        marginBottom: "-2px",
+                      }}
+                      onClick={() => setModelServingSubTab("invoke")}
+                    >
+                      Invoke Model
+                    </button>
+                    <button
+                      style={{
+                        padding: "12px 24px",
+                        border: "none",
+                        background: "none",
+                        cursor: "pointer",
+                        fontWeight: modelServingSubTab === "history" ? 600 : 400,
+                        color: modelServingSubTab === "history" ? "#1d4ed8" : "#6b7280",
+                        borderBottom: modelServingSubTab === "history" ? "2px solid #1d4ed8" : "none",
+                        marginBottom: "-2px",
+                      }}
+                      onClick={() => {
+                        setModelServingSubTab("history");
+                        loadInferenceHistory();
+                      }}
+                    >
+                      History
+                    </button>
+                  </div>
+
+                  {/* Invoke Tab Content */}
+                  {modelServingSubTab === "invoke" && (
+                    <ModelInvokeForm
+                      endpoints={endpoints}
+                      loading={endpointsLoading}
+                      error={endpointsError}
+                      onInvoke={handleInvokeModel}
+                      onRefreshEndpoints={loadEndpoints}
+                    />
+                  )}
+
+                  {/* History Tab Content */}
+                  {modelServingSubTab === "history" && (
+                    <ModelHistoryTable
+                      logs={inferenceHistory}
+                      totalCount={historyTotalCount}
+                      loading={historyLoading}
+                      error={historyError}
+                      onRefresh={() => loadInferenceHistory(historyLimit, historyOffset)}
+                      onPageChange={handleHistoryPageChange}
+                      currentLimit={historyLimit}
+                      currentOffset={historyOffset}
+                    />
+                  )}
                 </div>
               </Card>
             )}

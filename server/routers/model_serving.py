@@ -165,3 +165,77 @@ async def invoke_model(
                 "retry_after": 30
             }
         )
+
+
+class InferenceLogResponse(BaseModel):
+    """Response model for inference log."""
+    id: int
+    request_id: str
+    endpoint_name: str
+    user_id: str
+    inputs: dict[str, Any]
+    predictions: dict[str, Any] | None
+    status: str
+    execution_time_ms: int | None
+    error_message: str | None
+    created_at: str | None
+    completed_at: str | None
+
+
+class InferenceLogsListResponse(BaseModel):
+    """Response model for list of inference logs."""
+    logs: list[InferenceLogResponse]
+    total_count: int
+    limit: int
+    offset: int
+
+
+@router.get("/logs", response_model=InferenceLogsListResponse)
+async def get_inference_logs(
+    limit: int = 50,
+    offset: int = 0,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Get inference logs for the current user.
+    
+    Query Parameters:
+        limit: Maximum number of logs to return (default: 50)
+        offset: Offset for pagination (default: 0)
+        
+    Returns:
+        InferenceLogsListResponse with logs and pagination info
+        
+    Raises:
+        401: Authentication required
+        503: Service unavailable
+    """
+    try:
+        service = ModelServingService()
+        logs, total_count = await service.get_user_inference_logs(
+            user_id=user_id,
+            limit=limit,
+            offset=offset
+        )
+        
+        return InferenceLogsListResponse(
+            logs=[InferenceLogResponse(**log) for log in logs],
+            total_count=total_count,
+            limit=limit,
+            offset=offset
+        )
+        
+    except Exception as e:
+        logger.error(
+            f"Error retrieving inference logs: {str(e)}",
+            exc_info=True,
+            user_id=user_id
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "SERVICE_UNAVAILABLE",
+                "message": "Failed to retrieve inference logs.",
+                "technical_details": {"error_type": type(e).__name__},
+                "retry_after": 10
+            }
+        )

@@ -11,6 +11,8 @@ export type { AccessLevel } from './models/AccessLevel';
 export type { ColumnDefinition } from './models/ColumnDefinition';
 export type { DataSource } from './models/DataSource';
 export type { HTTPValidationError } from './models/HTTPValidationError';
+export type { InferenceLogResponse } from './models/InferenceLogResponse';
+export type { InferenceLogsListResponse } from './models/InferenceLogsListResponse';
 export type { InferenceStatus } from './models/InferenceStatus';
 export type { InvokeModelRequest } from './models/InvokeModelRequest';
 export type { ModelEndpointResponse } from './models/ModelEndpointResponse';
