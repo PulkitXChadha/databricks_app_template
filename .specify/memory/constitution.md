@@ -118,7 +118,7 @@ Applications MUST implement comprehensive observability from the start using str
 
 **Rules:**
 - **Structured Logging**: All logs in JSON format with timestamp, log level, message, module, function
-- **Correlation IDs**: Every request generates a unique request_id propagated across all operations (using contextvars)
+- **Correlation IDs**: Every request generates a unique request_id propagated across all operations (using contextvars). Support optional client-provided correlation IDs via X-Correlation-ID header for end-to-end tracing across services. If header present, use client ID; otherwise generate server-side UUID.
 - **Context Enrichment**: Include user_id, duration_ms, and relevant technical details in all logs
 - **Log Levels**: INFO for normal operations, WARNING for retries, ERROR for failures with full context
 - **Error Logging**: All errors logged with ERROR level including timestamp, error type, message, request context, technical details

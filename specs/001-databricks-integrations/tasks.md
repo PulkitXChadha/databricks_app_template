@@ -308,7 +308,7 @@ This is a **web application** with:
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/DatabricksServicesPage.tsx`  
 **Description**: Connect ModelInvokeForm to ModelServingService methods (listEndpointsApiModelServingEndpointsGet, invokeModelApiModelServingInvokePost), display predictions with execution metrics, handle timeout/errors, endpoint state validation (READY required)  
 **Depends on**: T031, T032  
-**Validation**: Run app, invoke model, verify predictions display  
+**Validation**: Run app, verify model endpoints list loads (GET /api/model-serving/endpoints), select endpoint, invoke model, verify predictions display. Test endpoint metadata includes endpoint_name, state=READY, model_name, model_version.  
 **Status**: ✅ COMPLETE
 
 ---
@@ -430,12 +430,13 @@ This is a **web application** with:
 
 ### T036 [P] Create multi-user data isolation test
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/tests/integration/test_multi_user_isolation.py`  
-**Description**: Integration test with 2+ mock users, verify User A preferences not visible to User B, Unity Catalog enforces table permissions per user  
+**Description**: Integration test with 2+ mock users (simulate by mocking `WorkspaceClient.current_user.me()` to return different user_id/email for each test case, or use 2 real Databricks user accounts in deployed environment), verify User A preferences not visible to User B, Unity Catalog enforces table permissions per user  
 **Depends on**: T024  
 **Acceptance Criteria**:
-1. User A creates preference with key='theme', value='dark'
-2. User B queries GET /api/preferences with their auth context
-3. Assert User B receives empty array (no User A preferences visible)
+1. Use 2 distinct Databricks user accounts with different email addresses (e.g., user-a@company.com, user-b@company.com) for testing
+2. User A creates preference with key='theme', value='dark'
+3. User B queries GET /api/preferences with their auth context
+4. Assert User B receives empty array (no User A preferences visible)
 4. User B creates preference with same key='theme', value='light'
 5. Assert User A and User B each see only their own preference
 6. Query Unity Catalog table with User A context, verify only User A's accessible tables returned
@@ -453,6 +454,8 @@ This is a **web application** with:
 5. Verify all logs for that request contain request_id='test-correlation-123'
 6. Trigger ERROR scenario (e.g., invalid model endpoint), verify ERROR level log contains: timestamp, level='ERROR', message, error_type, request_id, user_id
 7. Assert no PII (tokens, passwords) in any log entry
+8. Query Lakebase application_metrics table, verify service-specific metrics recorded: uc_query_count, model_inference_latency_ms, lakebase_pool_active_connections
+9. Verify metric entries include timestamp, metric_name, metric_value (numeric), metric_tags (JSON), correlation_id
 **Validation**: Run `pytest tests/integration/test_observability.py -v -s` - check stdout for JSON logs, all assertions pass
 
 ### T038 Test WCAG 2.1 Level A accessibility compliance
@@ -470,7 +473,7 @@ This is a **web application** with:
 
 ### T039 Test pagination performance (NFR-003)
 **File**: N/A (performance testing task)  
-**Description**: Query Unity Catalog table with 100 rows, verify response time <500ms. Test with 10 concurrent users, verify <20% latency increase.  
+**Description**: Query Unity Catalog table with 100 rows, verify server-side execution time <500ms (QueryResult.execution_time_ms) and end-to-end response time <750ms. Test with 10 concurrent users, verify <20% end-to-end p95 latency increase.  
 **Depends on**: T033  
 **Acceptance Criteria**:
 1. **Baseline Single-User**: Query Unity Catalog table with limit=100, offset=0
@@ -486,7 +489,7 @@ This is a **web application** with:
 
 ### T040A Test model input schema validation (EC-001a)
 **File**: N/A (integration testing task)  
-**Description**: Test model input validation against model-specific schemas stored in configuration files. Verify application returns HTTP 400 with INVALID_MODEL_INPUT error code for: (1) invalid JSON syntax, (2) missing required fields, (3) type mismatches, (4) constraint violations. Test client-side validation before sending to endpoint, and test server-side handling when endpoint rejects input despite validation.  
+**Description**: Test model input validation against model-specific schemas stored in `server/config/model_schemas/` directory (one JSON Schema file per endpoint, format: `{endpoint_name}.schema.json`). Verify application returns HTTP 400 with INVALID_MODEL_INPUT error code for: (1) invalid JSON syntax, (2) missing required fields, (3) type mismatches, (4) constraint violations. Test client-side validation before sending to endpoint, and test server-side handling when endpoint rejects input despite validation.  
 **Depends on**: T022 (ModelServingService), T035 (Model Serving frontend integration)  
 **Acceptance Criteria**:
 1. Test invalid JSON syntax: Send malformed JSON to model invoke endpoint
@@ -507,14 +510,14 @@ This is a **web application** with:
 
 ### T040 [X] Implement sample data setup script
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/scripts/setup_sample_data.py`  
-**Description**: Script to create Unity Catalog sample table and seed Lakebase with sample user_preferences records. Include --create-all, --unity-catalog, --lakebase flags. Reads configuration from `.env.local` (DATABRICKS_CATALOG, DATABRICKS_SCHEMA, LAKEBASE_INSTANCE_NAME). Automatically generates OAuth tokens for Lakebase using `generate_database_credential()` with logical instance name (e.g., `databricks-app-lakebase-dev`).  
+**Description**: Script to create Unity Catalog sample table and seed Lakebase with sample user_preferences records. Include --create-all, --unity-catalog, --lakebase flags. Reads configuration from `.env.local` (DATABRICKS_CATALOG, DATABRICKS_SCHEMA, LAKEBASE_INSTANCE_NAME). Automatically generates OAuth tokens for Lakebase using `generate_database_credential()` with logical instance name (e.g., `databricks-app-lakebase-dev`). Lakebase setup MUST include: (a) user_preferences table, (b) application_logs table with schema (timestamp, log_level, correlation_id, context, error_details, message), (c) application_metrics table with schema (timestamp, metric_name, metric_value, metric_tags, correlation_id). Verify tables exist via `psql -c '\dt'` or SQLAlchemy inspect.  
 **Key Features**:
 - Automatic `.env.local` loading via python-dotenv
 - OAuth token generation using Databricks SDK (no manual LAKEBASE_TOKEN needed)
 - Uses psycopg v3 with CAST syntax for JSONB
 - Supports both CLI flags and environment variable configuration  
 **Depends on**: T020, T021  
-**Validation**: Run script, verify sample data exists in UC and Lakebase  
+**Validation**: Run script, verify sample data exists in UC and Lakebase, verify application_logs and application_metrics tables exist  
 **Status**: ✅ COMPLETE
 
 ### T041 [X] Update databricks.yml with new environment variables
@@ -529,13 +532,14 @@ This is a **web application** with:
 **Depends on**: T041  
 **Acceptance Criteria**:
 1. Run `databricks bundle validate` - exits with code 0
-2. Add troubleshooting section to quickstart.md with common Asset Bundle validation errors:
+2. **Negative Test**: Temporarily remove required field from databricks.yml (e.g., delete `name:` line), run `databricks bundle validate`, verify exits with code 1 and displays descriptive error message. Restore field after test.
+3. Add troubleshooting section to quickstart.md with common Asset Bundle validation errors:
    - Missing required fields (name, source_code_path, description)
    - Invalid target references (nonexistent workspace paths)
    - Schema version mismatch
    - Permission configuration errors
-3. Include resolution steps for each error type
-**Validation**: Command exits with 0, no errors reported, troubleshooting section added to quickstart.md
+4. Include resolution steps for each error type
+**Validation**: Command exits with 0, no errors reported, negative test confirms validation catches errors, troubleshooting section added to quickstart.md
 
 ---
 
@@ -564,9 +568,9 @@ This is a **web application** with:
 
 ### T050 Validate code quality metrics (FR-015, NFR-001)
 **File**: N/A (validation task)  
-**Description**: Verify code quality standards are met: (1) Run `uv run mypy server/ --strict --show-error-codes` to verify ≥80% of module-level functions have return type annotations, (2) Run `uv run ruff check server/ --select C901` to verify cyclomatic complexity ≤10 per function, (3) Review docstring coverage - verify ≥1 docstring per public function (module-level, non-underscore-prefixed, or in __all__), (4) Check inline comments for functions with complexity >5 (≥1 comment per 20 lines)  
+**Description**: Verify code quality standards are met: (1) Run `uv run mypy server/ --strict --show-error-codes` to verify ≥80% of module-level functions have return type annotations, (2) Run `uv run ruff check server/ --select C901` to verify cyclomatic complexity ≤10 per function, (3) Review docstring coverage - verify ≥1 docstring per public function (module-level, non-underscore-prefixed, or in __all__), (4) Review inline comments for functions with cyclomatic complexity >5: Verify ≥1 inline comment per 20 lines explaining non-obvious logic (business rules, algorithm steps, error handling rationale). Use `uv run ruff check server/ --select C901` to identify complex functions, then manually inspect each for comment density. (5) Verify database.py connection pool configuration: pool_size≥10, max_overflow≥10, pool_pre_ping=True  
 **Depends on**: All implementation tasks (T001-T045)  
-**Validation**: mypy reports "Success: no issues found in X source files", ruff returns 0 exit code, manual docstring review passes  
+**Validation**: mypy reports "Success: no issues found in X source files", ruff returns 0 exit code, manual docstring review passes, connection pool verified  
 **Status**: PENDING
 
 ### T046 Execute quickstart.md end-to-end
