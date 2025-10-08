@@ -212,7 +212,7 @@ export function DatabricksServicesPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-background" data-theme="light">
+    <div className="h-full bg-background flex flex-col" data-theme="light">
       {/* TopBar from DesignBricks */}
       <TopBar
         height={64}
@@ -241,7 +241,7 @@ export function DatabricksServicesPage() {
         variant="light"
       />
 
-      <div className="flex" style={{ height: "calc(100vh - 64px)" }}>
+      <div className="flex flex-1 overflow-hidden">
         {/* Sidebar from DesignBricks */}
         <Sidebar
           items={sidebarItems}
