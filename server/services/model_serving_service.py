@@ -477,7 +477,7 @@ class ModelServingService:
                             request_id, endpoint_name, user_id, inputs, predictions,
                             status, execution_time_ms, error_message, created_at, completed_at
                         ) VALUES (
-                            :request_id, :endpoint_name, :user_id, :inputs::jsonb, :predictions::jsonb,
+                            :request_id, :endpoint_name, :user_id, CAST(:inputs AS jsonb), CAST(:predictions AS jsonb),
                             :status, :execution_time_ms, :error_message, :created_at, :completed_at
                         )
                     """),
