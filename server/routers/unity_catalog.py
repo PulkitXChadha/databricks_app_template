@@ -21,14 +21,14 @@ logger = StructuredLogger(__name__)
 class QueryTableRequest(BaseModel):
     """Request body for table query."""
     catalog: str = Field(..., description="Catalog name")
-    schema: str = Field(..., description="Schema name", alias="schema")
+    schema_name: str = Field(..., description="Schema name", alias="schema")
     table: str = Field(..., description="Table name")
     limit: int = Field(default=100, ge=1, le=1000, description="Maximum rows")
     offset: int = Field(default=0, ge=0, description="Row offset for pagination")
     filters: dict[str, Any] | None = Field(default=None, description="Optional column filters")
     
     model_config = {
-        "populate_by_name": True  # Allow both 'schema' and alias
+        "populate_by_name": True  # Allow both 'schema_name' and 'schema' alias
     }
 
 
@@ -452,7 +452,7 @@ async def query_table_post(
     logger.info(
         "Querying Unity Catalog table (POST)",
         user_id=user_id,
-        table=f"{request.catalog}.{request.schema}.{request.table}",
+        table=f"{request.catalog}.{request.schema_name}.{request.table}",
         limit=request.limit,
         offset=request.offset
     )
@@ -461,7 +461,7 @@ async def query_table_post(
         service = UnityCatalogService(user_token=user_token)
         result = await service.query_table(
             catalog=request.catalog,
-            schema=request.schema,
+            schema=request.schema_name,
             table=request.table,
             limit=request.limit,
             offset=request.offset,
@@ -471,7 +471,7 @@ async def query_table_post(
         logger.info(
             f"Query completed: {result.get('row_count', 0)} rows returned",
             user_id=user_id,
-            table=f"{request.catalog}.{request.schema}.{request.table}",
+            table=f"{request.catalog}.{request.schema_name}.{request.table}",
             row_count=result.get('row_count', 0),
             execution_time_ms=result.get('execution_time_ms', 0)
         )
@@ -496,7 +496,7 @@ async def query_table_post(
         logger.error(
             f"Permission denied: {str(e)}",
             user_id=user_id,
-            table=f"{request.catalog}.{request.schema}.{request.table}"
+            table=f"{request.catalog}.{request.schema_name}.{request.table}"
         )
         raise HTTPException(
             status_code=403,
@@ -505,7 +505,7 @@ async def query_table_post(
                 "message": "You don't have access to this table.",
                 "technical_details": {
                     "catalog": request.catalog,
-                    "schema": request.schema,
+                    "schema": request.schema_name,
                     "table": request.table
                 }
             }
@@ -518,7 +518,7 @@ async def query_table_post(
                 status_code=404,
                 detail={
                     "error_code": "TABLE_NOT_FOUND",
-                    "message": f"Table {request.catalog}.{request.schema}.{request.table} not found."
+                    "message": f"Table {request.catalog}.{request.schema_name}.{request.table} not found."
                 }
             )
         
