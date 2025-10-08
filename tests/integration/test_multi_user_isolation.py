@@ -52,15 +52,16 @@ class TestMultiUserIsolation:
         session: Session = next(get_db_session())
         try:
             # Clean up any existing test data
+            # Include dev-user@example.com for when mocks don't work properly
             session.query(UserPreference).filter(
-                UserPreference.user_id.in_(["user-a@company.com", "user-b@company.com"])
+                UserPreference.user_id.in_(["user-a@company.com", "user-b@company.com", "dev-user@example.com"])
             ).delete(synchronize_session=False)
             session.commit()
             yield
         finally:
             # Clean up after test
             session.query(UserPreference).filter(
-                UserPreference.user_id.in_(["user-a@company.com", "user-b@company.com"])
+                UserPreference.user_id.in_(["user-a@company.com", "user-b@company.com", "dev-user@example.com"])
             ).delete(synchronize_session=False)
             session.commit()
             session.close()
@@ -118,7 +119,7 @@ class TestMultiUserIsolation:
             mock_get_user.return_value = mock_user_b.user_name
             response_b_get_final = client.get("/api/preferences")
             assert response_b_get_final.status_code == 200
-            preferences_b_final = response_b_get_final.json()["preferences"]
+            preferences_b_final = response_b_get_final.json()
             assert len(preferences_b_final) == 1
             assert preferences_b_final[0]["preference_key"] == "theme"
             assert preferences_b_final[0]["preference_value"]["mode"] == "light"

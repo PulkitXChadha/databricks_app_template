@@ -108,12 +108,111 @@ async def list_tables(
         )
 
 
+@router.get("/query", response_model=QueryResult)
+async def query_table_get(
+    catalog: str,
+    schema: str,
+    table: str,
+    limit: int = 100,
+    offset: int = 0,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Execute SELECT query on Unity Catalog table (GET method).
+    
+    Query Parameters:
+        catalog: Catalog name
+        schema: Schema name
+        table: Table name
+        limit: Maximum rows (1-1000, default: 100)
+        offset: Row offset for pagination (default: 0)
+        
+    Returns:
+        QueryResult with data and execution metadata
+        
+    Raises:
+        400: Invalid query parameters
+        403: Permission denied (EC-004)
+        404: Table not found
+        503: Database unavailable (EC-002)
+    """
+    try:
+        service = UnityCatalogService()
+        result = await service.query_table(
+            catalog=catalog,
+            schema=schema,
+            table=table,
+            limit=limit,
+            offset=offset,
+            user_id=user_id
+        )
+        return result
+        
+    except ValueError as e:
+        # Invalid parameters
+        logger.warning(
+            f"Invalid query parameters: {str(e)}",
+            user_id=user_id
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "INVALID_QUERY",
+                "message": str(e)
+            }
+        )
+    
+    except PermissionError as e:
+        logger.error(
+            f"Permission denied: {str(e)}",
+            user_id=user_id,
+            table=f"{catalog}.{schema}.{table}"
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": "CATALOG_PERMISSION_DENIED",
+                "message": "You don't have access to this table.",
+                "technical_details": {
+                    "catalog": catalog,
+                    "schema": schema,
+                    "table": table
+                }
+            }
+        )
+    
+    except Exception as e:
+        # Check if table not found
+        if "not found" in str(e).lower() or "does not exist" in str(e).lower():
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_code": "TABLE_NOT_FOUND",
+                    "message": f"Table {catalog}.{schema}.{table} not found."
+                }
+            )
+        
+        logger.error(
+            f"Error querying table: {str(e)}",
+            exc_info=True,
+            user_id=user_id
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "DATABASE_UNAVAILABLE",
+                "message": "Database service temporarily unavailable.",
+                "technical_details": {"error_type": type(e).__name__},
+                "retry_after": 10
+            }
+        )
+
+
 @router.post("/query", response_model=QueryResult)
-async def query_table(
+async def query_table_post(
     request: QueryTableRequest,
     user_id: str = Depends(get_current_user_id)
 ):
-    """Execute SELECT query on Unity Catalog table.
+    """Execute SELECT query on Unity Catalog table (POST method).
     
     Request Body:
         catalog: Catalog name

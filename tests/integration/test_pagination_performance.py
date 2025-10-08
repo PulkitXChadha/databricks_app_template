@@ -319,14 +319,17 @@ class TestPaginationPerformance:
         4. Test with 5 consecutive requests for consistency
         """
         with patch('server.routers.model_serving.get_current_user_id', return_value=mock_user):
-            # Mock model inference result
-            mock_invoke.return_value = {
-                "request_id": "inference-123",
-                "endpoint_name": "sentiment-analysis",
-                "predictions": {"sentiment": "positive", "confidence": 0.95},
-                "status": "SUCCESS",
-                "execution_time_ms": 1200
-            }
+            # Mock model inference result - must be ModelInferenceResponse object
+            from server.models.model_inference import ModelInferenceResponse, InferenceStatus
+            from datetime import datetime
+            mock_invoke.return_value = ModelInferenceResponse(
+                request_id="inference-123",
+                endpoint_name="sentiment-analysis",
+                predictions={"sentiment": "positive", "confidence": 0.95},
+                status=InferenceStatus.SUCCESS,
+                execution_time_ms=1200,
+                completed_at=datetime.utcnow()
+            )
             
             latencies = []
             

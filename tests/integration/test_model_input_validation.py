@@ -322,21 +322,25 @@ class TestModelInputValidation:
         7.   - error_type
         """
         with patch('server.routers.model_serving.get_current_user_id', return_value=mock_user):
-            with patch('server.lib.structured_logger.logger') as mock_logger:
-                # Trigger validation error
-                response = client.post(
-                    "/api/model-serving/invoke",
-                    json={
-                        "endpoint_name": "test",
-                        # Missing 'inputs' field
-                        "timeout_seconds": 30
-                    }
-                )
-                
-                assert response.status_code == 422
-                
-                # In a real implementation, verify logger.error was called
-                # with proper context
+            # Trigger validation error
+            response = client.post(
+                "/api/model-serving/invoke",
+                json={
+                    "endpoint_name": "test",
+                    # Missing 'inputs' field
+                    "timeout_seconds": 30
+                }
+            )
+            
+            # Pydantic validation should return 422
+            assert response.status_code == 422
+            
+            # Logs are output to stdout/stderr in JSON format with:
+            # - request_id (correlation ID)
+            # - user_id (authenticated user)
+            # - validation_error details
+            # - timestamp
+            # In production, these can be captured and verified
 
 
 class TestModelSchemaConfiguration:
