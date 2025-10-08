@@ -218,6 +218,7 @@ Once endpoint is created and in READY state, configure `MODEL_SERVING_ENDPOINT` 
 - **FR-017**: All existing UI components MUST be audited and replaced with designbricks equivalents where available
 - **FR-018**: Application MUST maintain visual consistency and brand alignment with Databricks design standards through proper use of the official component libraries
 - **FR-019**: Unity Catalog table selection interface MUST implement cascading dropdown pattern with three endpoints: (1) GET /api/unity-catalog/catalogs returning list of accessible catalog names, (2) GET /api/unity-catalog/schemas?catalog={name} returning list of schema names in specified catalog, (3) GET /api/unity-catalog/table-names?catalog={name}&schema={name} returning list of table names. Dropdowns MUST be disabled appropriately (schema disabled until catalog selected, table disabled until catalog and schema selected) to guide users through the data hierarchy and prevent invalid selections
+- **FR-020**: Model Serving interface MUST implement inference history tracking with automatic logging to Lakebase. Application MUST log all model inference requests (SUCCESS, ERROR, TIMEOUT) to `model_inference_logs` table with fields: request_id, endpoint_name, user_id, inputs (JSONB), predictions (JSONB), status, execution_time_ms, error_message, created_at, completed_at. Application MUST provide GET /api/model-serving/logs endpoint with pagination support (limit/offset parameters) returning user-isolated inference logs. UI MUST display history in a dedicated "History" tab within Model Serving section with expandable rows showing full request/response details, status color coding (SUCCESS=green, ERROR=red, TIMEOUT=orange), and pagination controls
 
 ### Non-Functional Requirements
 - **NFR-001**: Application MUST maintain readable, well-commented code that explains integration patterns and design decisions with measurable criteria: ≥1 docstring per public function/method, ≥80% of functions with type hints (measured as: count of module-level functions with BOTH argument type hints AND return type annotation ÷ total module-level functions ≥ 0.80; partial hints like args-only or return-only do NOT count; verified via `uv run mypy server/ --strict --show-error-codes` - must report "Success" with no issues), cyclomatic complexity score ≤10 per function (measured by `uv run ruff check server/ --select C901` - must return exit code 0), inline comments for non-obvious logic (≥1 comment per 20 lines for functions with cyclomatic complexity >5)
@@ -271,7 +272,7 @@ Once endpoint is created and in READY state, configure `MODEL_SERVING_ENDPOINT` 
 
 ## Implementation Status (October 8, 2025)
 
-**Core Implementation**: ✅ COMPLETE (81% of tasks done)
+**Core Implementation**: ✅ COMPLETE (82% of tasks done)
 - Backend services fully implemented (Unity Catalog, Lakebase, Model Serving)
 - Frontend fully functional with DatabricksServicesPage integrating all three services
 - Database migrations complete (user_preferences, model_inference_logs)
@@ -279,18 +280,21 @@ Once endpoint is created and in READY state, configure `MODEL_SERVING_ENDPOINT` 
 - Observability infrastructure with structured logging and correlation IDs
 - All CRUD operations working (Unity Catalog queries, Preferences management, Model inference)
 - **Unity Catalog UX Enhancement**: Cascading dropdowns for catalog→schema→table selection (Phase 3.16)
+- **Model Serving History**: Inference logging to Lakebase and history viewing UI (Phase 3.17)
 - Contract validation: ⚠️ BLOCKED on live Databricks connections (requires deployed environment)
 
 **Architecture**:
 - Main UI: DatabricksServicesPage with `designbricks` TopBar/Sidebar navigation
 - Tabbed interface: Welcome, Unity Catalog, Model Serving, Preferences
 - API integration: UnityCatalogService, LakebaseService, ModelServingService (TypeScript)
-- Components: DataTable (pagination), PreferencesForm (JSON editor), ModelInvokeForm (endpoint selector)
+- Components: DataTable (pagination), PreferencesForm (JSON editor), ModelInvokeForm (endpoint selector), ModelHistoryTable (inference logs)
 - **Unity Catalog**: Cascading Select dropdowns (designbricks) for catalog/schema/table selection with auto-population and disabled states
+- **Model Serving**: Tabbed interface (Invoke/History) with automatic inference logging and user-isolated history viewing
 
 **Recent Enhancements**:
 - ✅ Phase 3.15: Full UI migration from shadcn/ui to designbricks (8 tasks)
 - ✅ Phase 3.16: Unity Catalog cascading dropdowns for improved UX (4 tasks)
+- ✅ Phase 3.17: Model Serving inference history tracking and UI (4 tasks)
 - ✅ Integration testing complete (test files created)
 - ✅ Validation scripts created for deployment testing
 

@@ -10,9 +10,10 @@
 Phase 0: Research complete ✅
 Phase 1: Design complete ✅
 Phase 2: Task planning complete ✅ (this file - updated October 8, 2025)
-Phase 3-4: Implementation 100% complete (51/59 tasks) ✅
+Phase 3-4: Implementation 100% complete (55/63 tasks) ✅
   - Phase 3.15: UI Component Refactoring - 8 tasks ✅ (8/8 complete: T051-T058)
   - Phase 3.16: Unity Catalog UX Enhancement - 4 tasks ✅ (4/4 complete: T059-T062)
+  - Phase 3.17: Model Serving History - 4 tasks ✅ (4/4 complete: T063-T066)
   - Phase 3.11: Integration Testing - 5 tasks ✅ (5/5 complete: T036-T040A)
 Phase 5: Validation 100% complete (4/4 tasks) ✅
   - Validation scripts created for T046-T049
@@ -466,6 +467,43 @@ This is a **web application** with:
 
 ---
 
+## Phase 3.17: Model Serving History (COMPLETED)
+
+### T063 [X] Add inference logging to model serving service
+**Files**:
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/services/model_serving_service.py`  
+**Description**: Implement automatic logging of all model inference requests to Lakebase `model_inference_logs` table. Add `_log_inference(request, response)` method that inserts records with request_id, endpoint_name, user_id, inputs (JSONB), predictions (JSONB), status, execution_time_ms, error_message, created_at, completed_at. Modify `invoke_model()` to call logging for all response types (SUCCESS, ERROR, TIMEOUT). Include error handling to ensure inference requests don't fail if logging fails.  
+**Depends on**: T022 (ModelServingService base implementation)  
+**Validation**: Make inference request, verify log entry created in model_inference_logs table  
+**Status**: ✅ COMPLETE - Logging implemented with CAST syntax for JSONB compatibility
+
+### T064 [X] Add API endpoint to retrieve user inference logs
+**Files**:
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/services/model_serving_service.py`
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/routers/model_serving.py`  
+**Description**: Add GET /api/model-serving/logs endpoint to retrieve inference logs for the logged-in user. Implement `get_user_inference_logs(user_id, limit, offset)` service method that queries model_inference_logs filtered by user_id with pagination support. Add response models: `InferenceLogResponse` (id, request_id, endpoint_name, user_id, inputs, predictions, status, execution_time_ms, error_message, created_at, completed_at) and `InferenceLogsListResponse` (logs, total_count, limit, offset). Include proper error handling for database failures.  
+**Depends on**: T063  
+**Validation**: Call GET /api/model-serving/logs?limit=10&offset=0, verify returns paginated logs for current user only  
+**Status**: ✅ COMPLETE - Endpoint implemented with pagination and user isolation
+
+### T065 [X] Create ModelHistoryTable component
+**File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/components/ui/ModelHistoryTable.tsx`  
+**Description**: Create React component to display inference history with expandable rows. Show table with columns: Request ID (truncated), Endpoint, Status (color-coded badge), Execution Time (ms), Created At. Implement expandable row details showing: full request ID, inputs JSON, predictions JSON (if SUCCESS), error message (if ERROR/TIMEOUT), timestamps. Add pagination controls (Previous/Next buttons, page indicator). Use designbricks components (Button, Card, Typography, Alert). Include loading skeleton and error states. Status colors: SUCCESS=green, ERROR=red, TIMEOUT=orange.  
+**Depends on**: T060 (TypeScript client regenerated with new endpoint)  
+**Validation**: Render component with mock data, verify expandable rows, pagination controls, status colors  
+**Status**: ✅ COMPLETE - Component created with full pagination and expandable details
+
+### T066 [X] Integrate history tab in Model Serving UI
+**Files**:
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/DatabricksServicesPage.tsx`
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/fastapi_client/` (regenerated)  
+**Description**: Add tabbed interface to Model Serving section with two tabs: "Invoke Model" and "History". Implement state management for inference history (inferenceHistory, historyTotalCount, historyLoading, historyError, historyLimit, historyOffset). Create `loadInferenceHistory(limit, offset)` function that calls ModelServingService.getInferenceLogsApiModelServingLogsGet(). Integrate ModelHistoryTable component in History tab. Automatically refresh history after successful model invocations. Add tab navigation using custom button styling (active tab highlighted). Regenerate TypeScript client to include new /logs endpoint.  
+**Depends on**: T064, T065  
+**Validation**: Run app, invoke model, switch to History tab, verify logs display with pagination  
+**Status**: ✅ COMPLETE - Tabbed interface implemented with auto-refresh after inference
+
+---
+
 ## Phase 3.11: Integration Testing
 
 ### T036 [P] [X] Create multi-user data isolation test
@@ -678,6 +716,8 @@ UI Component Refactoring (T051-T058) ← PHASE 3.15
   ↓ (T051-T052 [P], T053-T056 sequential, T057 depends on T051+T053+T054, T058 final)
 Unity Catalog UX Enhancement (T059-T062) ← PHASE 3.16
   ↓ (T059 → T060 → T061, T062 parallel with T060)
+Model Serving History (T063-T066) ← PHASE 3.17
+  ↓ (T063 → T064 → T060 → T065 → T066)
 Integration Tests (T036-T039) [P]
   ↓
 Sample Data & Config (T040-T042)
@@ -747,13 +787,13 @@ Task: "Create ModelInvokeForm component in client/src/components/ui/ModelInvokeF
 
 ## Task Summary
 
-**Total Tasks**: 63 (was 59, +4 for Phase 3.16 Unity Catalog UX enhancement)  
+**Total Tasks**: 67 (was 63, +4 for Phase 3.17 Model Serving History)  
 **Parallel Tasks**: 26 (marked with [P])  
-**Sequential Tasks**: 37  
+**Sequential Tasks**: 41  
 **Gates**: 3 (T027 contract validation, T050 code quality, T046-T049 final validation)
 
-**Completion Status**: 51/63 tasks complete (81%) + 11 blocked/deferred  
-**Implementation**: ✅ COMPLETE - All code artifacts created including cascading dropdowns  
+**Completion Status**: 55/67 tasks complete (82%) + 11 blocked/deferred  
+**Implementation**: ✅ COMPLETE - All code artifacts created including inference history  
 **Remaining**: 1 task blocked (T027 - requires live Databricks), 11 tasks deferred (deployment testing requires live environment)  
 **Status**: Ready for deployment and live environment testing
 
@@ -770,6 +810,7 @@ Task: "Create ModelInvokeForm component in client/src/components/ui/ModelInvokeF
 - **Frontend Integration**: 4 tasks (T032-T035) ✅ COMPLETE
 - **UI Component Refactoring**: 8 tasks (T051-T058) ✅ COMPLETE
 - **Unity Catalog UX Enhancement**: 4 tasks (T059-T062) ✅ COMPLETE
+- **Model Serving History**: 4 tasks (T063-T066) ✅ COMPLETE
 - **Integration Testing**: 5 tasks (T036-T040A) ✅ COMPLETE (test files created)
 - **Sample Data & Config**: 3 tasks (T040-T042) ✅ COMPLETE
 - **Documentation**: 3 tasks (T043-T045) ✅ COMPLETE

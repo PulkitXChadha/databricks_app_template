@@ -85,8 +85,10 @@ Applications MUST be ready to integrate with Databricks Model Serving endpoints.
 - OAuth token authentication for serving endpoint access (via Databricks SDK authentication context)
 - Timeout configuration (default 30s, max 300s)
 - Retry logic with exponential backoff for transient errors
+- **Inference logging**: All model inference requests MUST be logged to Lakebase with request/response details for auditability and debugging
+- **History UI**: Applications SHOULD provide user-facing history views for tracking inference requests with pagination and filtering
 
-**Rationale:** Model serving is core to Databricks AI/ML capabilities; apps should leverage platform-native inference infrastructure.
+**Rationale:** Model serving is core to Databricks AI/ML capabilities; apps should leverage platform-native inference infrastructure. Comprehensive logging enables auditability, debugging, and usage tracking.
 
 ### VI. Auto-Generated API Clients
 API clients MUST be automatically generated from OpenAPI specifications.
@@ -269,11 +271,20 @@ This constitution supersedes all other development practices. When conflicts ari
 ### Agent-Specific Guidance
 Runtime development guidance available in `CLAUDE.md` for Claude Code and similar agents. This file provides operational commands and workflows aligned with constitutional principles.
 
-**Version**: 1.1.1 | **Ratified**: 2025-10-04 | **Last Amended**: 2025-10-08
+**Version**: 1.2.0 | **Ratified**: 2025-10-04 | **Last Amended**: 2025-10-08
 
 ---
 
 ## Changelog
+
+### Version 1.2.0 (2025-10-08) - MINOR
+**Changes:**
+- Enhanced Principle V (Model Serving Integration) with inference logging requirements
+- Added requirement for all model inference requests to be logged to Lakebase
+- Added recommendation for history UI views with pagination and filtering
+- Documented Model Serving History implementation as exemplar for auditability patterns
+
+**Impact:** New requirement for inference logging. Applications MUST log all model requests to Lakebase. History UI is recommended but optional.
 
 ### Version 1.1.1 (2025-10-08) - PATCH
 **Changes:**
