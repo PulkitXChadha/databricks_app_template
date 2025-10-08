@@ -69,7 +69,7 @@ export function DatabricksServicesPage() {
       setUcError(null);
 
       const result =
-        await UnityCatalogService.queryTableApiUnityCatalogQueryPost({
+        await UnityCatalogService.queryTablePostApiUnityCatalogQueryPost({
           catalog,
           schema,
           table,
@@ -92,7 +92,7 @@ export function DatabricksServicesPage() {
       setUcError(null);
 
       const result =
-        await UnityCatalogService.queryTableApiUnityCatalogQueryPost({
+        await UnityCatalogService.queryTablePostApiUnityCatalogQueryPost({
           catalog,
           schema,
           table,
@@ -309,7 +309,7 @@ export function DatabricksServicesPage() {
                       disabled={ucLoading}
                       loading={ucLoading}
                     >
-                      Query Table
+                      {ucLoading ? "Querying..." : "Query Table"}
                     </Button>
 
                     {/* Results */}

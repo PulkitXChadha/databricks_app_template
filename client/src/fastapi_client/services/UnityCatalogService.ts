@@ -46,8 +46,57 @@ export class UnityCatalogService {
         });
     }
     /**
-     * Query Table
-     * Execute SELECT query on Unity Catalog table.
+     * Query Table Get
+     * Execute SELECT query on Unity Catalog table (GET method).
+     *
+     * Query Parameters:
+     * catalog: Catalog name
+     * schema: Schema name
+     * table: Table name
+     * limit: Maximum rows (1-1000, default: 100)
+     * offset: Row offset for pagination (default: 0)
+     *
+     * Returns:
+     * QueryResult with data and execution metadata
+     *
+     * Raises:
+     * 400: Invalid query parameters
+     * 403: Permission denied (EC-004)
+     * 404: Table not found
+     * 503: Database unavailable (EC-002)
+     * @param catalog
+     * @param schema
+     * @param table
+     * @param limit
+     * @param offset
+     * @returns QueryResult Successful Response
+     * @throws ApiError
+     */
+    public static queryTableGetApiUnityCatalogQueryGet(
+        catalog: string,
+        schema: string,
+        table: string,
+        limit: number = 100,
+        offset?: number,
+    ): CancelablePromise<QueryResult> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/unity-catalog/query',
+            query: {
+                'catalog': catalog,
+                'schema': schema,
+                'table': table,
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Query Table Post
+     * Execute SELECT query on Unity Catalog table (POST method).
      *
      * Request Body:
      * catalog: Catalog name
@@ -69,7 +118,7 @@ export class UnityCatalogService {
      * @returns QueryResult Successful Response
      * @throws ApiError
      */
-    public static queryTableApiUnityCatalogQueryPost(
+    public static queryTablePostApiUnityCatalogQueryPost(
         requestBody: QueryTableRequest,
     ): CancelablePromise<QueryResult> {
         return __request(OpenAPI, {
