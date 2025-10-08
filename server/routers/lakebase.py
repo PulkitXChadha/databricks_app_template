@@ -62,7 +62,7 @@ async def get_current_user_id(request: Request) -> str:
     """Extract user ID (email) from authentication context.
     
     In Databricks Apps, extracts the actual user's email from the user token.
-    Falls back to service principal identifier if no user token is available.
+    In local development, returns a development user identifier.
     
     Args:
         request: FastAPI request object
@@ -71,12 +71,14 @@ async def get_current_user_id(request: Request) -> str:
         User email string
     """
     user_token = await get_user_token(request)
+    databricks_host = os.getenv('DATABRICKS_HOST')
     
-    if user_token:
+    # Only try to get user info if we have both token and host (Databricks Apps environment)
+    if user_token and databricks_host:
         try:
             # Get user information using the user's access token
             cfg = Config(
-                host=os.getenv('DATABRICKS_HOST'),
+                host=databricks_host,
                 token=user_token
             )
             client = WorkspaceClient(config=cfg)
@@ -101,8 +103,8 @@ async def get_current_user_id(request: Request) -> str:
             # Fall back to generic identifier
             return "authenticated-user@databricks.com"
     else:
-        # App authorization (service principal) - development mode
-        return "app-service-principal@databricks.com"
+        # Local development mode - return development user identifier
+        return "dev-user@example.com"
 
 
 @router.get("/preferences", response_model=list[UserPreferenceResponse])

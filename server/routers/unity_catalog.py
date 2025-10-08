@@ -6,6 +6,9 @@ FastAPI endpoints for Unity Catalog table querying.
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from typing import Any
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
+import os
 
 from server.services.unity_catalog_service import UnityCatalogService
 from server.models.data_source import DataSource
@@ -47,29 +50,52 @@ async def get_user_token(request: Request) -> str | None:
 
 
 async def get_current_user_id(request: Request) -> str:
-    """Extract user ID from authentication context.
+    """Extract user ID (email) from authentication context.
     
-    In Databricks Apps, the user identity is managed by Databricks.
-    For development/testing, returns a placeholder.
+    In Databricks Apps, extracts the actual user's email from the user token.
+    In local development, returns a development user identifier.
     
     Args:
         request: FastAPI request object
         
     Returns:
-        User ID string
+        User email string
     """
-    # In production with user authorization, you could decode the token
-    # or use Databricks SDK to get user info
-    # For now, check if we have a user token
     user_token = await get_user_token(request)
+    databricks_host = os.getenv('DATABRICKS_HOST')
     
-    if user_token:
-        # User authorization enabled - return generic identifier
-        # In production, you might decode the token to get actual user email
-        return "authenticated-user"
+    # Only try to get user info if we have both token and host (Databricks Apps environment)
+    if user_token and databricks_host:
+        try:
+            # Get user information using the user's access token
+            cfg = Config(
+                host=databricks_host,
+                token=user_token
+            )
+            client = WorkspaceClient(config=cfg)
+            user = client.current_user.me()
+            
+            # Get user email (primary email)
+            user_email = user.user_name or "unknown-user@databricks.com"
+            
+            logger.info(
+                "Retrieved user information from token",
+                user_id=user_email,
+                display_name=user.display_name
+            )
+            
+            return user_email
+            
+        except Exception as e:
+            logger.warning(
+                f"Failed to get user info from token: {str(e)}",
+                exc_info=True
+            )
+            # Fall back to generic identifier
+            return "authenticated-user@databricks.com"
     else:
-        # App authorization (service principal)
-        return "app-service-principal"
+        # Local development mode - return development user identifier
+        return "dev-user@example.com"
 
 
 @router.get("/catalogs", response_model=list[str])
@@ -88,9 +114,21 @@ async def list_catalogs(
         403: Permission denied (EC-004)
         503: Database unavailable (EC-002)
     """
+    logger.info(
+        "Listing Unity Catalog catalogs",
+        user_id=user_id
+    )
+    
     try:
         service = UnityCatalogService(user_token=user_token)
         catalogs = await service.list_catalogs(user_id=user_id)
+        
+        logger.info(
+            f"Retrieved {len(catalogs)} catalogs",
+            user_id=user_id,
+            catalog_count=len(catalogs)
+        )
+        
         return catalogs
         
     except Exception as e:
@@ -130,12 +168,26 @@ async def list_schemas(
         403: Permission denied (EC-004)
         503: Database unavailable (EC-002)
     """
+    logger.info(
+        "Listing Unity Catalog schemas",
+        user_id=user_id,
+        catalog=catalog
+    )
+    
     try:
         service = UnityCatalogService(user_token=user_token)
         schemas = await service.list_schemas(
             catalog=catalog,
             user_id=user_id
         )
+        
+        logger.info(
+            f"Retrieved {len(schemas)} schemas from catalog",
+            user_id=user_id,
+            catalog=catalog,
+            schema_count=len(schemas)
+        )
+        
         return schemas
         
     except PermissionError as e:
@@ -193,6 +245,13 @@ async def list_table_names(
         403: Permission denied (EC-004)
         503: Database unavailable (EC-002)
     """
+    logger.info(
+        "Listing Unity Catalog table names",
+        user_id=user_id,
+        catalog=catalog,
+        schema=schema
+    )
+    
     try:
         service = UnityCatalogService(user_token=user_token)
         table_names = await service.list_table_names(
@@ -200,6 +259,15 @@ async def list_table_names(
             schema=schema,
             user_id=user_id
         )
+        
+        logger.info(
+            f"Retrieved {len(table_names)} tables from schema",
+            user_id=user_id,
+            catalog=catalog,
+            schema=schema,
+            table_count=len(table_names)
+        )
+        
         return table_names
         
     except PermissionError as e:
@@ -332,6 +400,14 @@ async def query_table_get(
         404: Table not found
         503: Database unavailable (EC-002)
     """
+    logger.info(
+        "Querying Unity Catalog table",
+        user_id=user_id,
+        table=f"{catalog}.{schema}.{table}",
+        limit=limit,
+        offset=offset
+    )
+    
     try:
         service = UnityCatalogService(user_token=user_token)
         result = await service.query_table(
@@ -342,6 +418,15 @@ async def query_table_get(
             offset=offset,
             user_id=user_id
         )
+        
+        logger.info(
+            f"Query completed: {result.get('row_count', 0)} rows returned",
+            user_id=user_id,
+            table=f"{catalog}.{schema}.{table}",
+            row_count=result.get('row_count', 0),
+            execution_time_ms=result.get('execution_time_ms', 0)
+        )
+        
         return result
         
     except ValueError as e:
@@ -430,6 +515,14 @@ async def query_table_post(
         404: Table not found
         503: Database unavailable (EC-002)
     """
+    logger.info(
+        "Querying Unity Catalog table (POST)",
+        user_id=user_id,
+        table=f"{request.catalog}.{request.schema}.{request.table}",
+        limit=request.limit,
+        offset=request.offset
+    )
+    
     try:
         service = UnityCatalogService(user_token=user_token)
         result = await service.query_table(
@@ -440,6 +533,15 @@ async def query_table_post(
             offset=request.offset,
             user_id=user_id
         )
+        
+        logger.info(
+            f"Query completed: {result.get('row_count', 0)} rows returned",
+            user_id=user_id,
+            table=f"{request.catalog}.{request.schema}.{request.table}",
+            row_count=result.get('row_count', 0),
+            execution_time_ms=result.get('execution_time_ms', 0)
+        )
+        
         return result
         
     except ValueError as e:

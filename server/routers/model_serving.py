@@ -6,6 +6,9 @@ FastAPI endpoints for Model Serving inference.
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field
 from typing import Any
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
+import os
 
 from server.services.model_serving_service import ModelServingService
 from server.models.model_endpoint import ModelEndpointResponse
@@ -40,28 +43,58 @@ async def get_user_token(request: Request) -> str | None:
 
 
 async def get_current_user_id(request: Request) -> str:
-    """Extract user ID from authentication context.
+    """Extract user ID (email) from authentication context.
     
-    In Databricks Apps, the user identity is managed by Databricks.
-    For development/testing, returns a placeholder.
+    In Databricks Apps, extracts the actual user's email from the user token.
+    In local development, returns a development user identifier.
     
     Args:
         request: FastAPI request object
         
     Returns:
-        User ID string
+        User email string
     """
     user_token = await get_user_token(request)
+    databricks_host = os.getenv('DATABRICKS_HOST')
     
-    if user_token:
-        return "authenticated-user"
+    # Only try to get user info if we have both token and host (Databricks Apps environment)
+    if user_token and databricks_host:
+        try:
+            # Get user information using the user's access token
+            cfg = Config(
+                host=databricks_host,
+                token=user_token
+            )
+            client = WorkspaceClient(config=cfg)
+            user = client.current_user.me()
+            
+            # Get user email (primary email)
+            user_email = user.user_name or "unknown-user@databricks.com"
+            
+            logger.info(
+                "Retrieved user information from token",
+                user_id=user_email,
+                display_name=user.display_name
+            )
+            
+            return user_email
+            
+        except Exception as e:
+            logger.warning(
+                f"Failed to get user info from token: {str(e)}",
+                exc_info=True
+            )
+            # Fall back to generic identifier
+            return "authenticated-user@databricks.com"
     else:
-        return "app-service-principal"
+        # Local development mode - return development user identifier
+        return "dev-user@example.com"
 
 
 @router.get("/endpoints", response_model=list[ModelEndpointResponse])
 async def list_endpoints(
     request: Request,
+    user_id: str = Depends(get_current_user_id),
     user_token: str | None = Depends(get_user_token)
 ):
     """List available Model Serving endpoints.
@@ -73,15 +106,28 @@ async def list_endpoints(
         401: Authentication required (EC-003)
         503: Service unavailable
     """
+    logger.info(
+        "Listing model serving endpoints",
+        user_id=user_id
+    )
+    
     try:
         service = ModelServingService(user_token=user_token)
         endpoints = await service.list_endpoints()
+        
+        logger.info(
+            f"Retrieved {len(endpoints)} model serving endpoints",
+            user_id=user_id,
+            endpoint_count=len(endpoints)
+        )
+        
         return endpoints
         
     except Exception as e:
         logger.error(
             f"Error listing model serving endpoints: {str(e)}",
-            exc_info=True
+            exc_info=True,
+            user_id=user_id
         )
         raise HTTPException(
             status_code=503,
@@ -115,6 +161,13 @@ async def invoke_model(
         400: Invalid input data
         503: Model unavailable (EC-001)
     """
+    logger.info(
+        "Invoking model",
+        user_id=user_id,
+        endpoint=request.endpoint_name,
+        timeout=request.timeout_seconds
+    )
+    
     try:
         service = ModelServingService(user_token=user_token)
         response = await service.invoke_model(
@@ -122,6 +175,14 @@ async def invoke_model(
             inputs=request.inputs,
             user_id=user_id,
             timeout_seconds=request.timeout_seconds
+        )
+        
+        logger.info(
+            f"Model invocation completed with status: {response.status}",
+            user_id=user_id,
+            endpoint=request.endpoint_name,
+            status=response.status,
+            execution_time_ms=response.execution_time_ms
         )
         
         # If response has error status, return 503 with error details
@@ -219,6 +280,7 @@ class InferenceLogsListResponse(BaseModel):
 
 @router.get("/logs", response_model=InferenceLogsListResponse)
 async def get_inference_logs(
+    request: Request,
     limit: int = 50,
     offset: int = 0,
     user_id: str = Depends(get_current_user_id)
@@ -236,12 +298,26 @@ async def get_inference_logs(
         401: Authentication required
         503: Service unavailable
     """
+    logger.info(
+        "Retrieving inference logs",
+        user_id=user_id,
+        limit=limit,
+        offset=offset
+    )
+    
     try:
         service = ModelServingService()
         logs, total_count = await service.get_user_inference_logs(
             user_id=user_id,
             limit=limit,
             offset=offset
+        )
+        
+        logger.info(
+            f"Retrieved {len(logs)} inference logs (total: {total_count})",
+            user_id=user_id,
+            count=len(logs),
+            total_count=total_count
         )
         
         return InferenceLogsListResponse(
