@@ -32,8 +32,9 @@ All UI components MUST use the Design Bricks data design system to ensure Databr
 - No custom UI component creation without first checking Design Bricks availability
 - Consistent Databricks theming and design patterns across the entire application
 - shadcn/ui components used only when Design Bricks equivalent does not exist
+- Progressive disclosure patterns (e.g., cascading dropdowns, conditional fields) encouraged for complex data selection
 
-**Rationale:** Users expect a native Databricks experience; custom components create visual inconsistency and reduce trust.
+**Rationale:** Users expect a native Databricks experience; custom components create visual inconsistency and reduce trust. Progressive disclosure patterns improve usability by guiding users through complex selections.
 
 ### II. Lakebase Integration
 All persistent data operations MUST use Lakebase (Postgres hosted in Databricks) as the primary database.
@@ -268,4 +269,16 @@ This constitution supersedes all other development practices. When conflicts ari
 ### Agent-Specific Guidance
 Runtime development guidance available in `CLAUDE.md` for Claude Code and similar agents. This file provides operational commands and workflows aligned with constitutional principles.
 
-**Version**: 1.1.0 | **Ratified**: 2025-10-04 | **Last Amended**: 2025-10-04
+**Version**: 1.1.1 | **Ratified**: 2025-10-04 | **Last Amended**: 2025-10-08
+
+---
+
+## Changelog
+
+### Version 1.1.1 (2025-10-08) - PATCH
+**Changes:**
+- Enhanced Principle I (Design Bricks First) with guidance on progressive disclosure patterns
+- Added note encouraging cascading dropdowns and conditional fields for complex data selection
+- Documented Unity Catalog cascading dropdown implementation as exemplar of good UX practices
+
+**Impact:** Clarification only - no breaking changes. Existing implementations remain compliant.

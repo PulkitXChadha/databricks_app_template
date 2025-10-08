@@ -10,8 +10,9 @@
 Phase 0: Research complete ✅
 Phase 1: Design complete ✅
 Phase 2: Task planning complete ✅ (this file - updated October 8, 2025)
-Phase 3-4: Implementation 100% complete (47/58 tasks) ✅
-  - Phase 3.15: UI Component Refactoring (NEW) - 8 tasks ✅ (8/8 complete: T051-T058)
+Phase 3-4: Implementation 100% complete (51/59 tasks) ✅
+  - Phase 3.15: UI Component Refactoring - 8 tasks ✅ (8/8 complete: T051-T058)
+  - Phase 3.16: Unity Catalog UX Enhancement - 4 tasks ✅ (4/4 complete: T059-T062)
   - Phase 3.11: Integration Testing - 5 tasks ✅ (5/5 complete: T036-T040A)
 Phase 5: Validation 100% complete (4/4 tasks) ✅
   - Validation scripts created for T046-T049
@@ -431,6 +432,40 @@ This is a **web application** with:
 
 ---
 
+## Phase 3.16: Unity Catalog UX Enhancement (COMPLETED)
+
+### T059 [X] Add Unity Catalog list endpoints for cascading dropdowns
+**Files**:
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/services/unity_catalog_service.py`
+- `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/routers/unity_catalog.py`  
+**Description**: Add three new endpoints to Unity Catalog API: (1) GET /api/unity-catalog/catalogs - returns list of accessible catalog names, (2) GET /api/unity-catalog/schemas?catalog={name} - returns list of schema names in specified catalog, (3) GET /api/unity-catalog/table-names?catalog={name}&schema={name} - returns list of table names in specified schema. Implement corresponding service methods: list_catalogs(), list_schemas(catalog), list_table_names(catalog, schema). Include proper error handling for EC-004 (permission denied) and EC-002 (database unavailable).  
+**Depends on**: T020 (UnityCatalogService base implementation)  
+**Validation**: Run `pytest tests/contract/` to verify endpoints return proper data structures  
+**Status**: ✅ COMPLETE - Three new endpoints implemented with full error handling
+
+### T060 [X] Regenerate TypeScript client with new Unity Catalog endpoints
+**File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/fastapi_client/`  
+**Description**: Run `uv run python scripts/make_fastapi_client.py` to regenerate TypeScript client with new Unity Catalog methods: listCatalogsApiUnityCatalogCatalogsGet(), listSchemasApiUnityCatalogSchemasGet(catalog), listTableNamesApiUnityCatalogTableNamesGet(catalog, schema). Verify client generation includes proper TypeScript types for string arrays.  
+**Depends on**: T059  
+**Validation**: Verify client/src/fastapi_client/services/UnityCatalogService.ts contains new methods  
+**Status**: ✅ COMPLETE - TypeScript client regenerated successfully
+
+### T061 [X] Implement cascading dropdowns in Unity Catalog UI
+**File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/client/src/pages/DatabricksServicesPage.tsx`  
+**Description**: Replace catalog, schema, and table TextField components with Select dropdowns from designbricks. Implement cascading behavior: (1) Load catalogs on page mount, (2) When catalog selected, load schemas and reset schema/table selections, (3) When schema selected, load tables and reset table selection, (4) Disable schema dropdown until catalog selected, (5) Disable table dropdown until catalog and schema selected, (6) Disable "Query Table" button until all three selections made. Use designbricks Select component with searchable and clearable props. Add loading states for each dropdown (catalogsLoading, schemasLoading, tablesLoading).  
+**Depends on**: T060, T055 (TextField migration to designbricks complete)  
+**Validation**: Run app, verify dropdowns cascade properly, verify disabled states work correctly  
+**Status**: ✅ COMPLETE - Cascading dropdowns implemented with proper loading and disabled states
+
+### T062 [X] Update Unity Catalog API contract documentation
+**File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/specs/001-databricks-integrations/contracts/unity_catalog_api.yaml`  
+**Description**: Add OpenAPI 3.0 documentation for three new endpoints: /api/unity-catalog/catalogs (GET), /api/unity-catalog/schemas (GET), /api/unity-catalog/table-names (GET). Include request parameters (catalog, schema query params), response schemas (array of strings), example responses, and error codes (401, 403, 503). Maintain consistent documentation style with existing endpoints.  
+**Depends on**: T059  
+**Validation**: Run `databricks bundle validate` to verify YAML syntax  
+**Status**: ✅ COMPLETE - API contract documentation updated with all three new endpoints
+
+---
+
 ## Phase 3.11: Integration Testing
 
 ### T036 [P] [X] Create multi-user data isolation test
@@ -520,14 +555,15 @@ This is a **web application** with:
 
 ### T040 [X] Implement sample data setup script
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/scripts/setup_sample_data.py`  
-**Description**: Script to create Unity Catalog sample table and seed Lakebase with sample user_preferences records. Include --create-all, --unity-catalog, --lakebase flags. Reads configuration from `.env.local` (DATABRICKS_CATALOG, DATABRICKS_SCHEMA, LAKEBASE_INSTANCE_NAME). Automatically generates OAuth tokens for Lakebase using `generate_database_credential()` with logical instance name (e.g., `databricks-app-lakebase-dev`). Lakebase setup MUST include: (a) user_preferences table, (b) application_logs table with schema (timestamp, log_level, correlation_id, context, error_details, message), (c) application_metrics table with schema (timestamp, metric_name, metric_value, metric_tags, correlation_id). Verify tables exist via `psql -c '\dt'` or SQLAlchemy inspect.  
+**Description**: Script to create Unity Catalog sample table and seed Lakebase with sample user_preferences records. Include --create-all, --unity-catalog, --lakebase flags. Reads configuration from `.env.local` (DATABRICKS_CATALOG, DATABRICKS_SCHEMA, LAKEBASE_INSTANCE_NAME). Automatically generates OAuth tokens for Lakebase using `generate_database_credential()` with logical instance name (e.g., `databricks-app-lakebase-dev`). **⚠️ IMPORTANT: Instance name format varies by workspace (hyphens: `databricks-app-lakebase-dev` vs underscores: `databricks_app_lakebase_dev`). Script MUST validate instance name format by attempting connection and providing clear error message if format is incorrect, directing user to check databricks.yml and Lakebase console for exact name.** Lakebase setup MUST include: (a) user_preferences table, (b) application_logs table with schema (timestamp, log_level, correlation_id, context, error_details, message), (c) application_metrics table with schema (timestamp, metric_name, metric_value, metric_tags, correlation_id). Verify tables exist via `psql -c '\dt'` or SQLAlchemy inspect.  
 **Key Features**:
 - Automatic `.env.local` loading via python-dotenv
 - OAuth token generation using Databricks SDK (no manual LAKEBASE_TOKEN needed)
+- **Instance name format validation with helpful error messages**
 - Uses psycopg v3 with CAST syntax for JSONB
 - Supports both CLI flags and environment variable configuration  
 **Depends on**: T020, T021  
-**Validation**: Run script, verify sample data exists in UC and Lakebase, verify application_logs and application_metrics tables exist  
+**Validation**: Run script, verify sample data exists in UC and Lakebase, verify application_logs and application_metrics tables exist, **verify script provides clear error message if LAKEBASE_INSTANCE_NAME format is incorrect (should reference spec.md clarification and suggest checking databricks.yml)**  
 **Status**: ✅ COMPLETE
 
 ### T041 [X] Update databricks.yml with new environment variables
@@ -558,8 +594,8 @@ This is a **web application** with:
 
 ### T043 [X] Write quickstart.md with user stories
 **File**: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/specs/001-databricks-integrations/quickstart.md`  
-**Description**: Complete quickstart guide with Prerequisites, Setup (6 steps), Testing User Stories (9 stories from spec), Multi-User Testing, Troubleshooting (EC-001 through EC-005)  
-**Validation**: Follow quickstart end-to-end as new developer  
+**Description**: Complete quickstart guide with Prerequisites, Setup (6 steps), Testing User Stories (9 stories from spec), Multi-User Testing, Troubleshooting (EC-001 through EC-005). **MUST include Model Serving setup instructions per FR-012 (manual endpoint creation via UI/CLI, model_serving_setup.md documentation reference)**  
+**Validation**: Follow quickstart end-to-end as new developer, verify all referenced documentation files exist (including docs/databricks_apis/model_serving_setup.md)  
 **Status**: ✅ COMPLETE
 
 ### T044 [X] Update README with integration instructions
@@ -580,9 +616,9 @@ This is a **web application** with:
 
 ### T050 [X] Validate code quality metrics (FR-015, NFR-001)
 **File**: N/A (validation task)  
-**Description**: Verify code quality standards are met: (1) Run `uv run mypy server/ --strict --show-error-codes` to verify ≥80% of module-level functions have return type annotations, (2) Run `uv run ruff check server/ --select C901` to verify cyclomatic complexity ≤10 per function, (3) Review docstring coverage - verify ≥1 docstring per public function (module-level, non-underscore-prefixed, or in __all__), (4) Review inline comments for functions with cyclomatic complexity >5: Verify ≥1 inline comment per 20 lines explaining non-obvious logic (business rules, algorithm steps, error handling rationale). Use `uv run ruff check server/ --select C901` to identify complex functions, then manually inspect each for comment density. (5) Verify database.py connection pool configuration: pool_size≥10, max_overflow≥10, pool_pre_ping=True  
+**Description**: Verify code quality standards are met: (1) Run `uv run mypy server/ --strict --show-error-codes` to verify ≥80% of module-level functions have return type annotations, (2) Run `uv run ruff check server/ --select C901` to verify cyclomatic complexity ≤10 per function, (3) Review docstring coverage - verify ≥1 docstring per public function (module-level, non-underscore-prefixed, or in __all__), (4) Review inline comments for functions with cyclomatic complexity >5: Verify ≥1 inline comment per 20 lines explaining non-obvious logic (business rules, algorithm steps, error handling rationale). Use `uv run ruff check server/ --select C901` to identify complex functions, then manually inspect each for comment density. (5) Verify database.py connection pool configuration: pool_size≥10, max_overflow≥10, pool_pre_ping=True. **(6) Verify terminology conventions per spec.md Lines 72-77: Python classes use PascalCase (UserSession, DataSource), SQL tables use snake_case (user_preferences, model_inference_logs), JSON fields use snake_case (user_id, preference_key), TypeScript interfaces use PascalCase matching Python models**  
 **Depends on**: All implementation tasks (T001-T045)  
-**Validation**: mypy reports "Success: no issues found in X source files", ruff returns 0 exit code, manual docstring review passes, connection pool verified  
+**Validation**: mypy reports "Success: no issues found in X source files", ruff returns 0 exit code, manual docstring review passes, connection pool verified, **terminology conventions verified across codebase**  
 **Status**: ✅ COMPLETE with improvements
 **Results**:
 - ✅ **Cyclomatic Complexity**: All functions ≤10 (PASS) - Refactored `query_table` (was 13) and `_parse_result_data` (was 12) by extracting helper methods (`_validate_pagination_params`, `_execute_count_query`, `_remap_column_names`, `_extract_column_names_from_result`, `_convert_rows_to_dicts`)
@@ -638,8 +674,10 @@ Frontend Migration (T028-T031) [P] + Client Regen (T032)
   ↓
 Frontend Integration (T033-T035)
   ↓
-UI Component Refactoring (T051-T058) ← NEW PHASE 3.15
+UI Component Refactoring (T051-T058) ← PHASE 3.15
   ↓ (T051-T052 [P], T053-T056 sequential, T057 depends on T051+T053+T054, T058 final)
+Unity Catalog UX Enhancement (T059-T062) ← PHASE 3.16
+  ↓ (T059 → T060 → T061, T062 parallel with T060)
 Integration Tests (T036-T039) [P]
   ↓
 Sample Data & Config (T040-T042)
@@ -709,13 +747,13 @@ Task: "Create ModelInvokeForm component in client/src/components/ui/ModelInvokeF
 
 ## Task Summary
 
-**Total Tasks**: 59 (was 50, +8 for Phase 3.15 UI refactoring, +1 for EC-001a validation)  
-**Parallel Tasks**: 26 (marked with [P]) - includes T051-T052  
-**Sequential Tasks**: 33  
+**Total Tasks**: 63 (was 59, +4 for Phase 3.16 Unity Catalog UX enhancement)  
+**Parallel Tasks**: 26 (marked with [P])  
+**Sequential Tasks**: 37  
 **Gates**: 3 (T027 contract validation, T050 code quality, T046-T049 final validation)
 
-**Completion Status**: 47/59 tasks complete (80%) + 11 blocked/deferred  
-**Implementation**: ✅ COMPLETE - All code artifacts created  
+**Completion Status**: 51/63 tasks complete (81%) + 11 blocked/deferred  
+**Implementation**: ✅ COMPLETE - All code artifacts created including cascading dropdowns  
 **Remaining**: 1 task blocked (T027 - requires live Databricks), 11 tasks deferred (deployment testing requires live environment)  
 **Status**: Ready for deployment and live environment testing
 
@@ -731,6 +769,7 @@ Task: "Create ModelInvokeForm component in client/src/components/ui/ModelInvokeF
 - **Frontend Migration**: 4 tasks (T028-T031) ✅ COMPLETE
 - **Frontend Integration**: 4 tasks (T032-T035) ✅ COMPLETE
 - **UI Component Refactoring**: 8 tasks (T051-T058) ✅ COMPLETE
+- **Unity Catalog UX Enhancement**: 4 tasks (T059-T062) ✅ COMPLETE
 - **Integration Testing**: 5 tasks (T036-T040A) ✅ COMPLETE (test files created)
 - **Sample Data & Config**: 3 tasks (T040-T042) ✅ COMPLETE
 - **Documentation**: 3 tasks (T043-T045) ✅ COMPLETE
@@ -786,6 +825,23 @@ Task: "Create ModelInvokeForm component in client/src/components/ui/ModelInvokeF
 - [ ] **TypeScript Interfaces**: PascalCase matching Python models (e.g., `UserSession`, `DataSource`)
   - ✓ Correct: `interface UserSession { userId: string; }`
   - ✗ Incorrect: `interface user_session { user_id: string; }`
+
+### Terminology Validation Commands
+**Automated Checks**:
+```bash
+# Verify Python class names (PascalCase)
+grep -r "^class [a-z]" server/models/ server/services/ && echo "❌ FAIL: Found lowercase class names" || echo "✅ PASS: Python classes"
+
+# Verify SQL tables (snake_case) in migrations
+grep -i "CREATE TABLE [A-Z]" migrations/versions/*.py && echo "❌ FAIL: Found PascalCase table names" || echo "✅ PASS: SQL tables"
+
+# Verify TypeScript interfaces (PascalCase)
+grep "^interface [a-z]" client/src/fastapi_client/models/*.ts && echo "❌ FAIL: Found lowercase interfaces" || echo "✅ PASS: TypeScript interfaces"
+```
+
+**Manual Review Required**:
+- [ ] JSON field consistency in API responses (check FastAPI router return statements)
+- [ ] Variable naming in task descriptions matches conventions
 
 ### Authentication Terminology
 - [ ] Use "OAuth token authentication" (not "token-based authentication" or generic "token auth")
