@@ -5,7 +5,7 @@
  */
 
 import React, { useState } from "react";
-import { Button, Alert, TextField, Select } from "designbricks";
+import { Button, Alert, TextField, Select, Typography } from "designbricks";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface ModelEndpoint {
@@ -120,10 +120,12 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
     >
       {/* Header */}
       <div style={{ marginBottom: "24px" }}>
-        <h2 style={{ margin: "0 0 8px 0" }}>Model Serving Inference</h2>
-        <p style={{ margin: 0, fontSize: "14px", color: "#666" }}>
+        <Typography.Title level={2} withoutMargins style={{ marginBottom: "8px" }}>
+          Model Serving Inference
+        </Typography.Title>
+        <Typography.Text color="secondary">
           Invoke ML models deployed to Databricks Model Serving endpoints
-        </p>
+        </Typography.Text>
       </div>
 
       {/* Error Message */}
@@ -179,32 +181,29 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
             borderRadius: "4px",
           }}
         >
-          <h3
-            style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: 600 }}
-          >
+          <Typography.Title level={3} withoutMargins style={{ marginBottom: "8px", fontSize: "14px" }}>
             Endpoint Details
-          </h3>
+          </Typography.Title>
           <div style={{ fontSize: "13px", color: "#666" }}>
             <div>
-              <strong>Model:</strong> {currentEndpoint.model_name}
+              <Typography.Text bold>Model:</Typography.Text> <Typography.Text>{currentEndpoint.model_name}</Typography.Text>
             </div>
             <div>
-              <strong>Version:</strong> {currentEndpoint.model_version || "N/A"}
+              <Typography.Text bold>Version:</Typography.Text> <Typography.Text>{currentEndpoint.model_version || "N/A"}</Typography.Text>
             </div>
             <div>
-              <strong>State:</strong>{" "}
-              <span
-                style={{
-                  color:
-                    currentEndpoint.state === "READY"
-                      ? "green"
-                      : currentEndpoint.state === "FAILED"
-                        ? "red"
-                        : "orange",
-                }}
+              <Typography.Text bold>State:</Typography.Text>{" "}
+              <Typography.Text
+                color={
+                  currentEndpoint.state === "READY"
+                    ? "success"
+                    : currentEndpoint.state === "FAILED"
+                      ? "error"
+                      : "warning"
+                }
               >
                 {currentEndpoint.state}
-              </span>
+              </Typography.Text>
             </div>
           </div>
           {currentEndpoint.state !== "READY" && (
@@ -217,12 +216,9 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
 
       {/* Input JSON Editor */}
       <div style={{ marginBottom: "24px" }}>
-        <label
-          htmlFor="inputs-json"
-          style={{ display: "block", marginBottom: "8px", fontWeight: 600 }}
-        >
+        <Typography.Text bold style={{ display: "block", marginBottom: "8px" }}>
           Input Data (JSON)
-        </label>
+        </Typography.Text>
         <textarea
           id="inputs-json"
           value={inputsJson}
@@ -239,9 +235,9 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
           }}
           placeholder='{"messages": [{"role": "user", "content": "Your question here"}], "max_tokens": 150}'
         />
-        <p style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+        <Typography.Hint style={{ marginTop: "4px" }}>
           Enter input data in JSON format. For chat models like Claude, use: {`{"messages": [{"role": "user", "content": "..."}], "max_tokens": 150}`}
-        </p>
+        </Typography.Hint>
       </div>
 
       {/* Timeout Setting */}
@@ -283,9 +279,9 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
       {/* Response Display */}
       {response && (
         <div style={{ marginTop: "24px" }}>
-          <h3 style={{ margin: "0 0 12px 0", fontSize: "16px" }}>
+          <Typography.Title level={3} withoutMargins style={{ marginBottom: "12px" }}>
             Inference Response
-          </h3>
+          </Typography.Title>
 
           {response.status === "SUCCESS" ? (
             <div
@@ -300,12 +296,12 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
                 Inference completed in {response.execution_time_ms}ms
               </Alert>
 
-              <div style={{ marginBottom: "8px", fontSize: "14px" }}>
-                <strong>Request ID:</strong> {response.request_id}
+              <div style={{ marginBottom: "8px" }}>
+                <Typography.Text bold>Request ID:</Typography.Text> <Typography.Text>{response.request_id}</Typography.Text>
               </div>
 
-              <div style={{ marginBottom: "8px", fontSize: "14px" }}>
-                <strong>Predictions:</strong>
+              <div style={{ marginBottom: "8px" }}>
+                <Typography.Text bold>Predictions:</Typography.Text>
               </div>
               <pre
                 style={{
@@ -334,8 +330,8 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
                 Inference {response.status}:{" "}
                 {response.error_message || "Unknown error"}
               </Alert>
-              <div style={{ marginTop: "12px", fontSize: "14px" }}>
-                <strong>Request ID:</strong> {response.request_id}
+              <div style={{ marginTop: "12px" }}>
+                <Typography.Text bold>Request ID:</Typography.Text> <Typography.Text>{response.request_id}</Typography.Text>
               </div>
             </div>
           )}

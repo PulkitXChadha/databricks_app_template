@@ -8,7 +8,7 @@
  */
 
 import React, { useState } from "react";
-import { TopBar, Sidebar, Card, Button, TextField, Alert, type SidebarItem } from "designbricks";
+import { TopBar, Sidebar, Card, Button, TextField, Alert, Typography, type SidebarItem } from "designbricks";
 import { Database, Settings, Brain, Home } from "lucide-react";
 import { DataTable } from "@/components/ui/DataTable";
 import { PreferencesForm } from "@/components/ui/PreferencesForm";
@@ -261,11 +261,11 @@ export function DatabricksServicesPage() {
             {activeTab === "unity-catalog" && (
               <Card padding="medium">
                 <div className="flex flex-col space-y-1.5">
-                  <div className="font-semibold leading-none tracking-tight">Query Unity Catalog Tables</div>
-                  <p className="text-sm text-muted-foreground">
+                  <Typography.Title level={2} withoutMargins>Query Unity Catalog Tables</Typography.Title>
+                  <Typography.Text color="secondary">
                     Select a catalog, schema, and table to query data with
                     pagination
-                  </p>
+                  </Typography.Text>
                 </div>
                 <div className="pt-4">
                   <div className="space-y-4">
@@ -341,11 +341,11 @@ export function DatabricksServicesPage() {
             {activeTab === "model-serving" && (
               <Card padding="medium">
                 <div className="flex flex-col space-y-1.5">
-                  <div className="font-semibold leading-none tracking-tight">Model Serving</div>
-                  <p className="text-sm text-muted-foreground">
+                  <Typography.Title level={2} withoutMargins>Model Serving</Typography.Title>
+                  <Typography.Text color="secondary">
                     Invoke ML models deployed to Databricks Model Serving
                     endpoints
-                  </p>
+                  </Typography.Text>
                 </div>
                 <div className="pt-4">
                   <ModelInvokeForm
@@ -363,10 +363,10 @@ export function DatabricksServicesPage() {
             {activeTab === "preferences" && (
               <Card padding="medium">
                 <div className="flex flex-col space-y-1.5">
-                  <div className="font-semibold leading-none tracking-tight">User Preferences</div>
-                  <p className="text-sm text-muted-foreground">
+                  <Typography.Title level={2} withoutMargins>User Preferences</Typography.Title>
+                  <Typography.Text color="secondary">
                     Manage your preferences stored in Lakebase
-                  </p>
+                  </Typography.Text>
                 </div>
                 <div className="pt-4">
                   <PreferencesForm

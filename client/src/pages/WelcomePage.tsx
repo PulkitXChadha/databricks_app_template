@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Card, Button, Badge } from "designbricks";
+import { Card, Button, Badge, Typography } from "designbricks";
 import {
   Code,
   ExternalLink,
@@ -42,35 +42,34 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
         {/* Header */}
         <div className="text-center mb-12">
           <div className="flex justify-center items-center gap-3 mb-4">
-
-            <h1 className="text-4xl font-bold text-black dark:text-white">
+            <Typography.Title level={1} style={{ fontSize: "2.25rem" }}>
               Welcome to your Databricks Full Stack App
-            </h1>
+            </Typography.Title>
           </div>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+          <Typography.Paragraph style={{ fontSize: "1.25rem", maxWidth: "768px", margin: "0 auto" }} color="secondary">
             A modern, full-stack application template with Python FastAPI
-            backend and React TypeScript frontend (using <a href="https://pulkitxchadha.github.io/DesignBricks/?path=/docs/designbricks-introduction--docs" target="_blank" rel="noopener noreferrer" className="underline text-blue-600 dark:text-blue-400">DesignBricks Design System Components</a>)
-          </p>
+            backend and React TypeScript frontend (using <Typography.Link href="https://pulkitxchadha.github.io/DesignBricks/?path=/docs/designbricks-introduction--docs" openInNewTab>DesignBricks Design System Components</Typography.Link>)
+          </Typography.Paragraph>
         </div>
 
         {/* User Info Card */}
         {userInfo && (
           <Card className="mb-8 border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/50" padding="medium">
             <div className="flex flex-col space-y-1.5">
-              <div className="font-semibold leading-none tracking-tight flex items-center gap-2">
+              <Typography.Title level={3} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <User className="h-5 w-5" />
                 Current User
-              </div>
+              </Typography.Title>
             </div>
             <div className="pt-4">
               <div className="flex items-center gap-4">
                 <div>
-                  <p className="font-semibold">
+                  <Typography.Text bold>
                     {userInfo.displayName || userInfo.userName}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
+                  </Typography.Text>
+                  <Typography.Text size="sm" color="secondary">
                     {userInfo.emails[0] || userInfo.userName}
-                  </p>
+                  </Typography.Text>
                 </div>
                 <Badge variant={userInfo.active ? "success" : "warning"}>
                   {userInfo.active ? "Active" : "Inactive"}
@@ -85,62 +84,54 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
           {/* Getting Started */}
           <Card className="h-fit" padding="medium">
             <div className="flex flex-col space-y-1.5">
-              <div className="font-semibold leading-none tracking-tight flex items-center gap-2">
+              <Typography.Title level={3} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Play className="h-5 w-5" />
                 Getting Started
-              </div>
-              <p className="text-sm text-muted-foreground">
+              </Typography.Title>
+              <Typography.Text size="sm" color="secondary">
                 Everything you need to know to start developing
-              </p>
+              </Typography.Text>
             </div>
             <div className="space-y-4 pt-4">
               <div>
-                <h4 className="font-semibold mb-2">Development Commands</h4>
-                <div className="space-y-2 text-sm">
+                <Typography.Text bold style={{ marginBottom: "8px" }}>Development Commands</Typography.Text>
+                <div className="space-y-2">
                   <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      ./setup.sh
-                    </code>
-                    <span className="text-muted-foreground">
+                    <Typography.Text code size="sm">./setup.sh</Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Setup environment & dependencies
-                    </span>
+                    </Typography.Text>
                   </div>
                   <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      ./watch.sh
-                    </code>
-                    <span className="text-muted-foreground">
+                    <Typography.Text code size="sm">./watch.sh</Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Start dev servers (background)
-                    </span>
+                    </Typography.Text>
                   </div>
                   <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      ./fix.sh
-                    </code>
-                    <span className="text-muted-foreground">
+                    <Typography.Text code size="sm">./fix.sh</Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Format code (Python + TS)
-                    </span>
+                    </Typography.Text>
                   </div>
                   <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      ./deploy.sh
-                    </code>
-                    <span className="text-muted-foreground">
+                    <Typography.Text code size="sm">./deploy.sh</Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Deploy to Databricks Apps
-                    </span>
+                    </Typography.Text>
                   </div>
                 </div>
               </div>
 
               <div>
-                <h4 className="font-semibold mb-2">Development Ports</h4>
-                <div className="space-y-2 text-sm">
+                <Typography.Text bold style={{ marginBottom: "8px" }}>Development Ports</Typography.Text>
+                <div className="space-y-2">
                   <div className="flex justify-between items-center">
-                    <span>Frontend (React + Vite)</span>
+                    <Typography.Text size="sm">Frontend (React + Vite)</Typography.Text>
                     <Badge variant="info">:5173</Badge>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span>Backend (FastAPI)</span>
+                    <Typography.Text size="sm">Backend (FastAPI)</Typography.Text>
                     <Badge variant="info">:8000</Badge>
                   </div>
                 </div>
@@ -160,85 +151,85 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
           {/* Claude Commands */}
           <Card className="h-fit" padding="medium">
             <div className="flex flex-col space-y-1.5">
-              <div className="font-semibold leading-none tracking-tight flex items-center gap-2">
+              <Typography.Title level={3} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Bot className="h-5 w-5" />
                 Claude Commands
-              </div>
-              <p className="text-sm text-muted-foreground">
+              </Typography.Title>
+              <Typography.Text size="sm" color="secondary">
                 Natural language commands for development workflow
-              </p>
+              </Typography.Text>
             </div>
             <div className="space-y-4 pt-4">
               <div>
-                <h4 className="font-semibold mb-2">Development</h4>
-                <div className="space-y-2 text-sm">
+                <Typography.Text bold style={{ marginBottom: "8px" }}>Development</Typography.Text>
+                <div className="space-y-2">
                   <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
+                    <Typography.Text code size="sm">
                       "start the devserver"
-                    </code>
-                    <span className="text-muted-foreground">
+                    </Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Runs ./watch.sh
-                    </span>
+                    </Typography.Text>
                   </div>
                   <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
+                    <Typography.Text code size="sm">
                       "kill the devserver"
-                    </code>
-                    <span className="text-muted-foreground">
+                    </Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Stops background processes
-                    </span>
+                    </Typography.Text>
                   </div>
                   <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
+                    <Typography.Text code size="sm">
                       "fix the code"
-                    </code>
-                    <span className="text-muted-foreground">Runs ./fix.sh</span>
+                    </Typography.Text>
+                    <Typography.Text size="sm" color="secondary">Runs ./fix.sh</Typography.Text>
                   </div>
                   <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
+                    <Typography.Text code size="sm">
                       "deploy the app"
-                    </code>
-                    <span className="text-muted-foreground">
+                    </Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Runs ./deploy.sh
-                    </span>
+                    </Typography.Text>
                   </div>
                 </div>
               </div>
 
               <div>
-                <h4 className="font-semibold mb-2">Development Tasks</h4>
-                <div className="space-y-2 text-sm">
+                <Typography.Text bold style={{ marginBottom: "8px" }}>Development Tasks</Typography.Text>
+                <div className="space-y-2">
                   <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
+                    <Typography.Text code size="sm">
                       "add a new API endpoint"
-                    </code>
-                    <span className="text-muted-foreground">
+                    </Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Creates FastAPI routes
-                    </span>
+                    </Typography.Text>
                   </div>
                   <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
+                    <Typography.Text code size="sm">
                       "create a new React component"
-                    </code>
-                    <span className="text-muted-foreground">
+                    </Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Builds UI components
-                    </span>
+                    </Typography.Text>
                   </div>
                   <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
+                    <Typography.Text code size="sm">
                       "debug this error"
-                    </code>
-                    <span className="text-muted-foreground">
+                    </Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Analyzes and fixes issues
-                    </span>
+                    </Typography.Text>
                   </div>
                   <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
+                    <Typography.Text code size="sm">
                       "open the UI in playwright"
-                    </code>
-                    <span className="text-muted-foreground">
+                    </Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Opens app in browser
-                    </span>
+                    </Typography.Text>
                   </div>
                 </div>
               </div>
@@ -251,73 +242,73 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
           {/* Tech Stack */}
           <Card className="h-fit" padding="medium">
             <div className="flex flex-col space-y-1.5">
-              <div className="font-semibold leading-none tracking-tight flex items-center gap-2">
+              <Typography.Title level={3} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Code className="h-5 w-5" />
                 Tech Stack
-              </div>
-              <p className="text-sm text-muted-foreground">
+              </Typography.Title>
+              <Typography.Text size="sm" color="secondary">
                 Modern tools and frameworks for rapid development
-              </p>
+              </Typography.Text>
             </div>
             <div className="pt-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                <h4 className="font-semibold mb-3 text-black dark:text-white">Backend</h4>
-                  <ul className="space-y-2 text-sm">
+                <Typography.Text bold style={{ marginBottom: "12px" }}>Backend</Typography.Text>
+                  <ul className="space-y-2">
                     <li className="flex items-center gap-2">
                       <Badge variant="info" size="small">
                         Python
                       </Badge>
-                      <span>FastAPI + uvicorn</span>
+                      <Typography.Text size="sm">FastAPI + uvicorn</Typography.Text>
                     </li>
                     <li className="flex items-center gap-2">
                       <Badge variant="info" size="small">
                         Package
                       </Badge>
-                      <span>uv for dependencies</span>
+                      <Typography.Text size="sm">uv for dependencies</Typography.Text>
                     </li>
                     <li className="flex items-center gap-2">
                       <Badge variant="info" size="small">
                         SDK
                       </Badge>
-                      <span>Databricks SDK</span>
+                      <Typography.Text size="sm">Databricks SDK</Typography.Text>
                     </li>
                     <li className="flex items-center gap-2">
                       <Badge variant="info" size="small">
                         Quality
                       </Badge>
-                      <span>ruff for linting</span>
+                      <Typography.Text size="sm">ruff for linting</Typography.Text>
                     </li>
                   </ul>
                 </div>
                 <div>
-                  <h4 className="font-semibold mb-3 text-black dark:text-white">
+                  <Typography.Text bold style={{ marginBottom: "12px" }}>
                     Frontend
-                  </h4>
-                  <ul className="space-y-2 text-sm">
+                  </Typography.Text>
+                  <ul className="space-y-2">
                     <li className="flex items-center gap-2">
                       <Badge variant="info" size="small">
                         React
                       </Badge>
-                      <span>TypeScript + Vite</span>
+                      <Typography.Text size="sm">TypeScript + Vite</Typography.Text>
                     </li>
                     <li className="flex items-center gap-2">
                       <Badge variant="info" size="small">
                         UI
                       </Badge>
-                      <span>DesignBricks + Tailwind</span>
+                      <Typography.Text size="sm">DesignBricks + Tailwind</Typography.Text>
                     </li>
                     <li className="flex items-center gap-2">
                       <Badge variant="info" size="small">
                         Data
                       </Badge>
-                      <span>React Query</span>
+                      <Typography.Text size="sm">React Query</Typography.Text>
                     </li>
                     <li className="flex items-center gap-2">
                       <Badge variant="info" size="small">
                         Package
                       </Badge>
-                      <span>bun for speed</span>
+                      <Typography.Text size="sm">bun for speed</Typography.Text>
                     </li>
                   </ul>
                 </div>
@@ -328,13 +319,13 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
           {/* Project Structure */}
           <Card className="h-fit" padding="medium">
             <div className="flex flex-col space-y-1.5">
-              <div className="font-semibold leading-none tracking-tight flex items-center gap-2">
+              <Typography.Title level={3} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <FileText className="h-5 w-5" />
                 Project Structure
-              </div>
-              <p className="text-sm text-muted-foreground">
+              </Typography.Title>
+              <Typography.Text size="sm" color="secondary">
                 Understanding the codebase layout and key files
-              </p>
+              </Typography.Text>
             </div>
             <div className="pt-4">
               <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 font-mono text-sm">
@@ -373,13 +364,13 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
         {/* Features */}
         <Card className="mb-8" padding="medium">
           <div className="flex flex-col space-y-1.5">
-            <div className="font-semibold leading-none tracking-tight flex items-center gap-2">
+            <Typography.Title level={3} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <Wrench className="h-5 w-5" />
               Key Features
-            </div>
-            <p className="text-sm text-muted-foreground">
+            </Typography.Title>
+            <Typography.Text size="sm" color="secondary">
               Built-in capabilities to accelerate your development
-            </p>
+            </Typography.Text>
           </div>
           <div className="pt-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -387,33 +378,33 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                 <div className="flex items-start gap-3">
                   <Badge variant="primary" className="mt-1">Auto</Badge>
                   <div>
-                    <h5 className="font-semibold">
+                    <Typography.Text bold>
                       TypeScript Client Generation
-                    </h5>
-                    <p className="text-sm text-muted-foreground">
+                    </Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Automatically generates TypeScript API client from FastAPI
                       OpenAPI spec
-                    </p>
+                    </Typography.Text>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <Badge variant="primary" className="mt-1">Hot</Badge>
                   <div>
-                    <h5 className="font-semibold">Hot Reloading</h5>
-                    <p className="text-sm text-muted-foreground">
+                    <Typography.Text bold>Hot Reloading</Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Instant updates for both Python backend and React frontend
                       changes
-                    </p>
+                    </Typography.Text>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <Badge variant="primary" className="mt-1">Auth</Badge>
                   <div>
-                    <h5 className="font-semibold">Databricks Authentication</h5>
-                    <p className="text-sm text-muted-foreground">
+                    <Typography.Text bold>Databricks Authentication</Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Integrated with Databricks SDK for seamless workspace
                       integration
-                    </p>
+                    </Typography.Text>
                   </div>
                 </div>
               </div>
@@ -421,30 +412,30 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                 <div className="flex items-start gap-3">
                   <Badge variant="primary" className="mt-1">Deploy</Badge>
                   <div>
-                    <h5 className="font-semibold">Databricks Apps Ready</h5>
-                    <p className="text-sm text-muted-foreground">
+                    <Typography.Text bold>Databricks Apps Ready</Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Pre-configured for deployment to Databricks Apps platform
-                    </p>
+                    </Typography.Text>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <Badge variant="primary" className="mt-1">Quality</Badge>
                   <div>
-                    <h5 className="font-semibold">Code Quality Tools</h5>
-                    <p className="text-sm text-muted-foreground">
+                    <Typography.Text bold>Code Quality Tools</Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Automated formatting with ruff (Python) and prettier
                       (TypeScript)
-                    </p>
+                    </Typography.Text>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <Badge variant="primary" className="mt-1">Logs</Badge>
                   <div>
-                    <h5 className="font-semibold">Background Development</h5>
-                    <p className="text-sm text-muted-foreground">
+                    <Typography.Text bold>Background Development</Typography.Text>
+                    <Typography.Text size="sm" color="secondary">
                       Development servers run in background with comprehensive
                       logging
-                    </p>
+                    </Typography.Text>
                   </div>
                 </div>
               </div>
@@ -454,18 +445,16 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
 
         {/* Footer */}
         <div className="text-center mt-12 pt-8 border-t">
-          <p className="text-muted-foreground">
+          <Typography.Paragraph color="secondary">
             Ready to build something amazing? Check out the{" "}
-            <a
+            <Typography.Link
               href="http://localhost:8000/docs"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:underline"
+              openInNewTab
             >
               API documentation
-            </a>{" "}
+            </Typography.Link>{" "}
             to get started with your endpoints.
-          </p>
+          </Typography.Paragraph>
         </div>
       </div>
     </div>

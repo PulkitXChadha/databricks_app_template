@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { Button, Alert } from "designbricks";
+import { Button, Alert, Typography } from "designbricks";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface UserPreference {
@@ -130,10 +130,12 @@ export const PreferencesForm: React.FC<PreferencesFormProps> = ({
     >
       {/* Header */}
       <div style={{ marginBottom: "24px" }}>
-        <h2 style={{ margin: "0 0 8px 0" }}>User Preferences</h2>
-        <p style={{ margin: 0, fontSize: "14px", color: "#666" }}>
+        <Typography.Title level={2} withoutMargins style={{ marginBottom: "8px" }}>
+          User Preferences
+        </Typography.Title>
+        <Typography.Text color="secondary">
           Manage your application preferences stored in Lakebase
-        </p>
+        </Typography.Text>
       </div>
 
       {/* Success Message */}
@@ -152,12 +154,9 @@ export const PreferencesForm: React.FC<PreferencesFormProps> = ({
 
       {/* Preference Key Selector */}
       <div style={{ marginBottom: "24px" }}>
-        <label
-          htmlFor="preference-key"
-          style={{ display: "block", marginBottom: "8px", fontWeight: 600 }}
-        >
+        <Typography.Text bold style={{ display: "block", marginBottom: "8px" }}>
           Preference Key
-        </label>
+        </Typography.Text>
         <select
           id="preference-key"
           value={selectedKey}
@@ -179,12 +178,9 @@ export const PreferencesForm: React.FC<PreferencesFormProps> = ({
 
       {/* Preference Value Editor */}
       <div style={{ marginBottom: "24px" }}>
-        <label
-          htmlFor="preference-value"
-          style={{ display: "block", marginBottom: "8px", fontWeight: 600 }}
-        >
+        <Typography.Text bold style={{ display: "block", marginBottom: "8px" }}>
           Preference Value (JSON)
-        </label>
+        </Typography.Text>
         <textarea
           id="preference-value"
           value={valueInput}
@@ -201,9 +197,9 @@ export const PreferencesForm: React.FC<PreferencesFormProps> = ({
           }}
           placeholder='{"key": "value"}'
         />
-        <p style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+        <Typography.Hint style={{ marginTop: "4px" }}>
           Enter a valid JSON object. Max size: 100KB
-        </p>
+        </Typography.Hint>
       </div>
 
       {/* Action Buttons */}
@@ -237,9 +233,9 @@ export const PreferencesForm: React.FC<PreferencesFormProps> = ({
 
       {/* Current Preferences List */}
       <div>
-        <h3 style={{ margin: "0 0 12px 0", fontSize: "16px" }}>
+        <Typography.Title level={3} withoutMargins style={{ marginBottom: "12px" }}>
           Current Preferences
-        </h3>
+        </Typography.Title>
         {preferences.length === 0 ? (
           <Alert severity="info">
             No preferences found. Create your first preference above.
@@ -264,18 +260,12 @@ export const PreferencesForm: React.FC<PreferencesFormProps> = ({
                   }}
                 >
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, marginBottom: "4px" }}>
+                    <Typography.Text bold style={{ marginBottom: "4px" }}>
                       {pref.preference_key}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: "#666",
-                        marginBottom: "8px",
-                      }}
-                    >
+                    </Typography.Text>
+                    <Typography.Hint style={{ marginBottom: "8px" }}>
                       Updated: {new Date(pref.updated_at).toLocaleString()}
-                    </div>
+                    </Typography.Hint>
                     <pre
                       style={{
                         margin: 0,

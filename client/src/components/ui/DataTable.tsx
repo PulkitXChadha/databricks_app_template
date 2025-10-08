@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { Button, Alert, Table, type Column as DBColumn } from "designbricks";
+import { Button, Alert, Table, Typography, type Column as DBColumn } from "designbricks";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface Column {
@@ -106,9 +106,9 @@ export const DataTable: React.FC<DataTableProps> = ({
     header: (
       <>
         {col.name}
-        <span style={{ fontSize: "12px", color: "#666", marginLeft: "4px", fontWeight: "normal" }}>
+        <Typography.Text size="sm" color="secondary" style={{ marginLeft: "4px" }}>
           ({col.data_type})
-        </span>
+        </Typography.Text>
       </>
     ),
     align: "left" as const,
@@ -116,7 +116,7 @@ export const DataTable: React.FC<DataTableProps> = ({
       if (value !== null && value !== undefined) {
         return String(value);
       }
-      return <span style={{ color: "#999", fontStyle: "italic" }}>NULL</span>;
+      return <Typography.Text color="disabled" style={{ fontStyle: "italic" }}>NULL</Typography.Text>;
     },
   }));
 
@@ -124,13 +124,13 @@ export const DataTable: React.FC<DataTableProps> = ({
     <div className="data-table-container">
       {/* Table Header */}
       <div className="table-header" style={{ marginBottom: "16px" }}>
-        <h3 style={{ margin: 0 }}>
+        <Typography.Title level={3} withoutMargins>
           {catalog}.{schema}.{table}
-        </h3>
-        <p style={{ margin: "4px 0 0 0", fontSize: "14px", color: "#666" }}>
+        </Typography.Title>
+        <Typography.Text size="sm" color="secondary" style={{ marginTop: "4px" }}>
           Showing {offset + 1} - {Math.min(offset + pageSize, totalRows)} of{" "}
           {totalRows} rows
-        </p>
+        </Typography.Text>
       </div>
 
       {/* DesignBricks Table */}
@@ -159,12 +159,9 @@ export const DataTable: React.FC<DataTableProps> = ({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <label
-            htmlFor="page-size"
-            style={{ fontSize: "14px", marginRight: "8px" }}
-          >
+          <Typography.Text size="sm" style={{ marginRight: "8px" }}>
             Rows per page:
-          </label>
+          </Typography.Text>
           <select
             id="page-size"
             value={pageSize}
@@ -185,9 +182,9 @@ export const DataTable: React.FC<DataTableProps> = ({
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <span style={{ fontSize: "14px" }}>
+          <Typography.Text size="sm">
             Page {currentPage} of {totalPages}
-          </span>
+          </Typography.Text>
 
           <div style={{ display: "flex", gap: "8px" }}>
             <Button
