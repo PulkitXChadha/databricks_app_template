@@ -48,7 +48,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
           </div>
           <Typography.Paragraph style={{ fontSize: "1.25rem", maxWidth: "768px", margin: "0 auto" }} color="secondary">
             A modern, full-stack application template with Python FastAPI
-            backend and React TypeScript frontend (using <Typography.Link href="https://pulkitxchadha.github.io/DesignBricks/?path=/docs/designbricks-introduction--docs" openInNewTab>DesignBricks Design System Components</Typography.Link>)
+            backend and React TypeScript frontend (using <Typography.Link href="https://pulkitxchadha.github.io/DesignBricks/?path=/docs/designbricks-introduction--docs" openInNewTab style={{ textDecoration: "underline" }}>DesignBricks Design System Components</Typography.Link>)
           </Typography.Paragraph>
         </div>
 
@@ -56,7 +56,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
         {userInfo && (
           <Card className="mb-8 border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/50" padding="medium">
             <div className="flex flex-col space-y-1.5">
-              <Typography.Title level={3} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Typography.Title level={2} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <User className="h-5 w-5" />
                 Current User
               </Typography.Title>
@@ -84,7 +84,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
           {/* Getting Started */}
           <Card className="h-fit" padding="medium">
             <div className="flex flex-col space-y-1.5">
-              <Typography.Title level={3} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Typography.Title level={2} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Play className="h-5 w-5" />
                 Getting Started
               </Typography.Title>
@@ -151,7 +151,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
           {/* Claude Commands */}
           <Card className="h-fit" padding="medium">
             <div className="flex flex-col space-y-1.5">
-              <Typography.Title level={3} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Typography.Title level={2} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Bot className="h-5 w-5" />
                 Claude Commands
               </Typography.Title>
@@ -242,7 +242,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
           {/* Tech Stack */}
           <Card className="h-fit" padding="medium">
             <div className="flex flex-col space-y-1.5">
-              <Typography.Title level={3} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Typography.Title level={2} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Code className="h-5 w-5" />
                 Tech Stack
               </Typography.Title>
@@ -319,7 +319,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
           {/* Project Structure */}
           <Card className="h-fit" padding="medium">
             <div className="flex flex-col space-y-1.5">
-              <Typography.Title level={3} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Typography.Title level={2} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <FileText className="h-5 w-5" />
                 Project Structure
               </Typography.Title>
@@ -364,7 +364,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
         {/* Features */}
         <Card className="mb-8" padding="medium">
           <div className="flex flex-col space-y-1.5">
-            <Typography.Title level={3} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Typography.Title level={2} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <Wrench className="h-5 w-5" />
               Key Features
             </Typography.Title>
