@@ -8,7 +8,7 @@
  */
 
 import React, { useState } from "react";
-import { TopBar, Sidebar, Card, Button, TextField, Alert, Typography, type SidebarItem } from "designbricks";
+import { TopBar, Sidebar, Card, Button, Alert, Typography, Select, type SidebarItem } from "designbricks";
 import { Database, Settings, Brain, Home } from "lucide-react";
 import { DataTable } from "@/components/ui/DataTable";
 import { PreferencesForm } from "@/components/ui/PreferencesForm";
@@ -29,9 +29,15 @@ export function DatabricksServicesPage() {
   const [activeTab, setActiveTab] = useState("welcome");
 
   // Unity Catalog state
-  const [catalog, setCatalog] = useState("main");
-  const [schema, setSchema] = useState("samples");
-  const [table, setTable] = useState("demo_data");
+  const [catalogs, setCatalogs] = useState<string[]>([]);
+  const [schemas, setSchemas] = useState<string[]>([]);
+  const [tables, setTables] = useState<string[]>([]);
+  const [catalog, setCatalog] = useState("");
+  const [schema, setSchema] = useState("");
+  const [table, setTable] = useState("");
+  const [catalogsLoading, setCatalogsLoading] = useState(false);
+  const [schemasLoading, setSchemasLoading] = useState(false);
+  const [tablesLoading, setTablesLoading] = useState(false);
   const [ucData, setUcData] = useState<any>(null);
   const [ucLoading, setUcLoading] = useState(false);
   const [ucError, setUcError] = useState<string | null>(null);
@@ -51,7 +57,81 @@ export function DatabricksServicesPage() {
     loadUserInfo();
     loadPreferences();
     loadEndpoints();
+    loadCatalogs();
   }, []);
+
+  // Load catalogs on mount
+  const loadCatalogs = async () => {
+    try {
+      setCatalogsLoading(true);
+      const data = await UnityCatalogService.listCatalogsApiUnityCatalogCatalogsGet();
+      setCatalogs(data);
+    } catch (err: any) {
+      console.error("Failed to load catalogs:", err);
+      setUcError(err.message || "Failed to load catalogs");
+    } finally {
+      setCatalogsLoading(false);
+    }
+  };
+
+  // Load schemas when catalog changes
+  React.useEffect(() => {
+    if (catalog) {
+      loadSchemas(catalog);
+    } else {
+      setSchemas([]);
+      setSchema("");
+      setTables([]);
+      setTable("");
+    }
+  }, [catalog]);
+
+  const loadSchemas = async (catalogName: string) => {
+    try {
+      setSchemasLoading(true);
+      setUcError(null);
+      const data = await UnityCatalogService.listSchemasApiUnityCatalogSchemasGet(catalogName);
+      setSchemas(data);
+      setSchema(""); // Reset schema selection
+      setTables([]); // Reset tables
+      setTable(""); // Reset table selection
+    } catch (err: any) {
+      console.error("Failed to load schemas:", err);
+      setUcError(err.message || "Failed to load schemas");
+      setSchemas([]);
+    } finally {
+      setSchemasLoading(false);
+    }
+  };
+
+  // Load tables when schema changes
+  React.useEffect(() => {
+    if (catalog && schema) {
+      loadTables(catalog, schema);
+    } else {
+      setTables([]);
+      setTable("");
+    }
+  }, [catalog, schema]);
+
+  const loadTables = async (catalogName: string, schemaName: string) => {
+    try {
+      setTablesLoading(true);
+      setUcError(null);
+      const data = await UnityCatalogService.listTableNamesApiUnityCatalogTableNamesGet(
+        catalogName,
+        schemaName
+      );
+      setTables(data);
+      setTable(""); // Reset table selection
+    } catch (err: any) {
+      console.error("Failed to load tables:", err);
+      setUcError(err.message || "Failed to load tables");
+      setTables([]);
+    } finally {
+      setTablesLoading(false);
+    }
+  };
 
   const loadUserInfo = async () => {
     try {
@@ -272,33 +352,42 @@ export function DatabricksServicesPage() {
                     {/* Query Form */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
-                        <TextField
-                          id="catalog"
+                        <Select
                           label="Catalog"
                           value={catalog}
-                          onChange={(e) => setCatalog(e.target.value)}
-                          placeholder="main"
+                          onChange={(value) => setCatalog(value as string)}
+                          options={catalogs.map((cat) => ({ value: cat, label: cat }))}
+                          placeholder="Select a catalog"
                           fullWidth
+                          disabled={catalogsLoading}
+                          searchable
+                          clearable
                         />
                       </div>
                       <div>
-                        <TextField
-                          id="schema"
+                        <Select
                           label="Schema"
                           value={schema}
-                          onChange={(e) => setSchema(e.target.value)}
-                          placeholder="samples"
+                          onChange={(value) => setSchema(value as string)}
+                          options={schemas.map((sch) => ({ value: sch, label: sch }))}
+                          placeholder="Select a schema"
                           fullWidth
+                          disabled={!catalog || schemasLoading}
+                          searchable
+                          clearable
                         />
                       </div>
                       <div>
-                        <TextField
-                          id="table"
+                        <Select
                           label="Table"
                           value={table}
-                          onChange={(e) => setTable(e.target.value)}
-                          placeholder="demo_data"
+                          onChange={(value) => setTable(value as string)}
+                          options={tables.map((tbl) => ({ value: tbl, label: tbl }))}
+                          placeholder="Select a table"
                           fullWidth
+                          disabled={!catalog || !schema || tablesLoading}
+                          searchable
+                          clearable
                         />
                       </div>
                     </div>
@@ -306,7 +395,7 @@ export function DatabricksServicesPage() {
                     <Button 
                       variant="primary"
                       onClick={handleQueryTable} 
-                      disabled={ucLoading}
+                      disabled={ucLoading || !catalog || !schema || !table}
                       loading={ucLoading}
                     >
                       {ucLoading ? "Querying..." : "Query Table"}

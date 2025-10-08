@@ -10,6 +10,94 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class UnityCatalogService {
     /**
+     * List Catalogs
+     * List accessible Unity Catalog catalogs.
+     *
+     * Returns:
+     * List of catalog names the user has access to
+     *
+     * Raises:
+     * 401: Authentication required (EC-003)
+     * 403: Permission denied (EC-004)
+     * 503: Database unavailable (EC-002)
+     * @returns string Successful Response
+     * @throws ApiError
+     */
+    public static listCatalogsApiUnityCatalogCatalogsGet(): CancelablePromise<Array<string>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/unity-catalog/catalogs',
+        });
+    }
+    /**
+     * List Schemas
+     * List schemas in a Unity Catalog catalog.
+     *
+     * Query Parameters:
+     * catalog: Catalog name
+     *
+     * Returns:
+     * List of schema names in the catalog
+     *
+     * Raises:
+     * 401: Authentication required (EC-003)
+     * 403: Permission denied (EC-004)
+     * 503: Database unavailable (EC-002)
+     * @param catalog
+     * @returns string Successful Response
+     * @throws ApiError
+     */
+    public static listSchemasApiUnityCatalogSchemasGet(
+        catalog: string,
+    ): CancelablePromise<Array<string>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/unity-catalog/schemas',
+            query: {
+                'catalog': catalog,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Table Names
+     * List table names in a Unity Catalog schema.
+     *
+     * Query Parameters:
+     * catalog: Catalog name
+     * schema: Schema name
+     *
+     * Returns:
+     * List of table names in the schema
+     *
+     * Raises:
+     * 401: Authentication required (EC-003)
+     * 403: Permission denied (EC-004)
+     * 503: Database unavailable (EC-002)
+     * @param catalog
+     * @param schema
+     * @returns string Successful Response
+     * @throws ApiError
+     */
+    public static listTableNamesApiUnityCatalogTableNamesGet(
+        catalog: string,
+        schema: string,
+    ): CancelablePromise<Array<string>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/unity-catalog/table-names',
+            query: {
+                'catalog': catalog,
+                'schema': schema,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * List Tables
      * List accessible Unity Catalog tables.
      *

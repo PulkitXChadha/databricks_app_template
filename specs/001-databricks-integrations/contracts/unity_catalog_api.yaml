@@ -15,6 +15,128 @@ servers:
     description: Production (Databricks Apps)
 
 paths:
+  /api/unity-catalog/catalogs:
+    get:
+      summary: List accessible Unity Catalog catalogs
+      description: |
+        Returns list of catalogs the authenticated user has access to.
+        Unity Catalog enforces permissions automatically based on user identity.
+      tags:
+        - Unity Catalog
+      responses:
+        '200':
+          description: List of accessible catalogs
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+              description: Correlation ID for request tracing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+              example:
+                - main
+                - dev
+                - prod
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  
+  /api/unity-catalog/schemas:
+    get:
+      summary: List schemas in a Unity Catalog catalog
+      description: |
+        Returns list of schemas in the specified catalog that the authenticated user has access to.
+        Unity Catalog enforces permissions automatically based on user identity.
+      tags:
+        - Unity Catalog
+      parameters:
+        - name: catalog
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Catalog name
+          example: main
+      responses:
+        '200':
+          description: List of accessible schemas
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+              description: Correlation ID for request tracing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+              example:
+                - default
+                - samples
+                - analytics
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  
+  /api/unity-catalog/table-names:
+    get:
+      summary: List table names in a Unity Catalog schema
+      description: |
+        Returns list of table names in the specified catalog.schema that the authenticated user has access to.
+        Unity Catalog enforces permissions automatically based on user identity.
+      tags:
+        - Unity Catalog
+      parameters:
+        - name: catalog
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Catalog name
+          example: main
+        - name: schema
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Schema name
+          example: samples
+      responses:
+        '200':
+          description: List of accessible table names
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+              description: Correlation ID for request tracing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+              example:
+                - demo_data
+                - customer_data
+                - sales_data
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  
   /api/unity-catalog/tables:
     get:
       summary: List accessible Unity Catalog tables

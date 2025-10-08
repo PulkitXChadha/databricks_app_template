@@ -36,6 +36,147 @@ class UnityCatalogService:
         if not self.warehouse_id:
             raise ValueError("DATABRICKS_WAREHOUSE_ID environment variable is required")
     
+    async def list_catalogs(
+        self,
+        user_id: str | None = None
+    ) -> list[str]:
+        """List Unity Catalog catalogs accessible to the user.
+        
+        Args:
+            user_id: User context for access control
+            
+        Returns:
+            List of catalog names
+            
+        Raises:
+            DatabricksError: If Unity Catalog access fails
+        """
+        try:
+            catalogs = []
+            
+            # List all catalogs the user has access to
+            catalog_list = self.client.catalogs.list()
+            
+            for catalog_info in catalog_list:
+                if catalog_info.name:
+                    catalogs.append(catalog_info.name)
+            
+            logger.info(
+                f"Listed {len(catalogs)} catalogs",
+                user_id=user_id
+            )
+            
+            return sorted(catalogs)
+            
+        except DatabricksError as e:
+            logger.error(
+                f"Unity Catalog error: {str(e)}",
+                exc_info=True,
+                user_id=user_id
+            )
+            raise
+    
+    async def list_schemas(
+        self,
+        catalog: str,
+        user_id: str | None = None
+    ) -> list[str]:
+        """List schemas in a Unity Catalog catalog accessible to the user.
+        
+        Args:
+            catalog: Catalog name
+            user_id: User context for access control
+            
+        Returns:
+            List of schema names
+            
+        Raises:
+            DatabricksError: If Unity Catalog access fails
+            PermissionError: If user lacks access to catalog
+        """
+        try:
+            schemas = []
+            
+            # List all schemas in the catalog
+            schema_list = self.client.schemas.list(catalog_name=catalog)
+            
+            for schema_info in schema_list:
+                if schema_info.name:
+                    schemas.append(schema_info.name)
+            
+            logger.info(
+                f"Listed {len(schemas)} schemas in catalog {catalog}",
+                user_id=user_id,
+                catalog=catalog
+            )
+            
+            return sorted(schemas)
+            
+        except DatabricksError as e:
+            logger.error(
+                f"Unity Catalog error: {str(e)}",
+                exc_info=True,
+                user_id=user_id,
+                catalog=catalog
+            )
+            if "PERMISSION_DENIED" in str(e) or "ACCESS_DENIED" in str(e):
+                raise PermissionError(f"No access to catalog {catalog}") from e
+            raise
+    
+    async def list_table_names(
+        self,
+        catalog: str,
+        schema: str,
+        user_id: str | None = None
+    ) -> list[str]:
+        """List table names in a Unity Catalog schema accessible to the user.
+        
+        Args:
+            catalog: Catalog name
+            schema: Schema name
+            user_id: User context for access control
+            
+        Returns:
+            List of table names
+            
+        Raises:
+            DatabricksError: If Unity Catalog access fails
+            PermissionError: If user lacks access to schema
+        """
+        try:
+            table_names = []
+            
+            # List tables in catalog.schema
+            table_list = self.client.tables.list(
+                catalog_name=catalog,
+                schema_name=schema
+            )
+            
+            for table_info in table_list:
+                if table_info.name:
+                    table_names.append(table_info.name)
+            
+            logger.info(
+                f"Listed {len(table_names)} tables in {catalog}.{schema}",
+                user_id=user_id,
+                catalog=catalog,
+                schema=schema
+            )
+            
+            return sorted(table_names)
+            
+        except DatabricksError as e:
+            logger.error(
+                f"Unity Catalog error: {str(e)}",
+                exc_info=True,
+                user_id=user_id,
+                catalog=catalog,
+                schema=schema
+            )
+            if "PERMISSION_DENIED" in str(e) or "ACCESS_DENIED" in str(e):
+                raise PermissionError(f"No access to {catalog}.{schema}") from e
+            raise
+    
     async def list_tables(
         self,
         catalog: str | None = None,
