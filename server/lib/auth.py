@@ -42,18 +42,19 @@ async def get_current_user_id(request: Request) -> str:
     user_token = await get_user_token(request)
     databricks_host = os.getenv('DATABRICKS_HOST')
     
-    # Only try to get user info if we have both token and host (Databricks Apps environment)
-    if user_token and databricks_host:
+    # Only try to get user info if we have token (Databricks Apps environment)
+    if user_token:
         try:
             # Use UserService with user token to get actual user info
             service = UserService(user_token=user_token)
             user_info = service.get_user_info()
-            user_email = user_info['userName']
+            user_email = user_info.get('userName', 'authenticated-user@databricks.com')
             
             logger.info(
                 "Retrieved user information from token",
                 user_id=user_email,
-                display_name=user_info.get('displayName')
+                display_name=user_info.get('displayName'),
+                has_databricks_host=bool(databricks_host)
             )
             
             return user_email
@@ -61,11 +62,14 @@ async def get_current_user_id(request: Request) -> str:
         except Exception as e:
             logger.warning(
                 f"Failed to get user info from token: {str(e)}",
-                exc_info=True
+                exc_info=True,
+                has_token=bool(user_token),
+                has_databricks_host=bool(databricks_host)
             )
-            # Fall back to generic identifier
+            # Fall back to generic identifier - this ensures app continues working
             return "authenticated-user@databricks.com"
     else:
         # Local development mode - return development user identifier
+        logger.info("No user token found, using local development mode")
         return "dev-user@example.com"
 

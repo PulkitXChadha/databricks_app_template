@@ -16,17 +16,29 @@ class UserService:
         user_token: Optional user access token for user-specific operations.
                    If None, uses service principal credentials.
     """
-    if user_token:
-      # Use user token for user-specific operations
-      databricks_host = os.getenv('DATABRICKS_HOST')
-      if databricks_host:
-        cfg = Config(host=databricks_host, token=user_token)
-        self.client = WorkspaceClient(config=cfg)
+    try:
+      if user_token:
+        # Use user token for user-specific operations
+        databricks_host = os.getenv('DATABRICKS_HOST')
+        if databricks_host:
+          # Ensure host has proper format
+          if not databricks_host.startswith('http'):
+            databricks_host = f'https://{databricks_host}'
+          cfg = Config(host=databricks_host, token=user_token)
+          self.client = WorkspaceClient(config=cfg)
+        else:
+          # In Databricks Apps, host is auto-detected
+          # Create client with just the token
+          cfg = Config(token=user_token)
+          self.client = WorkspaceClient(config=cfg)
       else:
-        # Fallback to default client in local dev
+        # Use service principal credentials (default)
         self.client = WorkspaceClient()
-    else:
-      # Use service principal credentials (default)
+    except Exception as e:
+      # If client initialization fails, create a basic client
+      # This ensures the service can still instantiate
+      import logging
+      logging.warning(f"Failed to initialize WorkspaceClient: {e}. Using default client.")
       self.client = WorkspaceClient()
 
   def get_current_user(self) -> User:
