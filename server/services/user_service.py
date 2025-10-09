@@ -91,10 +91,13 @@ class UserService:
     
     # If OAuth credentials are available, use them explicitly
     if databricks_host and client_id and client_secret:
+      # Explicitly set token="" to ignore any PAT tokens in environment
+      # This prevents "more than one authorization method" errors
       return Config(
         host=databricks_host,
         client_id=client_id,
-        client_secret=client_secret
+        client_secret=client_secret,
+        token=""  # Explicitly disable PAT authentication
       )
     
     # Otherwise, use host-only config and let SDK auto-detect auth
