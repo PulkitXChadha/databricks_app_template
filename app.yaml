@@ -38,6 +38,8 @@ env:
     value: "samples"
   
   # Lakebase Configuration (OAuth authentication is automatic)
+  - name: LAKEBASE_INSTANCE_NAME
+    value: "databricks-app-lakebase-dev"
   - name: LAKEBASE_HOST
     value: "instance-0fac1568-f318-4b0d-9110-cd868b343908.database.cloud.databricks.com"
   - name: LAKEBASE_PORT
