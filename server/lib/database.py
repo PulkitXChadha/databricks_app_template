@@ -22,6 +22,10 @@ def _create_workspace_client(user_token: str | None = None) -> WorkspaceClient:
     For on-behalf-of-user (OBO) authentication, pass the user's access token.
     For service principal authentication, pass None.
     
+    IMPORTANT: When using OBO, we must ONLY use the token parameter to avoid
+    conflicts with environment variables (DATABRICKS_CLIENT_ID, etc.) that
+    may be present in Databricks Apps deployments.
+    
     Args:
         user_token: Optional user access token for OBO authentication
     
@@ -30,15 +34,24 @@ def _create_workspace_client(user_token: str | None = None) -> WorkspaceClient:
     """
     databricks_host = os.getenv('DATABRICKS_HOST')
     
-    # On-behalf-of-user authentication: Use only the user token
+    # On-behalf-of-user authentication: Use ONLY the user token
+    # We MUST explicitly set auth_type="pat" to prevent SDK from detecting OAuth env vars
     if user_token:
         if databricks_host:
             if not databricks_host.startswith('http'):
                 databricks_host = f'https://{databricks_host}'
-            cfg = Config(host=databricks_host, token=user_token)
+            # Use auth_type="pat" to force token-only auth and ignore OAuth env vars
+            cfg = Config(
+                host=databricks_host,
+                token=user_token,
+                auth_type="pat"  # Forces SDK to use ONLY the token, ignoring OAuth env vars
+            )
         else:
             # In Databricks Apps, host is auto-detected
-            cfg = Config(token=user_token)
+            cfg = Config(
+                token=user_token,
+                auth_type="pat"  # Forces SDK to use ONLY the token, ignoring OAuth env vars
+            )
         return WorkspaceClient(config=cfg)
     
     # Service principal authentication: Use OAuth M2M (app-level access)
@@ -51,7 +64,7 @@ def _create_workspace_client(user_token: str | None = None) -> WorkspaceClient:
             host=databricks_host,
             client_id=client_id,
             client_secret=client_secret,
-            auth_type="oauth-m2m"
+            auth_type="oauth-m2m"  # Explicit OAuth, ignores PAT tokens in env
         )
         return WorkspaceClient(config=cfg)
     

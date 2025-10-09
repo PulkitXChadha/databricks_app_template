@@ -51,12 +51,17 @@ service = UnityCatalogService()
 
 ### 4. WorkspaceClient Configuration
 
-When a user token is provided, the service creates a WorkspaceClient using **ONLY** that token:
+When a user token is provided, the service creates a WorkspaceClient using **ONLY** that token with explicit `auth_type="pat"`:
 
 ```python
 if user_token:
-    # OBO: Use ONLY the user's token
-    cfg = Config(host=databricks_host, token=user_token)
+    # OBO: Use ONLY the user's token with explicit auth_type
+    # CRITICAL: auth_type="pat" tells SDK to ignore OAuth env vars
+    cfg = Config(
+        host=databricks_host,
+        token=user_token,
+        auth_type="pat"  # Forces token-only auth, ignores OAuth env vars
+    )
     self.client = WorkspaceClient(config=cfg)
 else:
     # App authorization: Use service principal OAuth M2M
@@ -64,12 +69,15 @@ else:
         host=databricks_host,
         client_id=client_id,
         client_secret=client_secret,
-        auth_type="oauth-m2m"
+        auth_type="oauth-m2m"  # Explicit OAuth, ignores PAT tokens in env
     )
     self.client = WorkspaceClient(config=cfg)
 ```
 
-**Important**: When using OBO, we do NOT mix OAuth service principal credentials with the user token. This prevents the "more than one authorization method configured" error.
+**Critical**: 
+- When using OBO, we MUST set `auth_type="pat"` to tell the SDK to use ONLY the token and ignore OAuth environment variables
+- Databricks Apps automatically sets `DATABRICKS_CLIENT_ID` and `DATABRICKS_CLIENT_SECRET` environment variables
+- Without `auth_type="pat"`, the SDK detects both the token AND OAuth env vars, causing the "more than one authorization method configured" error
 
 ## Implementation Guide
 
@@ -179,16 +187,38 @@ Unity Catalog row filters and column masks are properly enforced when using OBO.
 
 ### Error: "more than one authorization method configured"
 
-**Problem**: This error occurs when both OAuth credentials and PAT tokens are present.
+**Problem**: This error occurs when the Databricks SDK detects multiple authentication methods:
+- Databricks Apps automatically sets OAuth env vars (`DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`)
+- Your code passes a user token for OBO
+- SDK sees BOTH and throws an error
 
-**Solution**: Ensure services explicitly use `auth_type="oauth-m2m"` for service principal mode:
+**Root Cause**: When creating a WorkspaceClient with just `token=user_token`, the SDK still scans environment variables and detects the OAuth credentials, even though we only want to use the token.
+
+**Solution**: Explicitly set `auth_type="pat"` when using a user token to tell the SDK to ONLY use the token:
+
+```python
+# ✅ CORRECT - Forces SDK to use only the token
+cfg = Config(
+    host=databricks_host,
+    token=user_token,
+    auth_type="pat"  # Critical: Tells SDK to ignore OAuth env vars
+)
+
+# ❌ WRONG - SDK will detect OAuth env vars
+cfg = Config(
+    host=databricks_host,
+    token=user_token  # Without auth_type="pat", SDK checks env vars
+)
+```
+
+For service principal mode, use `auth_type="oauth-m2m"`:
 
 ```python
 cfg = Config(
     host=databricks_host,
     client_id=client_id,
     client_secret=client_secret,
-    auth_type="oauth-m2m"  # This forces OAuth and ignores PAT tokens
+    auth_type="oauth-m2m"  # Explicit OAuth, ignores PAT tokens in env
 )
 ```
 

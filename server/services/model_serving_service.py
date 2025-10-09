@@ -52,15 +52,22 @@ class ModelServingService:
         # Create WorkspaceClient based on authorization mode
         if user_token:
             # On-behalf-of-user (OBO) authorization: Use ONLY the user's access token
-            # This enforces the user's permissions for model serving
+            # MUST set auth_type="pat" to prevent SDK from detecting OAuth env vars
             if databricks_host:
                 # Ensure host has proper format
                 if not databricks_host.startswith('http'):
                     databricks_host = f'https://{databricks_host}'
-                cfg = Config(host=databricks_host, token=user_token)
+                cfg = Config(
+                    host=databricks_host,
+                    token=user_token,
+                    auth_type="pat"  # Forces token-only auth, ignores OAuth env vars
+                )
             else:
                 # In Databricks Apps, host is auto-detected
-                cfg = Config(token=user_token)
+                cfg = Config(
+                    token=user_token,
+                    auth_type="pat"  # Forces token-only auth, ignores OAuth env vars
+                )
             self.client = WorkspaceClient(config=cfg)
             self.auth_mode = "user"
             logger.info("Model Serving service initialized with OBO user authorization")
