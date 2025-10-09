@@ -5,6 +5,7 @@ Provides structured logging with JSON output for machine-readable logs.
 
 import logging
 import json
+import os
 from datetime import datetime
 from typing import Any
 
@@ -68,7 +69,11 @@ class StructuredLogger:
             name: Logger name (typically module name)
         """
         self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.INFO)
+        
+        # Set log level from environment variable (default to INFO)
+        log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+        level = getattr(logging, log_level, logging.INFO)
+        self.logger.setLevel(level)
         
         # Remove existing handlers to avoid duplicates
         self.logger.handlers.clear()

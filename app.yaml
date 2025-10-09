@@ -50,7 +50,9 @@ env:
 
   
   # Observability Configuration
+  # Valid levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  # Use DEBUG for verbose logging (includes all requests/responses)
   - name: LOG_LEVEL
-    value: "INFO"
+    value: "DEBUG"
   - name: LOG_FORMAT
     value: "json"
