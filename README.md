@@ -641,6 +641,20 @@ rm -f /tmp/databricks-app-watch.log
 - **Credentials**: Stored locally, never transmitted except to Databricks
 - **Logging**: Development logs stored locally in `/tmp/` directory
 
+## 📖 Documentation
+
+This template includes comprehensive documentation in the `/docs` directory:
+
+- **[OBO Authentication Guide](docs/OBO_AUTHENTICATION.md)** - On-behalf-of-user authentication implementation
+  - How to use user credentials instead of service principal
+  - Unity Catalog permission enforcement
+  - Database access with user-level security
+  - Troubleshooting common authentication issues
+
+- **[Databricks APIs](docs/databricks_apis/)** - Integration guides for Databricks services
+- **[Deployment Checklist](docs/DEPLOYMENT_CHECKLIST.md)** - Pre-deployment validation steps
+- **[Examples](docs/examples/)** - Code examples and usage patterns
+
 ## 📚 Learn More
 
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)

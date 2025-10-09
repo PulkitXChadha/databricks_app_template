@@ -38,14 +38,15 @@ class UnityCatalogService:
         """Initialize Unity Catalog service with Workspace client.
         
         Args:
-            user_token: Optional user access token for user authorization.
+            user_token: Optional user access token for OBO authorization.
                         If None, uses app authorization (service principal).
         """
+        databricks_host = os.getenv('DATABRICKS_HOST')
+        
         # Create WorkspaceClient based on authorization mode
         if user_token:
-            # User authorization: Use user's access token
+            # On-behalf-of-user (OBO) authorization: Use ONLY the user's access token
             # This enforces the user's Unity Catalog permissions
-            databricks_host = os.getenv('DATABRICKS_HOST')
             if databricks_host:
                 # Ensure host has proper format
                 if not databricks_host.startswith('http'):
@@ -53,19 +54,17 @@ class UnityCatalogService:
                 cfg = Config(host=databricks_host, token=user_token)
             else:
                 # In Databricks Apps, host is auto-detected
-                # Create client with just the token
                 cfg = Config(token=user_token)
             self.client = WorkspaceClient(config=cfg)
             self.auth_mode = "user"
-            logger.info("Unity Catalog service initialized with user authorization")
+            logger.info("Unity Catalog service initialized with OBO user authorization")
         else:
-            # App authorization: Use service principal (explicit OAuth)
+            # App authorization: Use service principal (OAuth M2M)
             # This uses the app's service principal permissions
-            # Explicitly use OAuth to avoid conflict with PAT token in environment
             cfg = self._create_service_principal_config()
             self.client = WorkspaceClient(config=cfg)
             self.auth_mode = "app"
-            logger.info("Unity Catalog service initialized with app authorization")
+            logger.info("Unity Catalog service initialized with service principal authorization")
         
         self.warehouse_id = os.getenv('DATABRICKS_WAREHOUSE_ID')
         
@@ -73,38 +72,37 @@ class UnityCatalogService:
             raise ValueError("DATABRICKS_WAREHOUSE_ID environment variable is required")
     
     def _create_service_principal_config(self) -> Config:
-        """Create Config for service principal authentication (OAuth).
+        """Create Config for service principal authentication (OAuth M2M).
         
-        This explicitly uses OAuth credentials to avoid conflicts with PAT tokens
-        that might be present in the environment.
+        For Databricks Apps, uses OAuth service principal credentials.
+        The auth_type="oauth-m2m" setting ensures only OAuth is used,
+        preventing conflicts with PAT tokens in the environment.
         
         Returns:
-            Config object with OAuth authentication
+            Config object with OAuth M2M authentication
         """
         databricks_host = os.getenv('DATABRICKS_HOST')
         client_id = os.getenv('DATABRICKS_CLIENT_ID')
         client_secret = os.getenv('DATABRICKS_CLIENT_SECRET')
         
-        # If OAuth credentials are available, use them explicitly
+        # Use OAuth M2M with service principal credentials
         if databricks_host and client_id and client_secret:
-            # Explicitly set auth_type to force OAuth and ignore PAT tokens
-            # This prevents "more than one authorization method" errors
+            # Explicitly set auth_type to use ONLY OAuth M2M
+            # This ignores any PAT tokens in the environment
             return Config(
                 host=databricks_host,
                 client_id=client_id,
                 client_secret=client_secret,
-                auth_type="oauth-m2m"  # Explicitly force OAuth machine-to-machine auth
+                auth_type="oauth-m2m"
             )
         
-        # Otherwise, use host-only config and let SDK auto-detect auth
-        # (CLI auth, profile-based auth, etc.)
+        # Fallback for local development (let SDK auto-detect)
         logger.warning(
-            "OAuth credentials not found, falling back to SDK auto-detection. "
-            "Set DATABRICKS_HOST, DATABRICKS_CLIENT_ID, and DATABRICKS_CLIENT_SECRET for explicit OAuth."
+            "Service principal credentials not found. Using SDK auto-detection. "
+            "For Databricks Apps, set DATABRICKS_HOST, DATABRICKS_CLIENT_ID, and DATABRICKS_CLIENT_SECRET."
         )
         if databricks_host:
             return Config(host=databricks_host)
-        # If no host either, return empty config for full auto-detection
         return Config()
     
     async def list_catalogs(

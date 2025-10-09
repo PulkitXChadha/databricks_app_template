@@ -10,7 +10,7 @@ from enum import Enum
 
 from server.services.lakebase_service import LakebaseService
 from server.lib.structured_logger import StructuredLogger
-from server.lib.auth import get_current_user_id
+from server.lib.auth import get_current_user_id, get_user_token
 
 router = APIRouter()
 logger = StructuredLogger(__name__)
@@ -45,7 +45,8 @@ class UserPreferenceResponse(BaseModel):
 async def get_preferences(
     request: Request,
     preference_key: str | None = None,
-    user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id),
+    user_token: str | None = Depends(get_user_token)
 ):
     """Get user preferences (user-scoped, data isolated).
     
@@ -65,7 +66,7 @@ async def get_preferences(
     )
     
     try:
-        service = LakebaseService()
+        service = LakebaseService(user_token=user_token)
         preferences = await service.get_preferences(
             user_id=user_id,
             preference_key=preference_key
@@ -128,7 +129,8 @@ async def get_preferences(
 async def save_preference(
     http_request: Request,
     request: SavePreferenceRequest,
-    user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id),
+    user_token: str | None = Depends(get_user_token)
 ):
     """Create or update user preference (user-scoped).
     
@@ -150,7 +152,7 @@ async def save_preference(
     )
     
     try:
-        service = LakebaseService()
+        service = LakebaseService(user_token=user_token)
         preference = await service.save_preference(
             user_id=user_id,
             preference_key=request.preference_key.value,
@@ -218,7 +220,8 @@ async def save_preference(
 async def delete_preference(
     request: Request,
     preference_key: str,
-    user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_current_user_id),
+    user_token: str | None = Depends(get_user_token)
 ):
     """Delete user preference (user-scoped).
     
@@ -239,7 +242,7 @@ async def delete_preference(
     )
     
     try:
-        service = LakebaseService()
+        service = LakebaseService(user_token=user_token)
         deleted = await service.delete_preference(
             user_id=user_id,
             preference_key=preference_key

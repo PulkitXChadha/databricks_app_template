@@ -1,6 +1,7 @@
 """Lakebase Service
 
 Service for user preferences and application state in Lakebase (Postgres).
+Supports on-behalf-of-user (OBO) authentication for per-user database access.
 """
 
 from typing import Any
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from server.models.user_preference import UserPreference, validate_preference_key
-from server.lib.database import get_db_session
+from server.lib.database import get_db_session, get_db_session_obo
 from server.lib.structured_logger import StructuredLogger
 
 logger = StructuredLogger(__name__)
@@ -23,15 +24,18 @@ class LakebaseService:
     - Delete user preferences
     
     All queries filter by user_id for data isolation.
+    Supports OBO authentication for per-user database access.
     """
     
-    def __init__(self, db_session: Session | None = None):
+    def __init__(self, db_session: Session | None = None, user_token: str | None = None):
         """Initialize Lakebase service.
         
         Args:
             db_session: Database session (auto-created if None)
+            user_token: Optional user access token for OBO authentication
         """
         self.db_session = db_session
+        self.user_token = user_token
     
     async def get_preferences(
         self,
@@ -55,9 +59,14 @@ class LakebaseService:
             if self.db_session:
                 return self._query_preferences(self.db_session, user_id, preference_key)
             else:
-                # Create new session
-                for session in get_db_session():
-                    return self._query_preferences(session, user_id, preference_key)
+                # Create new session with OBO if user_token is available
+                if self.user_token:
+                    for session in get_db_session_obo(self.user_token):
+                        return self._query_preferences(session, user_id, preference_key)
+                else:
+                    # Use service principal session
+                    for session in get_db_session():
+                        return self._query_preferences(session, user_id, preference_key)
                     
         except SQLAlchemyError as e:
             logger.error(
@@ -131,9 +140,14 @@ class LakebaseService:
             if self.db_session:
                 return self._save_preference(self.db_session, user_id, preference_key, preference_value)
             else:
-                # Create new session
-                for session in get_db_session():
-                    return self._save_preference(session, user_id, preference_key, preference_value)
+                # Create new session with OBO if user_token is available
+                if self.user_token:
+                    for session in get_db_session_obo(self.user_token):
+                        return self._save_preference(session, user_id, preference_key, preference_value)
+                else:
+                    # Use service principal session
+                    for session in get_db_session():
+                        return self._save_preference(session, user_id, preference_key, preference_value)
                     
         except SQLAlchemyError as e:
             logger.error(
@@ -222,9 +236,14 @@ class LakebaseService:
             if self.db_session:
                 return self._delete_preference(self.db_session, user_id, preference_key)
             else:
-                # Create new session
-                for session in get_db_session():
-                    return self._delete_preference(session, user_id, preference_key)
+                # Create new session with OBO if user_token is available
+                if self.user_token:
+                    for session in get_db_session_obo(self.user_token):
+                        return self._delete_preference(session, user_id, preference_key)
+                else:
+                    # Use service principal session
+                    for session in get_db_session():
+                        return self._delete_preference(session, user_id, preference_key)
                     
         except SQLAlchemyError as e:
             logger.error(

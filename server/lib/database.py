@@ -2,6 +2,7 @@
 
 Provides SQLAlchemy engine with connection pooling for Lakebase (Postgres in Databricks).
 Uses Databricks SDK for secure, token-based authentication with automatic token caching.
+Supports on-behalf-of-user (OBO) authentication for per-user database access.
 """
 
 import os
@@ -15,30 +16,46 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
 
-def _create_workspace_client() -> WorkspaceClient:
-    """Create WorkspaceClient with explicit OAuth configuration.
+def _create_workspace_client(user_token: str | None = None) -> WorkspaceClient:
+    """Create WorkspaceClient with appropriate authentication.
     
-    This explicitly uses OAuth credentials to avoid conflicts with PAT tokens
-    that might be present in the environment.
+    For on-behalf-of-user (OBO) authentication, pass the user's access token.
+    For service principal authentication, pass None.
+    
+    Args:
+        user_token: Optional user access token for OBO authentication
     
     Returns:
-        WorkspaceClient configured with OAuth or default auth
+        WorkspaceClient configured with appropriate auth
     """
     databricks_host = os.getenv('DATABRICKS_HOST')
+    
+    # On-behalf-of-user authentication: Use only the user token
+    if user_token:
+        if databricks_host:
+            if not databricks_host.startswith('http'):
+                databricks_host = f'https://{databricks_host}'
+            cfg = Config(host=databricks_host, token=user_token)
+        else:
+            # In Databricks Apps, host is auto-detected
+            cfg = Config(token=user_token)
+        return WorkspaceClient(config=cfg)
+    
+    # Service principal authentication: Use OAuth M2M (app-level access)
+    # Only use when OBO token is not available
     client_id = os.getenv('DATABRICKS_CLIENT_ID')
     client_secret = os.getenv('DATABRICKS_CLIENT_SECRET')
     
-    # If OAuth credentials are available, use them explicitly
     if databricks_host and client_id and client_secret:
         cfg = Config(
             host=databricks_host,
             client_id=client_id,
             client_secret=client_secret,
-            auth_type="oauth-m2m"  # Explicitly force OAuth to ignore PAT tokens
+            auth_type="oauth-m2m"
         )
         return WorkspaceClient(config=cfg)
     
-    # Otherwise, let SDK auto-configure (will use single available method)
+    # Fallback: Let SDK auto-configure (local development)
     return WorkspaceClient()
 
 
@@ -82,11 +99,12 @@ def create_lakebase_engine(
     connection_string: str | None = None,
     pool_size: int = 10,
     max_overflow: int = 10,
-    pool_pre_ping: bool = True
+    pool_pre_ping: bool = True,
+    user_token: str | None = None
 ) -> Engine:
     """Create SQLAlchemy engine with QueuePool for Lakebase.
     
-    Uses Databricks SDK for secure OAuth token authentication. The token is
+    Uses Databricks SDK for secure token authentication. The token is
     automatically cached and refreshed by WorkspaceClient.
     
     Args:
@@ -94,14 +112,17 @@ def create_lakebase_engine(
         pool_size: Number of connections to maintain in pool
         max_overflow: Maximum overflow connections beyond pool_size
         pool_pre_ping: Test connections before use to detect stale connections
+        user_token: Optional user access token for OBO authentication
         
     Returns:
-        Configured SQLAlchemy engine with OAuth token authentication
+        Configured SQLAlchemy engine with token authentication
         
     Example:
+        # Service principal (app-level)
         engine = create_lakebase_engine(pool_size=10, max_overflow=10)
-        with engine.connect() as conn:
-            result = conn.execute(text("SELECT 1"))
+        
+        # On-behalf-of-user (per-user)
+        engine = create_lakebase_engine(user_token=user_access_token)
     """
     if connection_string is None:
         connection_string = get_lakebase_connection_string()
@@ -117,12 +138,12 @@ def create_lakebase_engine(
     )
     
     # Set up authentication via event listener
-    # Use explicit OAuth configuration to avoid conflicts with PAT tokens
-    workspace_client = _create_workspace_client()
+    # Use OBO token if provided, otherwise use service principal
+    workspace_client = _create_workspace_client(user_token=user_token)
     
     # Get Lakebase instance name
     # Use LAKEBASE_INSTANCE_NAME if provided (logical name from bundle)
-    # Otherwise extract from host (but this may not work with SDK)
+    # Otherwise extract from host
     instance_name = os.getenv('LAKEBASE_INSTANCE_NAME')
     
     if not instance_name:
@@ -133,16 +154,20 @@ def create_lakebase_engine(
     
     @event.listens_for(engine, "do_connect")
     def provide_token(dialect, conn_rec, cargs, cparams):
-        """Provide authentication token for Lakebase using OAuth"""
-        # For Lakebase, generate OAuth token using Databricks SDK
-        # If LAKEBASE_TOKEN is already an OAuth token, use it directly
+        """Provide authentication token for Lakebase.
+        
+        For OBO: Uses user's token to generate database credentials
+        For service principal: Uses app credentials to generate database credentials
+        """
+        # For Lakebase, generate database credential using SDK
+        # If LAKEBASE_TOKEN is already a valid token, use it directly
         lakebase_token = os.getenv("LAKEBASE_TOKEN")
         
         if lakebase_token and not lakebase_token.startswith("dapi"):
-            # Already an OAuth token
+            # Already a valid OAuth token
             cparams["password"] = lakebase_token
         elif instance_name:
-            # Generate OAuth token for Lakebase instance
+            # Generate database credential for Lakebase instance
             try:
                 cred = workspace_client.database.generate_database_credential(
                     request_id=str(uuid.uuid4()),
@@ -154,12 +179,12 @@ def create_lakebase_engine(
                 if lakebase_token:
                     cparams["password"] = lakebase_token
                 else:
-                    raise Exception(f"Failed to generate Lakebase OAuth token: {e}")
+                    raise Exception(f"Failed to generate Lakebase database credential: {e}")
         elif lakebase_token:
             # Use provided token as fallback
             cparams["password"] = lakebase_token
         else:
-            raise Exception("No valid Lakebase authentication method available")
+            raise Exception("No valid Lakebase authentication method available. Set LAKEBASE_INSTANCE_NAME or LAKEBASE_TOKEN.")
     
     return engine
 
@@ -221,10 +246,10 @@ def get_session_factory() -> sessionmaker:
 
 
 def get_db_session() -> Generator[Session, None, None]:
-    """Get database session for dependency injection.
+    """Get database session for dependency injection (service principal auth).
     
     Yields:
-        Database session
+        Database session using app credentials
         
     Usage (FastAPI):
         @app.get("/preferences")
@@ -241,6 +266,42 @@ def get_db_session() -> Generator[Session, None, None]:
         raise
     finally:
         session.close()
+
+
+def get_db_session_obo(user_token: str) -> Generator[Session, None, None]:
+    """Get database session with OBO authentication for dependency injection.
+    
+    Creates a session using the user's access token for per-user database access.
+    Each user's session uses their own credentials.
+    
+    Args:
+        user_token: User's access token from X-Forwarded-Access-Token header
+    
+    Yields:
+        Database session using user credentials
+        
+    Usage (FastAPI):
+        @app.get("/preferences")
+        async def get_preferences(
+            user_token: str = Depends(get_user_token),
+            db: Session = Depends(lambda token=user_token: get_db_session_obo(token))
+        ):
+            return db.query(UserPreference).all()
+    """
+    # Create engine with user token (not cached globally)
+    engine = create_lakebase_engine(user_token=user_token)
+    SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = SessionFactory()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        # Dispose engine after use (since it's per-user)
+        engine.dispose()
 
 
 def test_connection() -> bool:
