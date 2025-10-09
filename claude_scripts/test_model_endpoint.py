@@ -32,7 +32,8 @@ def _create_workspace_client() -> WorkspaceClient:
         cfg = Config(
             host=databricks_host,
             client_id=client_id,
-            client_secret=client_secret
+            client_secret=client_secret,
+            auth_type="oauth-m2m"  # Explicitly force OAuth to ignore PAT tokens
         )
         return WorkspaceClient(config=cfg)
     

@@ -88,13 +88,13 @@ class ModelServingService:
         
         # If OAuth credentials are available, use them explicitly
         if databricks_host and client_id and client_secret:
-            # Explicitly set token="" to ignore any PAT tokens in environment
+            # Explicitly set auth_type to force OAuth and ignore PAT tokens
             # This prevents "more than one authorization method" errors
             return Config(
                 host=databricks_host,
                 client_id=client_id,
                 client_secret=client_secret,
-                token=""  # Explicitly disable PAT authentication
+                auth_type="oauth-m2m"  # Explicitly force OAuth machine-to-machine auth
             )
         
         # Otherwise, use host-only config and let SDK auto-detect auth
