@@ -56,11 +56,10 @@ def get_lakebase_connection_string() -> str:
     Raises:
         ValueError: If required environment variables are missing
     """
-    # Get client_id from OAuth credentials if available
-    client_id = os.getenv('DATABRICKS_CLIENT_ID')
-    # For Lakebase, use client_id (OAuth) or DATABRICKS_USER (PAT) as username
-    # The actual token/password is provided via event listener
-    postgres_username = client_id or os.getenv('DATABRICKS_USER') or "token"
+    # For Lakebase OAuth token authentication, use "token" as username
+    # The OAuth token (provided as password via event listener) contains the actual authentication principal
+    # Using client_id or other identifiers as username will fail with "role does not exist" error
+    postgres_username = "token"
     postgres_host = os.getenv('PGHOST') or os.getenv('LAKEBASE_HOST')
     postgres_port = os.getenv('LAKEBASE_PORT', '5432')
     postgres_database = os.getenv('LAKEBASE_DATABASE')
