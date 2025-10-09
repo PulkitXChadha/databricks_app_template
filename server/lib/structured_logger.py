@@ -90,14 +90,15 @@ class StructuredLogger:
         """
         self.logger.info(message, extra=extra)
     
-    def warning(self, message: str, **extra: Any) -> None:
+    def warning(self, message: str, exc_info: bool = False, **extra: Any) -> None:
         """Log WARNING level message.
         
         Args:
             message: Log message
+            exc_info: Include exception traceback
             **extra: Additional context
         """
-        self.logger.warning(message, extra=extra)
+        self.logger.warning(message, exc_info=exc_info, extra=extra)
     
     def error(self, message: str, exc_info: bool = False, **extra: Any) -> None:
         """Log ERROR level message.
