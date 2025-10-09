@@ -50,10 +50,16 @@ class ModelServingService:
         # Create WorkspaceClient based on authorization mode
         if user_token:
             # User authorization: Use user's access token
-            cfg = Config(
-                host=os.getenv('DATABRICKS_HOST'),
-                token=user_token
-            )
+            databricks_host = os.getenv('DATABRICKS_HOST')
+            if databricks_host:
+                # Ensure host has proper format
+                if not databricks_host.startswith('http'):
+                    databricks_host = f'https://{databricks_host}'
+                cfg = Config(host=databricks_host, token=user_token)
+            else:
+                # In Databricks Apps, host is auto-detected
+                # Create client with just the token
+                cfg = Config(token=user_token)
             self.client = WorkspaceClient(config=cfg)
             self.auth_mode = "user"
             logger.info("Model Serving service initialized with user authorization")
