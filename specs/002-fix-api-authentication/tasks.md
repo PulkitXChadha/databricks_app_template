@@ -553,18 +553,72 @@ class StructuredLogger:
 
 Implement decorator-based retry logic with exponential backoff for authentication failures.
 
+**Circuit Breaker Scope Clarification**: The circuit breaker is **per-instance only** (no distributed state). Each application instance maintains its own circuit breaker state in memory. This avoids distributed state management complexity while still providing protection against retry storms within a single instance.
+
 **Files**:
 - `server/lib/auth.py` (MODIFY)
 
 **Implementation**:
 ```python
 from tenacity import retry, stop_after_delay, wait_exponential, retry_if_exception_type
+from datetime import datetime, timedelta
 
 class AuthenticationError(Exception):
     pass
 
 class RateLimitError(Exception):
     pass
+
+# Per-instance circuit breaker state (not distributed)
+class CircuitBreaker:
+    """Simple per-instance circuit breaker to prevent retry storms."""
+    def __init__(self, failure_threshold: int = 10, cooldown_seconds: int = 30):
+        self.failure_threshold = failure_threshold
+        self.cooldown_seconds = cooldown_seconds
+        self.consecutive_failures = 0
+        self.last_failure_time = None
+        self.state = "closed"  # closed, open, half-open
+
+    def record_success(self):
+        """Reset circuit breaker on success."""
+        if self.consecutive_failures > 0:
+            logger.info("auth.circuit_breaker_state_change", {
+                "old_state": self.state,
+                "new_state": "closed",
+                "consecutive_failures": 0,
+                "cooldown_seconds": 0
+            })
+        self.consecutive_failures = 0
+        self.state = "closed"
+
+    def record_failure(self):
+        """Record failure and potentially open circuit."""
+        self.consecutive_failures += 1
+        self.last_failure_time = datetime.now()
+
+        if self.consecutive_failures >= self.failure_threshold:
+            old_state = self.state
+            self.state = "open"
+            logger.warning("auth.circuit_breaker_state_change", {
+                "old_state": old_state,
+                "new_state": "open",
+                "consecutive_failures": self.consecutive_failures,
+                "cooldown_seconds": self.cooldown_seconds
+            })
+
+    def is_open(self):
+        """Check if circuit should reject requests."""
+        if self.state == "open":
+            # Check if cooldown period has passed
+            if self.last_failure_time and \
+               datetime.now() - self.last_failure_time > timedelta(seconds=self.cooldown_seconds):
+                self.state = "half-open"  # Allow one test request
+                return False
+            return True
+        return False
+
+# Single per-instance circuit breaker (not shared across processes)
+auth_circuit_breaker = CircuitBreaker()
 
 def with_auth_retry(func):
     @retry(
@@ -574,18 +628,25 @@ def with_auth_retry(func):
         reraise=True
     )
     async def wrapper(*args, **kwargs):
+        # Check circuit breaker state (per-instance only)
+        if auth_circuit_breaker.is_open():
+            raise AuthenticationError("Circuit breaker open - too many failures")
+
         try:
-            return await func(*args, **kwargs)
+            result = await func(*args, **kwargs)
+            auth_circuit_breaker.record_success()
+            return result
         except DatabricksError as e:
             if e.error_code == "RESOURCE_EXHAUSTED" or e.status_code == 429:
                 raise RateLimitError("Platform rate limit exceeded") from e
-            
+
+            auth_circuit_breaker.record_failure()
             logger.warning("auth.retry_attempt", {
                 "error": str(e),
                 "attempt": wrapper.retry.statistics.get("attempt_number", 1)
             })
             raise AuthenticationError(f"Authentication failed: {e}") from e
-    
+
     return wrapper
 ```
 
@@ -596,6 +657,7 @@ def with_auth_retry(func):
 - [ ] Rate limiting (429) fails immediately
 - [ ] Retry attempts logged
 - [ ] Circuit breaker state transitions logged with event='auth.circuit_breaker_state_change' and context={'old_state': 'closed', 'new_state': 'open', 'consecutive_failures': 10, 'cooldown_seconds': 30} per FR-017 and NFR-011
+- [ ] Circuit breaker is per-instance only (no distributed state coordination)
 - [ ] Each request retries independently without coordination (stateless pattern per FR-025)
 - [ ] Contract tests T012 pass
 
@@ -909,6 +971,106 @@ Modify ModelServingService to accept user_token and respect endpoint permissions
 
 ---
 
+### T024a: Implement Model Inference Logging to Lakebase
+**Type**: Implementation | **Priority**: High | **Dependencies**: T024, T026 | **Estimated**: 45 min
+
+Implement comprehensive logging of all model inference requests to Lakebase for auditability and debugging per Constitution v1.2.0.
+
+**Files**:
+- `server/services/model_serving_service.py` (MODIFY)
+- `server/models/model_inference_log.py` (MODIFY)
+
+**Implementation**:
+```python
+# In ModelServingService
+async def invoke_model(
+    self,
+    endpoint_name: str,
+    payload: Dict[str, Any],
+    user_id: str
+) -> ModelInferenceResponse:
+    """Invoke model endpoint and log request/response to Lakebase."""
+
+    # Create log entry
+    log_entry = ModelInferenceLog(
+        user_id=user_id,
+        endpoint_name=endpoint_name,
+        request_payload=json.dumps(payload),
+        requested_at=datetime.utcnow()
+    )
+
+    try:
+        # Call model serving endpoint
+        client = self._get_client()
+        response = await client.serving_endpoints.query(
+            name=endpoint_name,
+            inputs=payload
+        )
+
+        # Update log with response
+        log_entry.response_payload = json.dumps(response.predictions)
+        log_entry.status = "success"
+        log_entry.latency_ms = int((datetime.utcnow() - log_entry.requested_at).total_seconds() * 1000)
+
+    except Exception as e:
+        # Log failure
+        log_entry.status = "failed"
+        log_entry.error_message = str(e)
+        log_entry.latency_ms = int((datetime.utcnow() - log_entry.requested_at).total_seconds() * 1000)
+
+        logger.error("model.inference_failed", {
+            "user_id": user_id,
+            "endpoint": endpoint_name,
+            "error": str(e),
+            "correlation_id": correlation_id_var.get()
+        })
+        raise
+
+    finally:
+        # Always save log to Lakebase
+        await self.lakebase_service.save_inference_log(log_entry)
+
+        logger.info("model.inference_logged", {
+            "user_id": user_id,
+            "endpoint": endpoint_name,
+            "status": log_entry.status,
+            "latency_ms": log_entry.latency_ms,
+            "correlation_id": correlation_id_var.get()
+        })
+
+    return ModelInferenceResponse(
+        predictions=response.predictions,
+        latency_ms=log_entry.latency_ms
+    )
+
+# In LakebaseService
+async def save_inference_log(self, log: ModelInferenceLog):
+    """Save model inference log entry."""
+    query = """
+        INSERT INTO model_inference_logs (
+            user_id, endpoint_name, request_payload, response_payload,
+            status, latency_ms, error_message, requested_at
+        ) VALUES (
+            :user_id, :endpoint_name, :request_payload, :response_payload,
+            :status, :latency_ms, :error_message, :requested_at
+        )
+    """
+    await self.db.execute(query, log.dict())
+```
+
+**Acceptance Criteria**:
+- [ ] All model inference requests logged to model_inference_logs table
+- [ ] Log includes request/response payloads
+- [ ] Log includes user_id for multi-user tracking
+- [ ] Log includes latency_ms for performance monitoring
+- [ ] Failed requests logged with error details
+- [ ] No PII or sensitive data logged without encryption
+- [ ] History view implemented in UI (per Constitution)
+
+**Related Requirements**: Constitution v1.2.0 Section V, FR-008, Data Model Section 9
+
+---
+
 ### T025: Verify LakebaseService Uses Service Principal Only
 **Type**: Verification | **Priority**: High | **Dependencies**: T003 | **Estimated**: 30 min
 
@@ -1048,7 +1210,7 @@ async def get_user_info(user_token: Optional[str] = Depends(get_user_token)):
 ---
 
 ### T029: Update /api/user/me/workspace Endpoint
-**Type**: Implementation | **Priority**: Medium | **Dependencies**: T022, T028 | **Estimated**: 30 min | **Parallel**: No (sequential after T028)
+**Type**: Implementation | **Priority**: Medium | **Dependencies**: T022, T022a, T028 | **Estimated**: 30 min | **Parallel**: No (sequential after T028)
 
 Update /api/user/me/workspace endpoint to use OBO authentication.
 
@@ -1282,6 +1444,201 @@ export function ErrorMessage({ error }: ErrorMessageProps) {
 
 ---
 
+### T032b: Implement Admin Authentication Middleware
+**Type**: Implementation | **Priority**: High | **Dependencies**: T015, T019 | **Estimated**: 45 min
+
+Implement middleware to validate admin privileges for orphaned data management endpoints per FR-010a.
+
+**Files**:
+- `server/lib/admin_auth.py` (CREATE)
+- `server/models/admin.py` (CREATE)
+
+**Implementation**:
+```python
+from fastapi import HTTPException, Depends, Request
+from typing import Optional
+import os
+
+ADMIN_USERS = os.environ.get("ADMIN_USERS", "").split(",")  # Comma-separated admin emails
+
+async def require_admin(user_id: str = Depends(get_user_id)) -> str:
+    """Validate user has admin privileges for orphaned data operations."""
+    if user_id not in ADMIN_USERS:
+        logger.warning("admin.access_denied", {
+            "user_id": user_id,
+            "endpoint": "/api/admin/orphaned-records"
+        })
+        raise HTTPException(
+            status_code=403,
+            detail="Admin privileges required"
+        )
+
+    logger.info("admin.access_granted", {
+        "user_id": user_id,
+        "operation": "orphaned_data_query"
+    })
+    return user_id
+```
+
+**Acceptance Criteria**:
+- [ ] Admin users defined in ADMIN_USERS environment variable
+- [ ] Non-admin users receive 403 Forbidden
+- [ ] All admin access logged for audit compliance
+- [ ] Integration with existing auth middleware
+
+**Related Requirements**: FR-010a, NFR-014
+
+---
+
+### T032c: Implement Orphaned Records Admin Endpoint
+**Type**: Implementation | **Priority**: High | **Dependencies**: T032b, T026 | **Estimated**: 60 min
+
+Implement `/api/admin/orphaned-records` endpoint to list orphaned user data per FR-010a.
+
+**Files**:
+- `server/routers/admin.py` (CREATE)
+- `server/services/orphaned_data_service.py` (CREATE)
+
+**Implementation**:
+```python
+from fastapi import APIRouter, Depends, Query
+
+router = APIRouter()
+
+@router.get("/api/admin/orphaned-records", response_model=OrphanedRecordsResponse)
+async def get_orphaned_records(
+    admin_id: str = Depends(require_admin),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100)
+):
+    """List preferences, queries, and logs for inactive users (active=False)."""
+
+    service = OrphanedDataService()
+
+    # Query records associated with inactive users
+    orphaned_data = await service.get_orphaned_records(
+        page=page,
+        page_size=page_size
+    )
+
+    logger.info("admin.orphaned_data_query", {
+        "admin_id": admin_id,
+        "page": page,
+        "total_records": orphaned_data.total
+    })
+
+    return orphaned_data
+```
+
+**SQL Query**:
+```sql
+-- Find orphaned preferences (users with active=False)
+SELECT p.*, u.user_id, u.active, u.deactivated_at
+FROM user_preferences p
+JOIN users u ON p.user_id = u.user_id
+WHERE u.active = FALSE
+  AND u.deactivated_at < NOW() - INTERVAL '90 days'
+ORDER BY u.deactivated_at
+LIMIT :page_size OFFSET :offset;
+```
+
+**Acceptance Criteria**:
+- [ ] Endpoint requires admin authentication
+- [ ] Returns paginated orphaned records
+- [ ] Includes preferences, saved queries, inference logs
+- [ ] 90-day retention policy enforced
+- [ ] All queries logged for audit
+
+**Related Requirements**: FR-010a, NFR-014
+
+---
+
+### T032d: Implement Orphaned Data Cleanup Job
+**Type**: Implementation | **Priority**: High | **Dependencies**: T032c | **Estimated**: 60 min
+
+Implement scheduled job to purge orphaned data >90 days after user deactivation per NFR-014.
+
+**Files**:
+- `server/jobs/orphaned_data_cleanup.py` (CREATE)
+- `databricks.yml` (MODIFY - add job configuration)
+
+**Implementation**:
+```python
+#!/usr/bin/env python3
+"""Daily cleanup job for orphaned user data."""
+from datetime import datetime, timedelta
+
+async def cleanup_orphaned_data(dry_run: bool = False):
+    """Purge orphaned records >90 days after user deactivation."""
+
+    cutoff_date = datetime.utcnow() - timedelta(days=90)
+
+    # Find records to delete
+    query = """
+        SELECT user_id, COUNT(*) as record_count
+        FROM user_preferences
+        WHERE user_id IN (
+            SELECT user_id FROM users
+            WHERE active = FALSE
+            AND deactivated_at < :cutoff_date
+        )
+        GROUP BY user_id
+    """
+
+    if dry_run:
+        # Report what would be deleted
+        results = await db.execute(query, {"cutoff_date": cutoff_date})
+        logger.info("cleanup.dry_run", {
+            "would_delete": results,
+            "cutoff_date": cutoff_date
+        })
+        return
+
+    # Execute deletion
+    delete_query = """
+        DELETE FROM user_preferences
+        WHERE user_id IN (
+            SELECT user_id FROM users
+            WHERE active = FALSE
+            AND deactivated_at < :cutoff_date
+        )
+    """
+
+    deleted = await db.execute(delete_query, {"cutoff_date": cutoff_date})
+
+    logger.info("cleanup.completed", {
+        "deleted_records": deleted,
+        "cutoff_date": cutoff_date
+    })
+```
+
+**Databricks Job Configuration**:
+```yaml
+resources:
+  jobs:
+    orphaned_data_cleanup:
+      name: "Orphaned Data Cleanup"
+      schedule:
+        quartz_cron_expression: "0 0 2 * * ?"  # Daily at 2 AM
+      tasks:
+        - task_key: cleanup
+          python_wheel_task:
+            package_name: "server"
+            entry_point: "jobs.orphaned_data_cleanup:main"
+            parameters: ["--dry-run", "false"]
+```
+
+**Acceptance Criteria**:
+- [ ] Job runs daily via Databricks Jobs
+- [ ] Dry-run mode for verification
+- [ ] Deletes records >90 days after deactivation
+- [ ] Comprehensive logging of all deletions
+- [ ] Configurable via environment variables
+
+**Related Requirements**: NFR-014, FR-010a
+
+---
+
 ## Phase 3.6: Observability and Metrics
 
 ### T033 [P]: Implement Prometheus Metrics Module
@@ -1344,6 +1701,147 @@ async def metrics():
 - [ ] All defined metrics visible
 - [ ] Endpoint accessible without authentication (public for monitoring systems)
 - [ ] Standard Prometheus content type used
+
+**Related Requirements**: NFR-011, NFR-012
+
+---
+
+### T034a: Configure Prometheus Recording Rules
+**Type**: Configuration | **Priority**: Medium | **Dependencies**: T034 | **Estimated**: 30 min
+
+Configure Prometheus recording rules for pre-aggregating metrics to reduce query overhead.
+
+**Files**:
+- `prometheus/recording_rules.yml` (CREATE)
+
+**Recording Rules**:
+```yaml
+groups:
+  - name: auth_aggregations
+    interval: 60s
+    rules:
+      # Hourly auth request rates by mode
+      - record: auth_requests:rate1h
+        expr: rate(auth_requests_total[1h])
+        labels:
+          aggregation: "hourly"
+
+      # P95 auth overhead by mode (hourly)
+      - record: auth_overhead:p95_1h
+        expr: histogram_quantile(0.95, rate(auth_overhead_seconds_bucket[1h]))
+        labels:
+          aggregation: "hourly"
+
+      # Daily active users
+      - record: active_users:daily
+        expr: count(count by (user_id) (auth_requests_total))
+        labels:
+          aggregation: "daily"
+
+      # Success rate by service (hourly)
+      - record: service_success_rate:1h
+        expr: |
+          sum by (service) (
+            rate(upstream_api_duration_seconds_count{status="success"}[1h])
+          ) /
+          sum by (service) (
+            rate(upstream_api_duration_seconds_count[1h])
+          )
+        labels:
+          aggregation: "hourly"
+```
+
+**Acceptance Criteria**:
+- [ ] Recording rules file created
+- [ ] Hourly aggregations for auth requests
+- [ ] P95 latency calculations
+- [ ] Daily active user counts
+- [ ] Service success rate metrics
+- [ ] Rules loaded by Prometheus on startup
+
+**Related Requirements**: NFR-011, NFR-012
+
+---
+
+### T034b: Create Manual Metrics Aggregation Script
+**Type**: Implementation | **Priority**: Low | **Dependencies**: T034 | **Estimated**: 45 min
+
+Create fallback script for manual metrics aggregation when Prometheus recording rules unavailable.
+
+**Files**:
+- `scripts/aggregate_metrics.py` (CREATE)
+
+**Implementation**:
+```python
+#!/usr/bin/env python3
+"""Manual metrics aggregation for environments without Prometheus recording rules."""
+import asyncio
+from datetime import datetime, timedelta
+import httpx
+from prometheus_client.parser import text_string_to_metric_families
+
+async def aggregate_metrics(metrics_url: str = "http://localhost:8000/metrics"):
+    """Fetch and aggregate metrics manually."""
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(metrics_url)
+        metrics = text_string_to_metric_families(response.text)
+
+        aggregations = {
+            "hourly_auth_requests": {},
+            "p95_auth_overhead": None,
+            "daily_active_users": set(),
+            "service_success_rates": {}
+        }
+
+        for family in metrics:
+            if family.name == "auth_requests_total":
+                # Sum requests by mode
+                for sample in family.samples:
+                    mode = sample.labels.get("mode", "unknown")
+                    aggregations["hourly_auth_requests"][mode] = \
+                        aggregations["hourly_auth_requests"].get(mode, 0) + sample.value
+
+            elif family.name == "auth_overhead_seconds":
+                # Calculate P95 from histogram
+                if family.type == "histogram":
+                    buckets = []
+                    for sample in family.samples:
+                        if "_bucket" in sample.name:
+                            buckets.append((float(sample.labels["le"]), sample.value))
+                    # Simple P95 calculation from buckets
+                    total = buckets[-1][1] if buckets else 0
+                    p95_count = total * 0.95
+                    for le, count in buckets:
+                        if count >= p95_count:
+                            aggregations["p95_auth_overhead"] = le
+                            break
+
+            elif family.name == "active_users_gauge":
+                # Get current active users
+                for sample in family.samples:
+                    aggregations["daily_active_users"].add(sample.labels.get("user_id"))
+
+        # Output aggregated metrics
+        print(f"=== Metrics Aggregation at {datetime.now()} ===")
+        print(f"Hourly Auth Requests: {aggregations['hourly_auth_requests']}")
+        print(f"P95 Auth Overhead: {aggregations['p95_auth_overhead']}s")
+        print(f"Daily Active Users: {len(aggregations['daily_active_users'])}")
+        print(f"Service Success Rates: {aggregations['service_success_rates']}")
+
+        return aggregations
+
+if __name__ == "__main__":
+    asyncio.run(aggregate_metrics())
+```
+
+**Acceptance Criteria**:
+- [ ] Script fetches metrics from /metrics endpoint
+- [ ] Calculates hourly request rates
+- [ ] Computes P95 latencies from histograms
+- [ ] Counts unique active users
+- [ ] Outputs human-readable aggregations
+- [ ] Can be run via cron for regular aggregation
 
 **Related Requirements**: NFR-011, NFR-012
 

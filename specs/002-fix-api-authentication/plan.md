@@ -94,7 +94,7 @@ Fix the authentication error "more than one authorization method configured: oau
 - [x] Authorization via dependency injection *(FR-002: Pass user token to service layers)*
 - [x] Audit logging with user_id *(FR-017: Detailed auth activity logging)*
 
-### Dual Authentication Patterns (Constitution v1.1.1+)
+### Dual Authentication Patterns (Constitution v1.2.0+)
 - [x] Service Principal for system operations *(FR-004, FR-011: Lakebase uses service principal auth)*
 - [x] On-Behalf-Of-User for user data access *(FR-001, FR-002, FR-003: OBO for Databricks APIs)*
 - [x] Clear documentation of both patterns *(Will document in code comments and update docs/)*
@@ -456,4 +456,4 @@ Phase 2 is complete when:
 **Ready for Phase 3**: Yes - Run `/tasks` command to generate implementation tasks
 
 ---
-*Based on Constitution v1.0.0 - See `.specify/memory/constitution.md`*
+*Based on Constitution v1.2.0 - See `.specify/memory/constitution.md`*
