@@ -595,6 +595,7 @@ def with_auth_retry(func):
 - [ ] Total timeout < 5 seconds
 - [ ] Rate limiting (429) fails immediately
 - [ ] Retry attempts logged
+- [ ] Circuit breaker state transitions logged with event='auth.circuit_breaker_state_change' and context={'old_state': 'closed', 'new_state': 'open', 'consecutive_failures': 10, 'cooldown_seconds': 30} per FR-017 and NFR-011
 - [ ] Each request retries independently without coordination (stateless pattern per FR-025)
 - [ ] Contract tests T012 pass
 
@@ -703,6 +704,56 @@ Implement Pydantic response models for user endpoints and authentication status.
 
 ---
 
+### T021a: Define Authentication Error Code Enum
+**Type**: Implementation | **Priority**: High | **Dependencies**: T021 | **Estimated**: 20 min
+
+Define standardized error code enum for structured authentication error responses per FR-015.
+
+**Files**:
+- `server/models/user_session.py` (MODIFY)
+
+**Implementation**:
+```python
+from enum import Enum
+
+class AuthenticationErrorCode(str, Enum):
+    """Standardized error codes for authentication failures."""
+    AUTH_EXPIRED = "AUTH_EXPIRED"
+    AUTH_INVALID = "AUTH_INVALID"
+    AUTH_MISSING = "AUTH_MISSING"
+    AUTH_USER_IDENTITY_FAILED = "AUTH_USER_IDENTITY_FAILED"
+    AUTH_RATE_LIMITED = "AUTH_RATE_LIMITED"
+    AUTH_MALFORMED = "AUTH_MALFORMED"
+
+# Update AuthenticationErrorResponse model
+class AuthenticationErrorResponse(BaseModel):
+    """Error response for authentication failures."""
+
+    detail: str
+    error_code: AuthenticationErrorCode  # Use enum instead of str
+    retry_after: Optional[int] = None  # Seconds, for rate limiting
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "detail": "User access token has expired",
+                "error_code": "AUTH_EXPIRED",
+                "retry_after": None
+            }
+        }
+```
+
+**Acceptance Criteria**:
+- [ ] AuthenticationErrorCode enum defined with all 6 error codes
+- [ ] AuthenticationErrorResponse model uses enum type
+- [ ] Enum values match spec.md FR-015 examples
+- [ ] Error codes documented in contracts/auth_models.yaml
+- [ ] Contract tests validate error_code field type
+
+**Related Requirements**: FR-015, Contract: auth_models.yaml
+
+---
+
 ## Phase 3.4: Service Layer Modifications
 
 ### T022 [P]: Modify UserService for OBO Authentication
@@ -765,6 +816,54 @@ class UserService:
 - [ ] Contract tests T005, T008 pass
 
 **Related Requirements**: FR-002, FR-003, FR-004, FR-010, Research Decision 3
+
+---
+
+### T022a [P]: Implement UserService.get_workspace_info() Public Method
+**Type**: Implementation | **Priority**: High | **Dependencies**: T022 | **Estimated**: 20 min
+
+Implement public get_workspace_info() method per FR-006a for /api/user/me/workspace endpoint. This method encapsulates client creation logic and returns workspace information directly without exposing _get_client() to routers.
+
+**Files**:
+- `server/services/user_service.py` (MODIFY)
+
+**Implementation**:
+```python
+@with_auth_retry
+async def get_workspace_info(self) -> WorkspaceInfoResponse:
+    """Get workspace information using OBO or service principal authentication.
+
+    This public method encapsulates authentication mode selection internally
+    per FR-006a. Routers should call this method directly instead of using
+    _get_client() (which is internal).
+
+    Returns:
+        WorkspaceInfoResponse with workspace_id, workspace_url, workspace_name
+
+    Raises:
+        HTTPException(401): If OBO authentication fails
+    """
+    client = self._get_client()
+    workspace = await client.workspace.get_status()
+
+    return WorkspaceInfoResponse(
+        workspace_id=workspace.workspace_id,
+        workspace_url=self.workspace_url,
+        workspace_name=workspace.workspace_name or "Default Workspace"
+    )
+```
+
+**Rationale**: Per FR-006a, routers should call public methods on service classes rather than directly accessing internal _get_client() methods. This maintains proper encapsulation and keeps authentication mode selection logic internal to the service layer. The get_workspace_info() method is the public API that routers use to retrieve workspace information.
+
+**Acceptance Criteria**:
+- [ ] get_workspace_info() is a public method (no underscore prefix)
+- [ ] Method encapsulates _get_client() call internally
+- [ ] Method supports both OBO and service principal modes
+- [ ] Returns WorkspaceInfoResponse with all required fields
+- [ ] Retry logic applied via @with_auth_retry decorator
+- [ ] T029 can call this method directly from router
+
+**Related Requirements**: FR-006, FR-006a, Contract: user_endpoints.yaml
 
 ---
 
@@ -994,7 +1093,21 @@ Update user preferences endpoints to extract user_id and filter by it.
 **Files**:
 - `server/routers/user.py` OR `server/routers/preferences.py` (MODIFY)
 
-**IMPORTANT**: If preferences are in `server/routers/user.py`, this MUST run sequentially AFTER T029 (same file conflict). If preferences are in a separate `server/routers/preferences.py` file, this can run in parallel with T029.
+**IMPORTANT - Conditional Dependency Check**:
+Before starting this task, determine the preferences router location:
+1. Check if preferences endpoints exist in `server/routers/user.py`:
+   ```bash
+   grep -n "/api/preferences" server/routers/user.py
+   ```
+2. Check if preferences have a separate router file:
+   ```bash
+   ls -la server/routers/preferences.py
+   ```
+3. Apply dependency rule based on location:
+   - **If in user.py**: MUST run sequentially AFTER T029 (same file conflict)
+   - **If in preferences.py**: CAN run in parallel with T029 (different files)
+
+This conditional dependency prevents same-file merge conflicts during parallel execution.
 
 **Implementation**:
 ```python
@@ -1084,6 +1197,88 @@ Update Model Serving endpoints to pass user_token to ModelServingService.
 - [ ] Contract tests pass
 
 **Related Requirements**: FR-008, Contract: service_layers.yaml
+
+---
+
+### T032a [P]: Update Frontend Error Handling for Authentication Errors
+**Type**: Implementation | **Priority**: Medium | **Dependencies**: T021a | **Estimated**: 45 min
+
+Update frontend to parse structured authentication error responses and display user-friendly messages based on error_code field per FR-015.
+
+**Files**:
+- `client/src/lib/api-client.ts` (MODIFY)
+- `client/src/components/ErrorMessage.tsx` (CREATE/MODIFY)
+
+**Implementation**:
+```typescript
+// client/src/lib/api-client.ts
+interface AuthenticationError {
+  detail: string;
+  error_code: 'AUTH_EXPIRED' | 'AUTH_INVALID' | 'AUTH_MISSING' |
+              'AUTH_USER_IDENTITY_FAILED' | 'AUTH_RATE_LIMITED' | 'AUTH_MALFORMED';
+  retry_after?: number;
+}
+
+function getErrorMessage(error: AuthenticationError): string {
+  const errorMessages: Record<string, string> = {
+    'AUTH_EXPIRED': 'Your session has expired. Please refresh the page to continue.',
+    'AUTH_INVALID': 'Authentication failed. Please try again or contact support.',
+    'AUTH_MISSING': 'Authentication required. Please log in to continue.',
+    'AUTH_USER_IDENTITY_FAILED': 'Unable to verify your identity. Please try again.',
+    'AUTH_RATE_LIMITED': `Too many requests. Please wait ${error.retry_after || 60} seconds.`,
+    'AUTH_MALFORMED': 'Invalid authentication format. Please refresh and try again.'
+  };
+
+  return errorMessages[error.error_code] || error.detail;
+}
+
+// Update API client error handling
+apiClient.interceptors.response.use(
+  response => response,
+  error => {
+    if (error.response?.status === 401 && error.response?.data?.error_code) {
+      const authError: AuthenticationError = error.response.data;
+      error.userMessage = getErrorMessage(authError);
+    }
+    return Promise.reject(error);
+  }
+);
+```
+
+```typescript
+// client/src/components/ErrorMessage.tsx
+interface ErrorMessageProps {
+  error: Error & { userMessage?: string };
+}
+
+export function ErrorMessage({ error }: ErrorMessageProps) {
+  const message = error.userMessage || error.message || 'An unexpected error occurred';
+
+  return (
+    <div className="bg-red-50 border border-red-200 rounded p-4">
+      <p className="text-red-800">{message}</p>
+    </div>
+  );
+}
+```
+
+**Error Code Mappings**:
+- **AUTH_EXPIRED**: "Your session has expired. Please refresh the page to continue."
+- **AUTH_INVALID**: "Authentication failed. Please try again or contact support."
+- **AUTH_MISSING**: "Authentication required. Please log in to continue."
+- **AUTH_USER_IDENTITY_FAILED**: "Unable to verify your identity. Please try again."
+- **AUTH_RATE_LIMITED**: "Too many requests. Please wait {retry_after} seconds."
+- **AUTH_MALFORMED**: "Invalid authentication format. Please refresh and try again."
+
+**Acceptance Criteria**:
+- [ ] API client parses error_code from 401 responses
+- [ ] ErrorMessage component displays user-friendly messages
+- [ ] Error code mappings match FR-015 examples
+- [ ] retry_after field displayed for AUTH_RATE_LIMITED
+- [ ] Fallback to detail field when error_code unknown
+- [ ] Error messages displayed in all pages that call authenticated endpoints
+
+**Related Requirements**: FR-015, Contract: auth_models.yaml
 
 ---
 

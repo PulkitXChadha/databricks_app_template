@@ -107,13 +107,64 @@ class UserIdentity(BaseModel):
 - Token missing → Automatic fallback to service principal (system operations only)
 
 ### Validation Rules
-- `user_id` MUST be valid email format
+- `user_id` MUST be valid email format (EmailStr)
 - `user_id` MUST NOT be empty string
 - `user_id` MUST be extracted from API (never from client request)
+- `user_id` extraction MUST succeed (return HTTP 401 on failure)
+
+### Validation Function
+
+Implement this helper function for consistent user_id validation across all database operations:
+
+```python
+from fastapi import HTTPException
+from pydantic import EmailStr, ValidationError
+from typing import Optional
+
+async def validate_user_id(user_id: Optional[str]) -> str:
+    """Validate user_id before database operations per FR-014.
+
+    Validation rules:
+    1. user_id MUST be non-empty string
+    2. user_id MUST match valid email format (EmailStr validation)
+    3. user_id MUST be result of UserService.get_user_info() API call
+
+    Args:
+        user_id: Email address extracted from UserService.get_user_info()
+
+    Returns:
+        Validated user_id string
+
+    Raises:
+        HTTPException(401): If validation fails
+    """
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="User identity required for data access"
+        )
+
+    if not isinstance(user_id, str) or len(user_id.strip()) == 0:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid user identity format"
+        )
+
+    # Validate email format using Pydantic
+    try:
+        EmailStr.validate(user_id)
+    except ValidationError:
+        raise HTTPException(
+            status_code=401,
+            detail="User identity must be valid email address"
+        )
+
+    return user_id
+```
 
 ### Related Requirements
 - FR-010: Extract user_id via API call
-- FR-014: Validate user_id presence before database operations
+- FR-014: Validate user_id presence before database operations (with explicit rules)
 - Constitution Principle IX: Multi-User Data Isolation
 
 ---
@@ -156,7 +207,7 @@ class AuthenticationContext:
 | user_token | Optional[str] | User access token value | - None if header missing<br>- Never logged |
 | has_user_token | bool | Token presence indicator | - Logged for observability<br>- Determines auth mode |
 | auth_mode | str | Authentication mode | - "obo" or "service_principal"<br>- Logged per FR-017 |
-| correlation_id | str | Request correlation ID | - UUID v4 or client-provided<br>- For request tracing |
+| correlation_id | str | Request correlation ID | - MANDATORY per Constitution Principle VIII<br>- Server generates UUID v4 if X-Correlation-ID header missing<br>- Client-provided ID accepted when present<br>- For request tracing |
 | user_id | Optional[str] | User email (lazy) | - Extracted on first access<br>- Cached for request duration |
 
 ### Lifecycle
@@ -193,73 +244,57 @@ Request completes → Context discarded
 
 ## 4. Databricks SDK Client Creation Pattern
 
-**Type**: Implementation Pattern (not a data model)  
-**Storage**: None (created per request)  
+**Type**: Implementation Pattern (not a data model)
+**Storage**: None (created per request)
 **Source**: Constructed from AuthenticationContext
 
 ### Pattern Overview
 
-Services use inline client creation with explicit `auth_type` parameter. For timeout configuration, use the Databricks SDK's built-in `databricks.sdk.config.Config` class (see T037).
+Services use inline client creation with explicit `auth_type` parameter and SDK's built-in `Config` class for timeout configuration.
 
-**IMPORTANT**: Do NOT create a custom `ClientConfig` class. The SDK provides all necessary configuration options through its built-in `Config` class.
+**IMPORTANT**: Do NOT create a custom configuration class. The SDK provides all necessary configuration options through its built-in `databricks.sdk.config.Config` class.
 
-### Standard Pattern (Without Timeout Configuration)
+### Standard Implementation Pattern
 
-```python
-from databricks.sdk import WorkspaceClient
-
-# Basic pattern in service _get_client() method:
-def _get_client(self) -> WorkspaceClient:
-    """Get WorkspaceClient with appropriate authentication."""
-    
-    if self.user_token:
-        # Pattern B: On-Behalf-Of-User Authentication
-        return WorkspaceClient(
-            host=self.workspace_url,
-            token=self.user_token,
-            auth_type="pat"  # REQUIRED: Explicit authentication type
-        )
-    else:
-        # Pattern A: Service Principal Authentication
-        return WorkspaceClient(
-            host=self.workspace_url,
-            client_id=os.environ["DATABRICKS_CLIENT_ID"],
-            client_secret=os.environ["DATABRICKS_CLIENT_SECRET"],
-            auth_type="oauth-m2m"  # REQUIRED: Explicit authentication type
-        )
-```
-
-### Extended Pattern (With Timeout Configuration for NFR-010)
-
-When upstream service timeout configuration is needed (30 seconds per NFR-010), use the SDK's `Config` class:
+All service `_get_client()` methods MUST follow this unified pattern with timeout configuration (30 seconds per NFR-010):
 
 ```python
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.config import Config
+import os
 
 def _get_client(self) -> WorkspaceClient:
-    """Get WorkspaceClient with appropriate authentication and timeout."""
-    
+    """Get WorkspaceClient with appropriate authentication and timeout.
+
+    This method implements the dual authentication pattern:
+    - Pattern A: Service Principal (when user_token is None)
+    - Pattern B: On-Behalf-Of-User (when user_token is provided)
+
+    Both patterns include 30-second timeout configuration per NFR-010.
+    """
+
     # Configure timeout using SDK's built-in Config class
     config = Config()
     config.timeout = 30  # 30-second timeout per NFR-010
     config.retry_timeout = 30  # Allow full timeout window
-    
+
     if self.user_token:
-        # Pattern B: On-Behalf-Of-User Authentication with timeout
+        # Pattern B: On-Behalf-Of-User Authentication
+        logger.info("auth.mode", {"mode": "obo", "auth_type": "pat"})
         return WorkspaceClient(
             host=self.workspace_url,
             token=self.user_token,
-            auth_type="pat",
+            auth_type="pat",  # REQUIRED: Explicit authentication type
             config=config
         )
     else:
-        # Pattern A: Service Principal Authentication with timeout
+        # Pattern A: Service Principal Authentication
+        logger.info("auth.mode", {"mode": "service_principal", "auth_type": "oauth-m2m"})
         return WorkspaceClient(
             host=self.workspace_url,
             client_id=os.environ["DATABRICKS_CLIENT_ID"],
             client_secret=os.environ["DATABRICKS_CLIENT_SECRET"],
-            auth_type="oauth-m2m",
+            auth_type="oauth-m2m",  # REQUIRED: Explicit authentication type
             config=config
         )
 ```

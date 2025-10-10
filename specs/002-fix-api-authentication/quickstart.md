@@ -68,6 +68,21 @@ PGSSLMODE=require
 
 ---
 
+## Success Criteria Traceability
+
+This traceability matrix maps each quickstart phase to the specific requirements it validates:
+
+| Quickstart Phase | Validates Requirements | Success Criteria |
+|------------------|------------------------|------------------|
+| Phase 1: Local Development | FR-016, FR-020, FR-021 | Service principal fallback works automatically when X-Forwarded-Access-Token header missing. System logs fallback events. No configuration flags required. |
+| Phase 2: Local OBO Testing | FR-001, FR-002, FR-010, FR-022 | Token extraction from header works. User identity retrieved via API call. UserService.get_user_info() returns userName field. Real Databricks CLI tokens accepted. |
+| Phase 3: Multi-User Isolation | FR-010, FR-013, FR-014 | user_id extracted and stored with database records. All user-scoped queries include WHERE user_id = ?. Cross-user data access prevented. user_id validation returns 401 when missing. |
+| Phase 4: Error Handling | FR-015, FR-018, FR-019 | Structured JSON errors with error_code field. Exponential backoff retry (100ms/200ms/400ms). Total timeout <5s. Rate limit (429) fails immediately. |
+| Phase 5: Observability | FR-017, NFR-001, NFR-011, NFR-012 | Correlation IDs mandatory in all logs. Auth overhead <10ms (P95). Comprehensive metrics exposed. Prometheus-compatible format. |
+| Phase 6: Deployment | All FRs + NFRs | End-to-end validation in Databricks Apps platform. Platform auto-injects user tokens. No authentication errors. Multi-user isolation verified. |
+
+---
+
 ## Test Plan
 
 ### Phase 1: Local Development Testing (Service Principal Fallback)
