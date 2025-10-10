@@ -1,0 +1,324 @@
+openapi: 3.1.0
+info:
+  title: Authentication Models Contract
+  description: |
+    API contract for authentication models, middleware, and context structures.
+    This contract defines the authentication behavior for dual authentication patterns
+    (On-Behalf-Of-User and Service Principal) in Databricks Apps.
+  version: 1.0.0
+  contact:
+    name: Databricks App Template Team
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+  - url: https://app.databricks.com
+    description: Databricks Apps platform
+
+components:
+  schemas:
+    UserIdentity:
+      type: object
+      description: User identity extracted from Databricks authentication
+      required:
+        - user_id
+        - display_name
+        - active
+        - extracted_at
+      properties:
+        user_id:
+          type: string
+          format: email
+          description: User's email address from Databricks userName field
+          example: "user@example.com"
+        display_name:
+          type: string
+          description: Human-readable display name
+          example: "Jane Doe"
+        active:
+          type: boolean
+          description: Whether user account is active
+          example: true
+        extracted_at:
+          type: string
+          format: date-time
+          description: Timestamp when identity was extracted
+          example: "2025-10-10T12:34:56.789Z"
+
+    AuthenticationContext:
+      type: object
+      description: Authentication context for a single request
+      required:
+        - has_user_token
+        - auth_mode
+        - correlation_id
+      properties:
+        user_token:
+          type: string
+          nullable: true
+          description: User access token from X-Forwarded-Access-Token header (never exposed in responses)
+          writeOnly: true
+        has_user_token:
+          type: boolean
+          description: Indicates whether user token is present
+          example: true
+        auth_mode:
+          type: string
+          enum: [obo, service_principal]
+          description: Active authentication mode
+          example: "obo"
+        correlation_id:
+          type: string
+          format: uuid
+          description: Request correlation ID for tracing
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        user_id:
+          type: string
+          format: email
+          nullable: true
+          description: User email (lazy-loaded when needed)
+          example: "user@example.com"
+
+    AuthenticationStatusResponse:
+      type: object
+      description: Current authentication status for debugging/monitoring
+      required:
+        - authenticated
+        - auth_mode
+        - has_user_identity
+      properties:
+        authenticated:
+          type: boolean
+          description: Whether request is authenticated
+          example: true
+        auth_mode:
+          type: string
+          enum: [obo, service_principal]
+          description: Active authentication mode
+          example: "obo"
+        has_user_identity:
+          type: boolean
+          description: Whether user identity has been extracted
+          example: true
+        user_id:
+          type: string
+          format: email
+          nullable: true
+          description: User email if available
+          example: "user@example.com"
+
+    AuthenticationErrorResponse:
+      type: object
+      description: Error response for authentication failures
+      required:
+        - detail
+        - error_code
+      properties:
+        detail:
+          type: string
+          description: Human-readable error message
+          example: "Failed to extract user identity"
+        error_code:
+          type: string
+          description: Machine-readable error code
+          enum:
+            - AUTH_TOKEN_MISSING
+            - AUTH_TOKEN_INVALID
+            - AUTH_TOKEN_EXPIRED
+            - AUTH_USER_IDENTITY_FAILED
+            - AUTH_RATE_LIMIT_EXCEEDED
+            - AUTH_SERVICE_UNAVAILABLE
+          example: "AUTH_USER_IDENTITY_FAILED"
+        retry_after:
+          type: integer
+          nullable: true
+          description: Seconds to wait before retrying (for rate limiting)
+          example: 60
+
+  parameters:
+    XForwardedAccessToken:
+      name: X-Forwarded-Access-Token
+      in: header
+      description: |
+        User access token provided by Databricks Apps platform.
+        When present, triggers On-Behalf-Of-User (OBO) authentication.
+        When missing, falls back to Service Principal authentication.
+      required: false
+      schema:
+        type: string
+        example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+    XCorrelationID:
+      name: X-Correlation-ID
+      in: header
+      description: |
+        Optional client-provided correlation ID for request tracing.
+        If not provided, server generates a UUID v4.
+      required: false
+      schema:
+        type: string
+        format: uuid
+        example: "550e8400-e29b-41d4-a716-446655440000"
+
+  responses:
+    Unauthorized:
+      description: Authentication failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthenticationErrorResponse'
+          examples:
+            token_missing:
+              summary: User token required but missing
+              value:
+                detail: "User authentication required for this operation"
+                error_code: "AUTH_TOKEN_MISSING"
+                retry_after: null
+            user_identity_failed:
+              summary: Failed to extract user identity
+              value:
+                detail: "Failed to extract user identity from access token"
+                error_code: "AUTH_USER_IDENTITY_FAILED"
+                retry_after: null
+
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthenticationErrorResponse'
+          examples:
+            rate_limit:
+              summary: Platform rate limit exceeded
+              value:
+                detail: "Rate limit exceeded. Please try again later."
+                error_code: "AUTH_RATE_LIMIT_EXCEEDED"
+                retry_after: 60
+
+  securitySchemes:
+    DatabricksOBO:
+      type: apiKey
+      in: header
+      name: X-Forwarded-Access-Token
+      description: |
+        On-Behalf-Of-User authentication via Databricks Apps platform.
+        The platform automatically injects this header with the user's access token.
+
+paths:
+  /api/auth/status:
+    get:
+      summary: Get authentication status
+      description: |
+        Returns current authentication status for debugging and monitoring.
+        Useful for verifying OBO authentication is working correctly.
+      operationId: getAuthStatus
+      tags:
+        - Authentication
+      parameters:
+        - $ref: '#/components/parameters/XForwardedAccessToken'
+        - $ref: '#/components/parameters/XCorrelationID'
+      responses:
+        '200':
+          description: Authentication status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationStatusResponse'
+              examples:
+                obo_mode:
+                  summary: OBO authentication active
+                  value:
+                    authenticated: true
+                    auth_mode: "obo"
+                    has_user_identity: true
+                    user_id: "user@example.com"
+                service_principal_mode:
+                  summary: Service principal authentication active
+                  value:
+                    authenticated: true
+                    auth_mode: "service_principal"
+                    has_user_identity: false
+                    user_id: null
+      security:
+        - DatabricksOBO: []
+        - {}  # Also works without token (service principal fallback)
+
+# Contract Testing Requirements
+x-contract-tests:
+  description: |
+    Contract tests MUST validate:
+    1. Middleware extracts X-Forwarded-Access-Token header correctly
+    2. Middleware generates correlation ID when X-Correlation-ID missing
+    3. Middleware preserves client-provided X-Correlation-ID
+    4. AuthenticationContext is created with correct auth_mode
+    5. Missing token triggers service_principal auth_mode
+    6. Present token triggers obo auth_mode
+    7. UserIdentity extraction succeeds with valid token
+    8. UserIdentity extraction returns 401 with invalid/expired token
+    9. Error responses match schema exactly
+    10. Retry logic triggers on transient failures (max 3 attempts)
+    11. Rate limiting (429) returns immediately without retry
+    12. Total retry timeout does not exceed 5 seconds
+
+  test_files:
+    - tests/contract/test_auth_contract.py
+    - tests/contract/test_auth_middleware.py
+    - tests/contract/test_user_identity_extraction.py
+
+# Observability Requirements
+x-observability:
+  structured_logs:
+    - event: auth.token_extraction
+      level: INFO
+      fields: [has_token, endpoint, correlation_id]
+    - event: auth.mode
+      level: INFO
+      fields: [mode, auth_type, correlation_id]
+    - event: auth.user_id_extracted
+      level: INFO
+      fields: [user_id, method, correlation_id]
+    - event: auth.retry_attempt
+      level: WARNING
+      fields: [attempt, error_type, endpoint, correlation_id]
+    - event: auth.fallback_triggered
+      level: INFO
+      fields: [reason, environment, correlation_id]
+    - event: auth.failed
+      level: ERROR
+      fields: [error_type, error_message, has_token, retry_count, correlation_id]
+    - event: auth.rate_limit
+      level: ERROR
+      fields: [error, correlation_id]
+
+  metrics:
+    - name: auth_requests_total
+      type: counter
+      labels: [endpoint, mode, status]
+    - name: auth_retry_total
+      type: counter
+      labels: [endpoint, attempt_number]
+    - name: auth_fallback_total
+      type: counter
+      labels: [reason]
+    - name: auth_overhead_seconds
+      type: histogram
+      labels: [mode]
+
+# Requirement Traceability
+x-requirements:
+  functional:
+    - FR-001: Extract tokens fresh per request (middleware)
+    - FR-002: Pass tokens to service layer (AuthenticationContext)
+    - FR-003: Explicit auth_type="pat" for OBO
+    - FR-010: Extract user_id via UserService.get_user_info()
+    - FR-014: Validate user_id presence
+    - FR-016: Automatic fallback when token missing
+    - FR-017: Detailed auth logging
+    - FR-018: Exponential backoff retry (3 attempts, 100/200/400ms)
+    - FR-019: Immediate failure on HTTP 429
+  non_functional:
+    - NFR-001: Auth adds <10ms per request
+    - NFR-004: Never log token values
+    - NFR-005: No token caching
+    - NFR-006: Retry timeout <5 seconds
+

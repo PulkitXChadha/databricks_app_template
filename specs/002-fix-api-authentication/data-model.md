@@ -1,418 +1,802 @@
-# Data Model: OBO Authentication
+# Data Model: Authentication and User Identity
 
-**Date**: 2025-10-09  
-**Feature**: Fix API Authentication and Implement On-Behalf-Of User (OBO)  
-**Status**: Design Complete
+**Feature**: Fix API Authentication and Implement On-Behalf-Of User (OBO) Authentication  
+**Date**: 2025-10-10  
+**Status**: Complete
 
 ---
 
 ## Overview
 
-This feature primarily involves authentication flow modifications rather than new data models. However, it introduces critical changes to existing entities to support user identity tracking and data isolation.
-
-**Key Changes**:
-1. Add `user_id` field to all user-scoped database tables
-2. Create authentication context models for request processing
-3. Define authentication configuration types
+This document defines the data structures and models required for dual authentication (On-Behalf-Of-User for Databricks APIs and Service Principal for Lakebase) with proper user identity management and multi-user data isolation.
 
 ---
 
-## Entity: User Access Token
+## 1. User Access Token (Runtime)
 
-**Description**: JWT token provided by Databricks Apps platform in request headers, represents authenticated user's identity and permissions.
+**Type**: Request State / Header Value  
+**Storage**: None (extracted per request, never cached or persisted)  
+**Source**: Databricks Apps platform via `X-Forwarded-Access-Token` header
 
-**Lifecycle**: Created by platform, passed via header, extracted per-request, never persisted
-
-**Fields**:
-| Field | Type | Required | Constraints | Description |
-|-------|------|----------|-------------|-------------|
-| token_value | string | Yes | JWT format | Raw token from X-Forwarded-Access-Token header |
-| expires_at | datetime | Platform-managed | - | Token expiration timestamp (platform handles refresh) |
-| scopes | list[string] | Platform-managed | - | User permissions scope |
-
-**Relationships**: None (transient, not persisted)
-
-**Validation Rules**:
-- Must be present in X-Forwarded-Access-Token header for OBO operations
-- Validated by Databricks SDK on each API call
-- No client-side validation or caching (security requirement NFR-005)
-
-**State Transitions**: None (stateless)
-
-**Notes**:
-- Token is extracted fresh from headers on every request
-- Never stored in memory between requests
-- Platform handles token refresh transparently
-
----
-
-## Entity: User Identity
-
-**Description**: Structured user information extracted from OBO token via Databricks API, used for audit logging and data isolation.
-
-**Lifecycle**: Extracted per-request from token, used for logging and filtering, not persisted separately
-
-**Fields**:
-| Field | Type | Required | Constraints | Description |
-|-------|------|----------|-------------|-------------|
-| user_id | string | Yes | UUID format | Unique Databricks user identifier |
-| email | string | No | Email format | User's email address |
-| username | string | Yes | - | Databricks username |
-| display_name | string | No | - | User's display name |
-
-**Relationships**: 
-- References UserPreference (one-to-many)
-- References ModelInferenceLog (one-to-many)
-- References UserSession (one-to-many)
-
-**Validation Rules**:
-- user_id must be non-empty for all user-scoped operations (FR-014)
-- Extracted via WorkspaceClient.current_user.me() API only (no client-provided values trusted)
-
-**State Transitions**: None (extracted per-request)
-
-**Notes**:
-- Single source of truth for user identity
-- Used for all audit logging and data filtering
-- Constitution Principle IX compliance
-
----
-
-## Entity: Service principal credentials
-
-**Description**: OAuth client credentials for app-level operations, provided via environment variables by Databricks Apps platform.
-
-**Lifecycle**: Set at deployment time, read from environment, used for service principal operations
-
-**Fields**:
-| Field | Type | Required | Source | Description |
-|-------|------|----------|--------|-------------|
-| client_id | string | Yes | DATABRICKS_CLIENT_ID env var | Service principal client ID |
-| client_secret | string | Yes | DATABRICKS_CLIENT_SECRET env var | Service principal client secret |
-| host | string | Yes | DATABRICKS_HOST env var | Databricks workspace URL |
-
-**Relationships**: None (environment configuration)
-
-**Validation Rules**:
-- Must be present for service principal operations
-- Never logged (NFR-004 security requirement)
-- Read-only from environment (no mutation)
-
-**State Transitions**: None (static configuration)
-
-**Notes**:
-- Used exclusively for Lakebase database connections per platform limitation (see spec.md Problem Statement lines 60-68 for detailed explanation of why Lakebase requires service principal authentication)
-- Used for system-level operations when user context unavailable
-- Managed by Databricks Apps platform
-
----
-
-## Entity: Databricks SDK Configuration
-
-**Description**: Configuration object for creating WorkspaceClient instances with explicit authentication type.
-
-**Lifecycle**: Created per-request based on operation type (OBO vs service principal)
-
-**Fields**:
-| Field | Type | Required | Constraints | Description |
-|-------|------|----------|-------------|-------------|
-| host | string | Yes | URL format | Databricks workspace URL |
-| auth_type | enum | Yes | "pat" or "oauth-m2m" | Explicit authentication method |
-| token | string | Conditional | JWT format | User token (required if auth_type="pat") |
-| client_id | string | Conditional | - | Service principal client ID (required if auth_type="oauth-m2m") |
-| client_secret | string | Conditional | - | Service principal client secret (required if auth_type="oauth-m2m") |
-
-**Relationships**: None (transient configuration)
-
-**Validation Rules**:
-- auth_type must be explicitly set (FR-003, FR-004) to prevent SDK auto-detection conflicts
-- If auth_type="pat", token must be provided
-- If auth_type="oauth-m2m", client_id and client_secret must be provided
-- host must be valid Databricks workspace URL
-
-**State Transitions**:
-```
-Configuration Created → WorkspaceClient Initialized → API Calls → Configuration Discarded
-```
-
-**Notes**:
-- Key to fixing "more than one authorization method configured" error
-- Two patterns: OBO (auth_type="pat") and service principal (auth_type="oauth-m2m")
-- **SDK Version Requirement**: Minimum version 0.33.0 for auth_type parameter support
-- **Version Pinning**: Exact version 0.59.0 pinned in requirements.txt (FR-024, NFR-013) to prevent breaking changes
-
----
-
-## Modified Entity: UserPreference
-
-**Description**: User-specific application preferences stored in Lakebase (EXISTING TABLE - MODIFIED).
-
-**Changes**: Add `user_id` field for data isolation, add index for query performance
-
-**Fields**:
-| Field | Type | Required | Constraints | Description |
-|-------|------|----------|-------------|-------------|
-| id | UUID | Yes | Primary key | Unique preference record ID |
-| user_id | string | Yes | Indexed, not null | Databricks user ID (NEW FIELD) |
-| key | string | Yes | Not null | Preference key name |
-| value | JSON | Yes | Not null | Preference value (structured) |
-| created_at | datetime | Yes | Auto-set | Record creation timestamp |
-| updated_at | datetime | Yes | Auto-update | Record last update timestamp |
-
-**Relationships**:
-- Belongs to User (via user_id foreign key concept - not enforced at DB level)
-
-**Validation Rules**:
-- user_id must be present before INSERT/UPDATE operations (FR-014)
-- Unique constraint on (user_id, key) combination
-- All queries must include WHERE user_id = ? clause (FR-013)
-
-**State Transitions**:
-```
-Created (user_id, key, value) → Updated (value changed) → Deleted
-```
-
-**Database Schema**:
-```sql
-ALTER TABLE user_preferences
-ADD COLUMN user_id VARCHAR(255) NOT NULL;
-
-CREATE INDEX ix_user_preferences_user_id ON user_preferences(user_id);
-
-CREATE UNIQUE INDEX ix_user_preferences_user_id_key 
-ON user_preferences(user_id, key);
-```
-
-**Notes**:
-- Migration required to add user_id to existing records (default to service principal for historical data)
-- Application-level enforcement of user_id filtering (DB-level isolation not possible)
-
----
-
-## Modified Entity: ModelInferenceLog
-
-**Description**: Audit log of model inference requests (EXISTING TABLE - MODIFIED).
-
-**Changes**: Add `user_id` field for audit trail and user-specific history
-
-**Fields**:
-| Field | Type | Required | Constraints | Description |
-|-------|------|----------|-------------|-------------|
-| id | UUID | Yes | Primary key | Unique log record ID |
-| user_id | string | Yes | Indexed, not null | Databricks user ID (NEW FIELD) |
-| model_endpoint | string | Yes | Not null | Model serving endpoint name |
-| request_payload | JSON | Yes | Not null | Inference request data |
-| response_payload | JSON | Yes | - | Inference response data |
-| status | enum | Yes | success/error | Request status |
-| error_message | string | No | - | Error details if status=error |
-| latency_ms | integer | Yes | Positive | Request processing time |
-| created_at | datetime | Yes | Auto-set | Request timestamp |
-
-**Relationships**:
-- Belongs to User (via user_id foreign key concept)
-
-**Validation Rules**:
-- user_id must be present before INSERT (FR-014)
-- All queries must include WHERE user_id = ? clause for user-scoped operations (FR-013)
-- latency_ms must be positive
-
-**State Transitions**:
-```
-Request Logged (status=pending) → Response Recorded (status=success/error) → [Immutable]
-```
-
-**Database Schema**:
-```sql
-ALTER TABLE model_inference_logs
-ADD COLUMN user_id VARCHAR(255) NOT NULL;
-
-CREATE INDEX ix_model_inference_logs_user_id ON model_inference_logs(user_id);
-CREATE INDEX ix_model_inference_logs_created_at ON model_inference_logs(created_at);
-```
-
-**Notes**:
-- Enables per-user inference history views
-- Critical for audit compliance (Success Metric #4)
-- Migration required for existing records
-
----
-
-## Modified Entity: UserSession
-
-**Description**: User session tracking for analytics (EXISTING TABLE - MODIFIED).
-
-**Changes**: Ensure `user_id` field exists and is properly indexed
-
-**Fields**:
-| Field | Type | Required | Constraints | Description |
-|-------|------|----------|-------------|-------------|
-| id | UUID | Yes | Primary key | Unique session ID |
-| user_id | string | Yes | Indexed, not null | Databricks user ID |
-| started_at | datetime | Yes | Auto-set | Session start timestamp |
-| last_activity_at | datetime | Yes | Auto-update | Last request timestamp |
-| ip_address | string | No | - | Client IP address |
-| user_agent | string | No | - | Client user agent |
-
-**Relationships**:
-- Belongs to User (via user_id)
-
-**Validation Rules**:
-- user_id must be present before INSERT (FR-014)
-- All queries must include WHERE user_id = ? clause (FR-013)
-- last_activity_at must be >= started_at
-
-**State Transitions**:
-```
-Session Created → Activity Updated (on each request) → Session Expired (timeout)
-```
-
-**Database Schema**:
-```sql
--- Verify user_id column exists with proper index
-CREATE INDEX IF NOT EXISTS ix_user_sessions_user_id ON user_sessions(user_id);
-CREATE INDEX IF NOT EXISTS ix_user_sessions_last_activity ON user_sessions(last_activity_at);
-```
-
-**Notes**:
-- User_id should already exist in this table
-- Verify proper indexing for query performance
-
----
-
-## New Entity: AuthenticationContext
-
-**Description**: Request-scoped context object carrying authentication information through the application (in-memory only, not persisted).
-
-**Lifecycle**: Created per-request, passed via dependency injection, discarded after response
-
-**Fields**:
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| user_token | string \| None | Conditional | OBO token if present in headers |
-| user_id | string \| None | Conditional | Extracted user ID (only if token present) |
-| is_service_principal | bool | Yes | True if no user token (fallback mode) |
-| correlation_id | string | Yes | Request correlation ID for tracing |
-
-**Relationships**: None (transient)
-
-**Validation Rules**:
-- If user_token is present, user_id must be extracted and populated
-- If user_token is None, is_service_principal must be True
-- correlation_id must be non-empty UUID
-
-**State Transitions**:
-```
-Request Start → Context Created → Injected via Depends → Used in Services → Discarded
-```
-
-**Notes**:
-- Passed via FastAPI dependency injection
-- Enables clean separation of auth logic
-- Not persisted to database
-
----
-
-## Database Migration Summary
-
-### Migration: 003_add_user_id_to_tables.py
-
-**Operations**:
-1. Add `user_id` column to `user_preferences` table
-2. Add `user_id` column to `model_inference_logs` table
-3. Create indexes on `user_id` columns for query performance
-4. Create unique index on `user_preferences(user_id, key)`
-5. Backfill existing records with service principal identifier (historical data)
-
-**Rollback Strategy**:
-- Drop indexes
-- Drop user_id columns
-- Restore from backup if data corruption occurs
-
-**Testing**:
-- Verify indexes created successfully
-- Verify unique constraint on user_preferences
-- Verify query performance with user_id filtering
-
----
-
-## Data Flow Diagrams
-
-### OBO Authentication Data Flow
-```
-1. Request arrives with X-Forwarded-Access-Token header
-2. FastAPI dependency extracts token → AuthenticationContext(user_token=token)
-3. Service receives AuthenticationContext
-4. Service calls WorkspaceClient.current_user.me() → User Identity extracted
-5. User Identity used for:
-   a. Audit logging (user_id in structured logs)
-   b. Database filtering (WHERE user_id = ?)
-   c. Unity Catalog permission enforcement (automatic via SDK)
-```
-
-### Service Principal Data Flow
-```
-1. Request arrives without X-Forwarded-Access-Token (local dev or system operation)
-2. FastAPI dependency creates AuthenticationContext(user_token=None, is_service_principal=True)
-3. Service receives context
-4. Service uses WorkspaceClient(client_id, client_secret, auth_type="oauth-m2m")
-5. Operations proceed with service principal permissions
-6. Audit logs indicate service principal mode
-```
-
-### Lakebase Data Isolation Flow
-```
-1. Request arrives with user token
-2. User Identity extracted → user_id
-3. LakebaseService receives user_id
-4. LakebaseService validates user_id is present (FR-014)
-5. Query built with WHERE user_id = ? clause (FR-013)
-6. Database connection uses service principal (FR-011)
-7. Application-level filtering enforces data isolation
-```
-
----
-
-## Query Patterns
-
-### User-Scoped Query Pattern (REQUIRED)
+### Structure
 ```python
-# Correct: Always include user_id filter
-query = select(UserPreference).where(UserPreference.user_id == user_id)
+# Not stored as object, but conceptual representation
+UserAccessToken = str  # JWT token from Databricks platform
 
-# WRONG: Missing user_id filter (security vulnerability)
-query = select(UserPreference).where(UserPreference.key == "theme")
+# Example header:
+# X-Forwarded-Access-Token: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-### Service Constructor Pattern (REQUIRED)
+### Properties
+| Property | Type | Description | Constraints |
+|----------|------|-------------|-------------|
+| value | str | JWT token string | - Provided by platform<br>- Never logged or cached<br>- Extracted fresh per request |
+| presence | bool | Whether token exists in header | - True in Databricks Apps<br>- False in local dev (triggers fallback) |
+
+### Lifecycle
+- **Creation**: Provided by Databricks Apps platform automatically
+- **Extraction**: FastAPI middleware reads `X-Forwarded-Access-Token` header per request
+- **Validation**: Delegated to Databricks SDK (no local validation)
+- **Expiration**: Platform handles token refresh automatically
+- **Deletion**: Discarded after request completes (not cached)
+
+### Security Constraints
+- MUST NOT be logged (per NFR-004)
+- MUST NOT be cached in memory (per NFR-005)
+- MUST NOT be persisted to disk (per NFR-005)
+- MUST be extracted fresh on every request (per FR-001)
+
+### Related Requirements
+- FR-001: Extract tokens fresh per request
+- FR-017: Log token presence (not value)
+- NFR-004: Never log credentials
+- NFR-005: No caching or persistence
+
+---
+
+## 2. User Identity (user_id)
+
+**Type**: Application Model  
+**Storage**: Extracted from Databricks API, stored in database records  
+**Source**: `UserService.get_user_info()` API call with user access token
+
+### Structure
 ```python
-class UserPreferenceService:
-    def __init__(self, user_id: str):
-        if not user_id:
-            raise ValueError("user_id is required for user preference operations")
-        self.user_id = user_id
+from pydantic import BaseModel, EmailStr
+from datetime import datetime
+
+class UserIdentity(BaseModel):
+    """User identity extracted from Databricks authentication."""
     
-    async def get_preferences(self):
-        # user_id automatically included from self.user_id
-        query = select(UserPreference).where(UserPreference.user_id == self.user_id)
+    user_id: EmailStr  # Email address from userName field
+    display_name: str
+    active: bool
+    extracted_at: datetime
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": "user@example.com",
+                "display_name": "Jane Doe",
+                "active": True,
+                "extracted_at": "2025-10-10T12:34:56Z"
+            }
+        }
+```
+
+### Properties
+| Property | Type | Description | Constraints |
+|----------|------|-------------|-------------|
+| user_id | EmailStr | User's email address | - Primary identifier<br>- From Databricks userName field<br>- Used for database filtering |
+| display_name | str | Human-readable name | - For UI display<br>- Not used for authorization |
+| active | bool | Account active status | - From Databricks user info<br>- Inactive users should not access app |
+| extracted_at | datetime | When identity was extracted | - For logging/debugging<br>- UTC timestamp |
+
+### Extraction Process
+1. Receive user access token from request header
+2. Call `WorkspaceClient.current_user.me()` with user token
+3. Extract `userName` field → `user_id`
+4. Extract `displayName` field → `display_name`
+5. Extract `active` field → `active`
+6. Return UserIdentity object
+
+### Error Handling
+- API call fails → Return HTTP 401 "Failed to extract user identity"
+- Malformed response → Return HTTP 401 "Invalid user identity format"
+- Missing userName field → Return HTTP 401 "User identifier missing"
+- Token missing → Automatic fallback to service principal (system operations only)
+
+### Validation Rules
+- `user_id` MUST be valid email format
+- `user_id` MUST NOT be empty string
+- `user_id` MUST be extracted from API (never from client request)
+
+### Related Requirements
+- FR-010: Extract user_id via API call
+- FR-014: Validate user_id presence before database operations
+- Constitution Principle IX: Multi-User Data Isolation
+
+---
+
+## 3. Authentication Context
+
+**Type**: Request State Model  
+**Storage**: FastAPI Request.state (per-request only)  
+**Source**: Middleware extracts token and creates context
+
+### Structure
+```python
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class AuthenticationContext:
+    """Authentication context for a single request."""
+    
+    user_token: Optional[str]
+    has_user_token: bool
+    auth_mode: str  # "obo" or "service_principal"
+    correlation_id: str
+    user_id: Optional[str] = None  # Lazy-loaded when needed
+    
+    @property
+    def is_obo_mode(self) -> bool:
+        """Check if using On-Behalf-Of-User authentication."""
+        return self.auth_mode == "obo"
+    
+    @property
+    def is_service_principal_mode(self) -> bool:
+        """Check if using Service Principal authentication."""
+        return self.auth_mode == "service_principal"
+```
+
+### Properties
+| Property | Type | Description | Constraints |
+|----------|------|-------------|-------------|
+| user_token | Optional[str] | User access token value | - None if header missing<br>- Never logged |
+| has_user_token | bool | Token presence indicator | - Logged for observability<br>- Determines auth mode |
+| auth_mode | str | Authentication mode | - "obo" or "service_principal"<br>- Logged per FR-017 |
+| correlation_id | str | Request correlation ID | - UUID v4 or client-provided<br>- For request tracing |
+| user_id | Optional[str] | User email (lazy) | - Extracted on first access<br>- Cached for request duration |
+
+### Lifecycle
+1. **Middleware**: Creates context from header
+2. **Dependency Injection**: Passed to endpoints via FastAPI Depends
+3. **Service Layer**: Services use context to configure authentication
+4. **Request End**: Context discarded
+
+### State Transitions
+```
+Request Start
+    ↓
+Middleware extracts token
+    ↓
+    ├─ Token present → auth_mode = "obo"
+    └─ Token missing → auth_mode = "service_principal"
+    ↓
+Store in request.state
+    ↓
+Endpoint accesses via Depends(get_auth_context)
+    ↓
+Service uses context.auth_mode to configure SDK client
+    ↓
+Request completes → Context discarded
+```
+
+### Related Requirements
+- FR-002: Pass tokens to service layer
+- FR-016: Automatic fallback when token missing
+- FR-017: Log auth mode and token presence
+- Constitution Principle VIII: Correlation IDs
+
+---
+
+## 4. Databricks SDK Client Creation Pattern
+
+**Type**: Implementation Pattern (not a data model)  
+**Storage**: None (created per request)  
+**Source**: Constructed from AuthenticationContext
+
+### Pattern Overview
+
+Services use inline client creation with explicit `auth_type` parameter. For timeout configuration, use the Databricks SDK's built-in `databricks.sdk.config.Config` class (see T037).
+
+**IMPORTANT**: Do NOT create a custom `ClientConfig` class. The SDK provides all necessary configuration options through its built-in `Config` class.
+
+### Standard Pattern (Without Timeout Configuration)
+
+```python
+from databricks.sdk import WorkspaceClient
+
+# Basic pattern in service _get_client() method:
+def _get_client(self) -> WorkspaceClient:
+    """Get WorkspaceClient with appropriate authentication."""
+    
+    if self.user_token:
+        # Pattern B: On-Behalf-Of-User Authentication
+        return WorkspaceClient(
+            host=self.workspace_url,
+            token=self.user_token,
+            auth_type="pat"  # REQUIRED: Explicit authentication type
+        )
+    else:
+        # Pattern A: Service Principal Authentication
+        return WorkspaceClient(
+            host=self.workspace_url,
+            client_id=os.environ["DATABRICKS_CLIENT_ID"],
+            client_secret=os.environ["DATABRICKS_CLIENT_SECRET"],
+            auth_type="oauth-m2m"  # REQUIRED: Explicit authentication type
+        )
+```
+
+### Extended Pattern (With Timeout Configuration for NFR-010)
+
+When upstream service timeout configuration is needed (30 seconds per NFR-010), use the SDK's `Config` class:
+
+```python
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.config import Config
+
+def _get_client(self) -> WorkspaceClient:
+    """Get WorkspaceClient with appropriate authentication and timeout."""
+    
+    # Configure timeout using SDK's built-in Config class
+    config = Config()
+    config.timeout = 30  # 30-second timeout per NFR-010
+    config.retry_timeout = 30  # Allow full timeout window
+    
+    if self.user_token:
+        # Pattern B: On-Behalf-Of-User Authentication with timeout
+        return WorkspaceClient(
+            host=self.workspace_url,
+            token=self.user_token,
+            auth_type="pat",
+            config=config
+        )
+    else:
+        # Pattern A: Service Principal Authentication with timeout
+        return WorkspaceClient(
+            host=self.workspace_url,
+            client_id=os.environ["DATABRICKS_CLIENT_ID"],
+            client_secret=os.environ["DATABRICKS_CLIENT_SECRET"],
+            auth_type="oauth-m2m",
+            config=config
+        )
+```
+
+### Public Service Methods (Exception to Inline Pattern)
+
+While the general pattern is to use `_get_client()` internally, certain service methods MUST be exposed as public APIs for router endpoints per FR-006a. These methods encapsulate authentication logic and should NOT expose the internal `_get_client()` method to endpoint handlers.
+
+**Example: UserService.get_workspace_info()** (Required by FR-006a):
+
+```python
+class UserService:
+    def __init__(self, user_token: Optional[str] = None):
+        self.user_token = user_token
+        self.workspace_url = os.environ["DATABRICKS_HOST"]
+    
+    def _get_client(self) -> WorkspaceClient:
+        """Internal method - creates authenticated client."""
+        # (implementation as shown in Standard Pattern above)
         ...
+    
+    async def get_workspace_info(self) -> WorkspaceInfo:
+        """Public method: Get workspace information.
+        
+        This method encapsulates authentication mode selection (OBO vs service principal)
+        and MUST NOT expose internal client creation logic to endpoint handlers.
+        
+        Required by FR-006a for /api/user/me/workspace endpoint.
+        """
+        client = self._get_client()
+        workspace = await client.workspace.get_workspace()
+        
+        return WorkspaceInfo(
+            workspace_id=workspace.workspace_id,
+            workspace_url=self.workspace_url,
+            workspace_name=workspace.workspace_name
+        )
+```
+
+**Rationale**: This public method pattern provides better encapsulation than exposing `_get_client()` to routers. Endpoints call high-level service methods, not low-level client creation utilities.
+
+### Configuration Options
+
+| Auth Mode | host | token | client_id | client_secret | auth_type | config |
+|-----------|------|-------|-----------|---------------|-----------|--------|
+| OBO | workspace_url | user_token | - | - | "pat" | Optional (SDK Config for timeouts) |
+| Service Principal | workspace_url | - | from env | from env | "oauth-m2m" | Optional (SDK Config for timeouts) |
+
+### Validation Rules
+
+- `auth_type` MUST be specified explicitly (per FR-003, FR-004)
+- OBO mode REQUIRES non-empty token
+- Service Principal mode REQUIRES client_id and client_secret in environment
+- Workspace URL MUST be valid HTTPS endpoint
+- For timeout configuration, use SDK's `databricks.sdk.config.Config` class only
+- Do NOT create custom configuration classes
+
+### Related Requirements
+
+- FR-003: Explicit auth_type for OBO
+- FR-004: Explicit auth_type for service principal
+- FR-024: SDK version 0.67.0 pinned
+- NFR-010: 30-second timeout configuration
+- Research Decision 1: Explicit auth_type parameter
+- Task T037: Timeout configuration implementation
+
+---
+
+## 5. Database Models (Enhanced for User Isolation)
+
+### 5.1 User Preferences (Enhanced)
+
+**Table**: `user_preferences`  
+**Changes**: Add user_id column for isolation
+
+```python
+from sqlalchemy import Column, String, Text, DateTime, func
+from sqlalchemy.orm import declarative_base
+
+Base = declarative_base()
+
+class UserPreference(Base):
+    """User preference with multi-user isolation."""
+    __tablename__ = "user_preferences"
+    
+    id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False, index=True)  # NEW: for isolation
+    preference_key = Column(String, nullable=False)
+    preference_value = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Composite unique constraint
+    __table_args__ = (
+        UniqueConstraint('user_id', 'preference_key', name='uq_user_preference'),
+    )
+```
+
+### 5.2 Model Inference Log (Enhanced)
+
+**Table**: `model_inference_logs`  
+**Changes**: Add user_id column for audit trail
+
+```python
+class ModelInferenceLog(Base):
+    """Model inference request log with user tracking."""
+    __tablename__ = "model_inference_logs"
+    
+    id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False, index=True)  # NEW: for audit
+    model_endpoint = Column(String, nullable=False)
+    request_payload = Column(Text, nullable=False)
+    response_payload = Column(Text, nullable=True)
+    status = Column(String, nullable=False)
+    duration_ms = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+```
+
+### 5.3 Saved Queries (New/Enhanced)
+
+**Table**: `saved_queries`  
+**Changes**: Ensure user_id filtering
+
+```python
+class SavedQuery(Base):
+    """User-saved queries with isolation."""
+    __tablename__ = "saved_queries"
+    
+    id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False, index=True)  # For isolation
+    query_name = Column(String, nullable=False)
+    query_text = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+```
+
+### Database Isolation Pattern
+
+**Query Pattern** (REQUIRED for all user-scoped queries):
+```python
+# CORRECT: Always filter by user_id
+query = select(UserPreference).where(
+    UserPreference.user_id == user_id
+)
+
+# INCORRECT: Missing user_id filter (security violation)
+query = select(UserPreference)  # ❌ NEVER DO THIS
+```
+
+### Related Requirements
+- FR-010: Store user_id with all user-specific records
+- FR-013: Filter all user-scoped queries by user_id
+- FR-014: Validate user_id presence before query execution
+- Constitution Principle IX: Multi-User Data Isolation
+
+---
+
+## 6. API Response Models
+
+### 6.1 User Info Response
+
+```python
+from pydantic import BaseModel, EmailStr
+
+class UserInfoResponse(BaseModel):
+    """Response from /api/user/me endpoint."""
+    
+    user_id: EmailStr
+    display_name: str
+    active: bool
+    workspace_url: str
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": "user@example.com",
+                "display_name": "Jane Doe",
+                "active": True,
+                "workspace_url": "https://workspace.cloud.databricks.com"
+            }
+        }
+```
+
+### 6.2 Authentication Status Response
+
+```python
+class AuthenticationStatusResponse(BaseModel):
+    """Response showing current authentication status."""
+    
+    authenticated: bool
+    auth_mode: str  # "obo" or "service_principal"
+    has_user_identity: bool
+    user_id: Optional[EmailStr] = None
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "authenticated": True,
+                "auth_mode": "obo",
+                "has_user_identity": True,
+                "user_id": "user@example.com"
+            }
+        }
+```
+
+### 6.3 Error Response
+
+```python
+class AuthenticationErrorResponse(BaseModel):
+    """Error response for authentication failures."""
+    
+    detail: str
+    error_code: str
+    retry_after: Optional[int] = None  # Seconds, for rate limiting
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "detail": "Failed to extract user identity",
+                "error_code": "AUTH_USER_IDENTITY_FAILED",
+                "retry_after": None
+            }
+        }
 ```
 
 ---
 
-## Validation Checklist
+## 7. Metrics Models
 
-- [x] All user-scoped entities include user_id field
-- [x] Database indexes defined for query performance
-- [x] Validation rules prevent operations without user_id
-- [x] Migration strategy defined for existing tables
-- [x] Authentication context model enables dependency injection
-- [x] SDK configuration patterns support both auth types
-- [x] Data flow diagrams show user identity propagation
-- [x] Query patterns enforce data isolation
-- [x] No sensitive data persisted (tokens, secrets)
-- [x] Audit logging requirements satisfied
+### 7.1 Authentication Metrics
+
+```python
+from dataclasses import dataclass
+from typing import Literal
+
+AuthMode = Literal["obo", "service_principal"]
+AuthStatus = Literal["success", "failure", "retry"]
+
+@dataclass
+class AuthenticationMetric:
+    """Single authentication event metric."""
+    
+    timestamp: datetime
+    endpoint: str
+    method: str
+    auth_mode: AuthMode
+    status: AuthStatus
+    duration_ms: float
+    retry_count: int = 0
+    error_type: Optional[str] = None
+```
+
+### 7.2 Performance Metrics
+
+```python
+@dataclass
+class PerformanceMetric:
+    """Request performance metric."""
+    
+    timestamp: datetime
+    endpoint: str
+    method: str
+    status_code: int
+    duration_ms: float
+    auth_overhead_ms: float
+    upstream_api_duration_ms: Optional[float] = None
+```
 
 ---
 
-**Status**: ✅ Design Complete - Ready for Contract Generation (Phase 1 continued)
+## 8. Log Event Models
 
+### 8.1 Structured Log Entry
+
+```python
+from typing import Any, Dict
+
+class StructuredLogEntry(BaseModel):
+    """Structured log entry for authentication events."""
+    
+    timestamp: datetime
+    level: str  # INFO, WARNING, ERROR
+    event: str  # e.g., "auth.token_extraction"
+    correlation_id: str
+    context: Dict[str, Any]
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "timestamp": "2025-10-10T12:34:56.789Z",
+                "level": "INFO",
+                "event": "auth.mode",
+                "correlation_id": "550e8400-e29b-41d4-a716-446655440000",
+                "context": {
+                    "mode": "obo",
+                    "auth_type": "pat",
+                    "endpoint": "/api/user/me"
+                }
+            }
+        }
+```
+
+### 8.2 Authentication Log Events
+
+| Event Name | Level | Context Fields | Trigger |
+|------------|-------|----------------|---------|
+| `auth.token_extraction` | INFO | has_token, endpoint | Middleware extracts token |
+| `auth.mode` | INFO | mode, auth_type | SDK client created |
+| `auth.user_id_extracted` | INFO | user_id, method | UserService.get_user_info() succeeds |
+| `auth.token_validation_failed` | WARNING | error_type, endpoint | Token validation fails. All token errors (expired, malformed, cryptographically invalid) raise the same `DatabricksError` exception type and are handled identically with unified retry logic (see research.md section 4, line 203). SDK does not distinguish between error subtypes at exception level. |
+| `auth.retry_attempt` | WARNING | attempt, error_type, endpoint | Authentication retry triggered |
+| `auth.fallback_triggered` | INFO | reason, environment | Service principal fallback |
+| `auth.failed` | ERROR | error_type, error_message, has_token | Authentication failure after retries |
+| `auth.rate_limit` | ERROR | error | Platform rate limit detected |
+
+---
+
+## 9. Entity Relationships
+
+```
+Request
+    ├─ has AuthenticationContext (1:1, per-request)
+    │   ├─ contains user_token (0:1)
+    │   └─ contains correlation_id (1:1)
+    │
+    ├─ may have UserIdentity (0:1, lazy-loaded)
+    │   └─ used for database filtering
+    │
+    └─ creates WorkspaceClient (1:1)
+        ├─ configured with auth_type
+        └─ uses OBO or Service Principal auth
+
+UserPreference
+    ├─ belongs to user_id (N:1)
+    └─ enforced by WHERE user_id = ?
+
+ModelInferenceLog
+    ├─ belongs to user_id (N:1)
+    └─ audit trail with user identity
+
+SavedQuery
+    ├─ belongs to user_id (N:1)
+    └─ enforced by WHERE user_id = ?
+```
+
+---
+
+## 10. State Machines
+
+### Authentication Mode State Machine
+
+```
+┌─────────────────────────────────────────┐
+│           Request Received               │
+└───────────────┬─────────────────────────┘
+                │
+                ↓
+    ┌───────────────────────────┐
+    │ Check X-Forwarded-Access- │
+    │      Token Header          │
+    └───────────┬───────────────┘
+                │
+        ┌───────┴───────┐
+        │               │
+    Present         Missing
+        │               │
+        ↓               ↓
+┌──────────────┐   ┌──────────────────┐
+│  OBO Mode    │   │ Service Principal│
+│ auth_type:   │   │     Mode         │
+│    "pat"     │   │  auth_type:      │
+└──────┬───────┘   │  "oauth-m2m"     │
+       │           └────────┬─────────┘
+       │                    │
+       │    ┌───────────────┘
+       │    │
+       ↓    ↓
+    ┌──────────────┐
+    │ Create SDK   │
+    │   Client     │
+    └──────┬───────┘
+           │
+           ↓
+    ┌──────────────┐
+    │ Make API Call│
+    └──────┬───────┘
+           │
+     ┌─────┴─────┐
+     │           │
+  Success     Failure
+     │           │
+     ↓           ↓
+┌─────────┐  ┌───────────┐
+│ Return  │  │  Retry?   │
+│Response │  │ (<5 sec)  │
+└─────────┘  └─────┬─────┘
+                   │
+            ┌──────┴──────┐
+            │             │
+          Yes           No
+            │             │
+            ↓             ↓
+      [Exponential]  [Return Error]
+      [Backoff   ]   [HTTP 401/429]
+```
+
+### User Identity Extraction State Machine
+
+```
+┌─────────────────────────────────────────┐
+│   Endpoint Needs user_id                │
+└───────────────┬─────────────────────────┘
+                │
+                ↓
+    ┌────────────────────────┐
+    │ Check AuthContext      │
+    │   has user_token?      │
+    └───────────┬────────────┘
+                │
+        ┌───────┴────────┐
+        │                │
+      Yes              No
+        │                │
+        ↓                ↓
+┌──────────────┐   ┌─────────────┐
+│ Call User    │   │ Return HTTP │
+│ Service      │   │   401       │
+│ get_user_id()│   └─────────────┘
+└──────┬───────┘
+       │
+       ↓
+┌──────────────────┐
+│ API Call:        │
+│ current_user.me()│
+└──────┬───────────┘
+       │
+   ┌───┴────┐
+   │        │
+Success  Failure
+   │        │
+   ↓        ↓
+┌──────┐  ┌─────────┐
+│Extract│ │ Return  │
+│userName│ │HTTP 401│
+└───┬──┘  └─────────┘
+    │
+    ↓
+┌───────────┐
+│ Return    │
+│ user_id   │
+└─────┬─────┘
+      │
+      ↓
+┌──────────────┐
+│ Use in       │
+│ Database     │
+│ WHERE clause │
+└──────────────┘
+```
+
+---
+
+## Validation Rules Summary
+
+### Security Validations (CRITICAL)
+1. **User Token**: NEVER log token value (only presence)
+2. **User Identity**: ALWAYS extract from API (never trust client)
+3. **Database Queries**: ALWAYS filter by user_id for user-scoped data
+4. **Auth Type**: ALWAYS specify explicit `auth_type` parameter
+
+### Data Validations
+1. **user_id**: Must be valid email format (EmailStr)
+2. **user_id**: Must not be empty string
+3. **user_id**: Must exist before database query execution
+4. **auth_mode**: Must be "obo" or "service_principal"
+5. **correlation_id**: Must be UUID v4 format
+
+### Business Logic Validations
+1. **OBO Mode**: Requires non-empty user_token
+2. **Service Principal Mode**: Requires DATABRICKS_CLIENT_ID and DATABRICKS_CLIENT_SECRET
+3. **User-Scoped Operations**: Require user_id extraction success
+4. **Retry Logic**: Total timeout must not exceed 5 seconds
+5. **Rate Limiting**: HTTP 429 must trigger immediate failure (no retries)
+
+---
+
+## Migration Notes
+
+### Database Schema Changes Required
+
+```sql
+-- Add user_id column to user_preferences (if not exists)
+ALTER TABLE user_preferences 
+ADD COLUMN IF NOT EXISTS user_id VARCHAR(255) NOT NULL;
+
+-- Add index for performance
+CREATE INDEX IF NOT EXISTS idx_user_preferences_user_id 
+ON user_preferences(user_id);
+
+-- Add unique constraint
+ALTER TABLE user_preferences 
+ADD CONSTRAINT uq_user_preference 
+UNIQUE (user_id, preference_key);
+
+-- Add user_id column to model_inference_logs (if not exists)
+ALTER TABLE model_inference_logs 
+ADD COLUMN IF NOT EXISTS user_id VARCHAR(255) NOT NULL;
+
+-- Add index for audit queries
+CREATE INDEX IF NOT EXISTS idx_model_inference_logs_user_id 
+ON model_inference_logs(user_id);
+
+-- Backfill existing records (if any) with placeholder
+-- NOTE: Manual intervention needed for production data
+UPDATE user_preferences 
+SET user_id = 'migration-placeholder@example.com' 
+WHERE user_id IS NULL;
+
+UPDATE model_inference_logs 
+SET user_id = 'migration-placeholder@example.com' 
+WHERE user_id IS NULL;
+```
+
+### Alembic Migration
+
+Will be created in `migrations/versions/003_add_user_id_columns.py` during implementation phase.
+
+---
+
+## Related Documents
+
+- [Feature Specification](./spec.md)
+- [Research Document](./research.md)
+- [API Contracts](./contracts/)
+- [Quickstart Guide](./quickstart.md)
+
+---
+
+**Alignment**: This data model satisfies all requirements in the feature specification and adheres to Constitution Principles IV (Type Safety), VIII (Observability), and IX (Multi-User Data Isolation).

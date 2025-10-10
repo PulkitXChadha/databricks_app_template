@@ -1,0 +1,24 @@
+resources:
+  apps:
+    databricks_app_template_dev:
+      name: databricks-app-template-dev
+      description: Databricks App Template (Development) - FastAPI + React with Unity Catalog, Lakebase, and Model Serving integrations
+      source_code_path: ../src/app
+      resources:
+        - name: serving-endpoint
+          serving_endpoint:
+            name: databricks-app-template-serving
+            permission: CAN_QUERY
+        - name: serving-endpoint-2
+          serving_endpoint:
+            name: databricks-claude-opus-4-1
+            permission: CAN_QUERY
+        - name: sql-warehouse
+          sql_warehouse:
+            id: 4b9b953939869799
+            permission: CAN_USE
+        - database:
+            database_name: app_database
+            instance_name: databricks-app-lakebase-dev
+            permission: CAN_CONNECT_AND_CREATE
+          name: database

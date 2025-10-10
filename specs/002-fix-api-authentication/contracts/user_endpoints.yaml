@@ -1,0 +1,404 @@
+openapi: 3.1.0
+info:
+  title: User Endpoints Contract
+  description: |
+    API contract for user-related endpoints that require On-Behalf-Of-User (OBO) authentication.
+    These endpoints MUST use user credentials (not service principal) to respect user-level permissions.
+  version: 1.0.0
+  contact:
+    name: Databricks App Template Team
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+  - url: https://app.databricks.com
+    description: Databricks Apps platform
+
+components:
+  schemas:
+    UserInfoResponse:
+      type: object
+      description: User information response
+      required:
+        - user_id
+        - display_name
+        - active
+        - workspace_url
+      properties:
+        user_id:
+          type: string
+          format: email
+          description: User's email address
+          example: "user@example.com"
+        display_name:
+          type: string
+          description: User's display name
+          example: "Jane Doe"
+        active:
+          type: boolean
+          description: Whether user account is active
+          example: true
+        workspace_url:
+          type: string
+          format: uri
+          description: Databricks workspace URL
+          example: "https://workspace.cloud.databricks.com"
+
+    WorkspaceInfoResponse:
+      type: object
+      description: Workspace information for authenticated user
+      required:
+        - workspace_id
+        - workspace_url
+        - workspace_name
+      properties:
+        workspace_id:
+          type: string
+          description: Databricks workspace ID
+          example: "1234567890123456"
+        workspace_url:
+          type: string
+          format: uri
+          description: Workspace URL
+          example: "https://workspace.cloud.databricks.com"
+        workspace_name:
+          type: string
+          description: Workspace name
+          example: "Production Workspace"
+
+    UserPreferenceRequest:
+      type: object
+      description: Request to save user preference
+      required:
+        - preference_key
+        - preference_value
+      properties:
+        preference_key:
+          type: string
+          description: Preference key/name
+          maxLength: 255
+          example: "theme"
+        preference_value:
+          type: string
+          description: Preference value (JSON-serializable)
+          maxLength: 10000
+          example: "dark"
+
+    UserPreferenceResponse:
+      type: object
+      description: User preference record
+      required:
+        - preference_key
+        - preference_value
+        - created_at
+        - updated_at
+      properties:
+        preference_key:
+          type: string
+          description: Preference key
+          example: "theme"
+        preference_value:
+          type: string
+          description: Preference value
+          example: "dark"
+        created_at:
+          type: string
+          format: date-time
+          description: When preference was created
+          example: "2025-10-10T12:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: When preference was last updated
+          example: "2025-10-10T13:30:00Z"
+
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
+          example: "User authentication required for this operation"
+
+  parameters:
+    XForwardedAccessToken:
+      name: X-Forwarded-Access-Token
+      in: header
+      description: User access token from Databricks Apps platform
+      required: false
+      schema:
+        type: string
+
+    XCorrelationID:
+      name: X-Correlation-ID
+      in: header
+      description: Request correlation ID for tracing
+      required: false
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Authentication failed or user token required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  securitySchemes:
+    DatabricksOBO:
+      type: apiKey
+      in: header
+      name: X-Forwarded-Access-Token
+      description: On-Behalf-Of-User authentication
+
+paths:
+  /api/user/me:
+    get:
+      summary: Get current user information
+      description: |
+        Returns information about the currently authenticated user.
+        MUST use OBO authentication when X-Forwarded-Access-Token header is present.
+        Falls back to service principal if header is missing (for testing only).
+      operationId: getUserInfo
+      tags:
+        - User
+      parameters:
+        - $ref: '#/components/parameters/XForwardedAccessToken'
+        - $ref: '#/components/parameters/XCorrelationID'
+      responses:
+        '200':
+          description: User information
+          headers:
+            X-Correlation-ID:
+              description: Request correlation ID
+              schema:
+                type: string
+                format: uuid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+      security:
+        - DatabricksOBO: []
+        - {}  # Fallback to service principal when token missing
+
+  /api/user/me/workspace:
+    get:
+      summary: Get workspace information for current user
+      description: |
+        Returns workspace information for the authenticated user.
+        MUST use OBO authentication to get user-specific workspace details.
+      operationId: getUserWorkspace
+      tags:
+        - User
+      parameters:
+        - $ref: '#/components/parameters/XForwardedAccessToken'
+        - $ref: '#/components/parameters/XCorrelationID'
+      responses:
+        '200':
+          description: Workspace information
+          headers:
+            X-Correlation-ID:
+              description: Request correlation ID
+              schema:
+                type: string
+                format: uuid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceInfoResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+      security:
+        - DatabricksOBO: []
+
+  /api/preferences:
+    get:
+      summary: Get user preferences
+      description: |
+        Returns all preferences for the authenticated user.
+        MUST filter by user_id extracted from OBO token.
+        User can only see their own preferences.
+      operationId: getUserPreferences
+      tags:
+        - User
+        - Preferences
+      parameters:
+        - $ref: '#/components/parameters/XForwardedAccessToken'
+        - $ref: '#/components/parameters/XCorrelationID'
+      responses:
+        '200':
+          description: List of user preferences
+          headers:
+            X-Correlation-ID:
+              description: Request correlation ID
+              schema:
+                type: string
+                format: uuid
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserPreferenceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+      security:
+        - DatabricksOBO: []
+
+    post:
+      summary: Save user preference
+      description: |
+        Saves a preference for the authenticated user.
+        MUST extract user_id from OBO token and store with preference.
+        Upserts preference (creates if not exists, updates if exists).
+      operationId: saveUserPreference
+      tags:
+        - User
+        - Preferences
+      parameters:
+        - $ref: '#/components/parameters/XForwardedAccessToken'
+        - $ref: '#/components/parameters/XCorrelationID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserPreferenceRequest'
+      responses:
+        '201':
+          description: Preference saved
+          headers:
+            X-Correlation-ID:
+              description: Request correlation ID
+              schema:
+                type: string
+                format: uuid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreferenceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+      security:
+        - DatabricksOBO: []
+
+  /api/preferences/{preference_key}:
+    delete:
+      summary: Delete user preference
+      description: |
+        Deletes a specific preference for the authenticated user.
+        MUST verify user_id matches to prevent cross-user deletion.
+      operationId: deleteUserPreference
+      tags:
+        - User
+        - Preferences
+      parameters:
+        - name: preference_key
+          in: path
+          required: true
+          description: Preference key to delete
+          schema:
+            type: string
+        - $ref: '#/components/parameters/XForwardedAccessToken'
+        - $ref: '#/components/parameters/XCorrelationID'
+      responses:
+        '204':
+          description: Preference deleted
+          headers:
+            X-Correlation-ID:
+              description: Request correlation ID
+              schema:
+                type: string
+                format: uuid
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Preference not found for this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+      security:
+        - DatabricksOBO: []
+
+# Contract Testing Requirements
+x-contract-tests:
+  description: |
+    Contract tests MUST validate:
+    1. /api/user/me returns user info with valid OBO token
+    2. /api/user/me returns 401 with invalid/expired token
+    3. /api/user/me falls back to service principal when token missing (local dev)
+    4. /api/user/me/workspace requires valid OBO token
+    5. /api/preferences returns only authenticated user's preferences
+    6. /api/preferences filters by user_id in database query
+    7. POST /api/preferences saves preference with correct user_id
+    8. DELETE /api/preferences only deletes authenticated user's preference
+    9. Cross-user access prevented (User A cannot access User B's data)
+    10. All endpoints include X-Correlation-ID in response headers
+    11. All endpoints implement retry logic with exponential backoff
+    12. Rate limiting (429) handled correctly
+
+  test_files:
+    - tests/contract/test_user_contract.py
+    - tests/contract/test_preferences_contract.py
+    - tests/integration/test_multi_user_isolation.py
+
+# Data Isolation Requirements
+x-data-isolation:
+  description: |
+    CRITICAL: All user-scoped database queries MUST include WHERE user_id = ?
+    
+    Violations will cause security issues (cross-user data access).
+  
+  rules:
+    - User can only access their own preferences
+    - User can only delete their own preferences
+    - User cannot query other users' data via any means
+    - user_id MUST be extracted from OBO token (never from request body/query params)
+    - Missing user_id MUST return HTTP 401
+
+  test_scenarios:
+    - name: User A creates preference
+      then: User B cannot see it
+    - name: User A creates preference with same key as User B
+      then: Both preferences exist independently
+    - name: User A attempts to delete User B's preference
+      then: Operation fails or no-op (preference not found for User A)
+
+# Requirement Traceability
+x-requirements:
+  functional:
+    - FR-005: /api/user/me uses user token (not service principal)
+    - FR-006: /api/user/me/workspace uses user token
+    - FR-007: User endpoints do NOT create service-only clients
+    - FR-010: Extract user_id and store with preferences
+    - FR-013: Filter all user-scoped queries by user_id
+    - FR-014: Validate user_id presence before database operations
+  non_functional:
+    - NFR-001: Auth overhead <10ms
+    - NFR-009: Support 50 concurrent users, 1000 req/min
+

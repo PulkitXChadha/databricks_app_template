@@ -11,6 +11,7 @@ Auto-generated from all feature plans. Last updated: 2025-10-04
 - Lakebase (PostgreSQL in Databricks) with service principal authentication (002-fix-api-authentication)
 - Python 3.11+ (confirmed in pyproject.toml) + FastAPI 0.104+, Databricks SDK 0.59.0, SQLAlchemy 2.0+, Psycopg 3.1+ (002-fix-api-authentication)
 - Lakebase (PostgreSQL in Databricks) via service principal authentication (002-fix-api-authentication)
+- Python 3.11+ + FastAPI, Databricks SDK 0.67.0 (pinned), SQLAlchemy, Pydantic (002-fix-api-authentication)
 
 ## Project Structure
 ```
@@ -26,9 +27,9 @@ cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLO
 Python 3.11+ (backend), TypeScript 5.2+ (frontend): Follow standard conventions
 
 ## Recent Changes
+- 002-fix-api-authentication: Added Python 3.11+ + FastAPI, Databricks SDK 0.67.0 (pinned), SQLAlchemy, Pydantic
 - 002-fix-api-authentication: Added Python 3.11+ (confirmed in pyproject.toml) + FastAPI 0.104+, Databricks SDK 0.59.0, SQLAlchemy 2.0+, Psycopg 3.1+
 - 002-fix-api-authentication: Added Python 3.11+ (backend), TypeScript 5.2+ (frontend) + FastAPI 0.104+, Databricks SDK 0.59.0, React 18.3, SQLAlchemy 2.0+, Psycopg 3.1+
-- 001-databricks-integrations: Added Python 3.11+ (backend), TypeScript 5.2+ (frontend) + FastAPI 0.104+, Databricks SDK 0.59.0, SQLAlchemy 2.0+, React 18, Vite 5.0, designbricks 0.2.2
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

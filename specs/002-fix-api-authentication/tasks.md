@@ -1,650 +1,1772 @@
-# Tasks: Fix API Authentication and Implement OBO Authentication
+# Tasks: Fix API Authentication and Implement On-Behalf-Of User (OBO) Authentication
 
-**Input**: Design documents from `/specs/002-fix-api-authentication/`  
-**Prerequisites**: plan.md ✅, research.md ✅, data-model.md ✅, contracts/ ✅, quickstart.md ✅  
-**Feature Branch**: `002-fix-api-authentication`  
-**Target**: Fix "more than one authorization method configured" error and implement On-Behalf-Of (OBO) authentication
+**Input**: Design documents from `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/specs/002-fix-api-authentication/`  
+**Prerequisites**: plan.md, research.md, data-model.md, contracts/, quickstart.md  
+**Branch**: `002-fix-api-authentication`  
+**Estimated Total Time**: 3-5 days  
+**Total Tasks**: 50
 
----
-
-## Execution Summary
-
-This feature fixes authentication failures in deployed Databricks Apps by implementing:
-1. **Dual Authentication**: OBO for user operations, service principal for Lakebase
-2. **User Identity Tracking**: Add user_id to database tables for data isolation
-3. **Exponential Backoff Retry**: Handle transient authentication failures
-4. **Observability**: Structured logging and metrics for auth operations
-
-**Tech Stack**: Python 3.11+, FastAPI 0.104+, Databricks SDK 0.59.0, SQLAlchemy 2.0+, React 18.3, TypeScript 5.2+
-
----
+## Execution Flow (main)
+```
+1. Load plan.md from feature directory ✅
+   → Tech stack: Python 3.11+, FastAPI, Databricks SDK 0.67.0, SQLAlchemy, Pydantic
+   → Structure: Web app (React frontend + FastAPI backend)
+2. Load design documents ✅
+   → data-model.md: 10 entities/models
+   → contracts/: 3 contract files (auth_models, user_endpoints, service_layers)
+   → research.md: 10 technical decisions
+   → quickstart.md: 6-phase test guide
+3. Generate tasks by category ✅
+   → Setup: Dependencies, database migrations (3 tasks)
+   → Tests: Contract tests, integration tests (10 tasks)
+   → Core: Middleware, auth context, retry logic (8 tasks)
+   → Services: Service layer modifications + timeout config (6 tasks: T022-T026, T037)
+   → Endpoints: Router updates (6 tasks)
+   → Observability: Logging and metrics (4 tasks)
+   → Configuration: SDK pinning, scripts (4 tasks: T039-T041, T047)
+   → Integration: Multi-user tests (3 tasks)
+   → Documentation: Update docs (3 tasks: T045-T047)
+   → Validation: Manual testing, deployment (3 tasks: T048-T050)
+4. Order by dependencies ✅
+   → 7 dependency layers defined
+5. Mark parallel tasks [P] ✅
+   → 28 parallelizable tasks identified
+```
 
 ## Format: `[ID] [P?] Description`
 - **[P]**: Can run in parallel (different files, no dependencies)
-- All file paths are absolute from repository root: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/`
+- Include exact file paths in descriptions
+
+## Terminology Reference
+
+Throughout these tasks, authentication-related terms follow the glossary defined in [spec.md Terminology Glossary](./spec.md#terminology-glossary) (lines 207-219):
+
+- **Usage in code**: Use `user_token` for variable names
+- **Usage in formal spec**: Use "user access token"
+- **Usage in documentation**: Use "OBO authentication" or "user access token"
+
+See spec.md for complete terminology definitions and usage guidelines.
+
+## Phase 3.1: Setup & Dependencies
+
+### T001: Pin Databricks SDK to Version 0.67.0
+**Type**: Configuration | **Priority**: High | **Dependencies**: None | **Estimated**: 15 min
+
+Pin Databricks SDK to exact version 0.67.0 to ensure explicit `auth_type` support and prevent breaking changes.
+
+**Files**:
+- `pyproject.toml` (MODIFY)
+
+**Commands**:
+```bash
+uv add databricks-sdk==0.67.0
+uv sync
+```
+
+**Acceptance Criteria**:
+- [ ] `databricks-sdk==0.67.0` in pyproject.toml
+- [ ] `uv pip list | grep databricks-sdk` shows version 0.67.0
+- [ ] No version conflicts with other dependencies
+
+**Related Requirements**: FR-024, NFR-013, Research Decision 1
 
 ---
 
-## Phase 3.1: Setup & Preparation
+### T002: Create Database Migration for user_id Columns
+**Type**: Database Migration | **Priority**: High | **Dependencies**: T001 | **Estimated**: 30 min
 
-- [ ] **T001** Verify Databricks SDK version is pinned to 0.59.0 in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/requirements.txt`
-  - Requirement: FR-024, NFR-013
-  - Action: Confirm `databricks-sdk==0.59.0` (exact version, not range like >=0.59.0 or ~=0.59.0)
-  - Validation: Grep for exact string "databricks-sdk==0.59.0" in requirements.txt
-  - Historical Context: Minimum SDK 0.33.0 introduced auth_type parameter (not a validation criterion - we use 0.59.0)
+Create Alembic migration to add `user_id` columns to existing tables for multi-user data isolation.
 
-- [ ] **T002** Create database migration file `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/migrations/versions/003_add_user_id_to_tables.py`
-  - Add user_id column to user_preferences table (VARCHAR(255), NOT NULL, indexed)
-  - Add user_id column to model_inference_logs table (VARCHAR(255), NOT NULL, indexed)
-  - Create unique index on user_preferences(user_id, key)
-  - Create index on model_inference_logs(user_id)
-  - Include upgrade() and downgrade() functions
-  - Requirement: FR-010, FR-013
+**Note**: This is a greenfield deployment (first production deployment per spec.md clarification line 89). No existing production data to migrate. Placeholder email in migration is for local development databases only.
 
-- [ ] **T003** Run database migration to add user_id columns
-  - Command: `cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template && uv run alembic upgrade head`
-  - Verify: Check that user_id columns and indexes exist in both tables
-  - Requirement: FR-010
+**Files**:
+- `migrations/versions/003_add_user_id_columns.py` (CREATE)
 
----
+**Migration Operations**:
+```sql
+-- Add user_id column to user_preferences
+ALTER TABLE user_preferences ADD COLUMN user_id VARCHAR(255) NOT NULL DEFAULT 'migration-placeholder@example.com';
+CREATE INDEX idx_user_preferences_user_id ON user_preferences(user_id);
+ALTER TABLE user_preferences ADD CONSTRAINT uq_user_preference UNIQUE (user_id, preference_key);
 
-## Phase 3.2: Contract Tests (TDD - Must Fail Before Implementation)
+-- Add user_id column to model_inference_logs
+ALTER TABLE model_inference_logs ADD COLUMN user_id VARCHAR(255) NOT NULL DEFAULT 'migration-placeholder@example.com';
+CREATE INDEX idx_model_inference_logs_user_id ON model_inference_logs(user_id);
+```
 
-**Important**: These tests MUST be modified first and MUST fail initially. This is Test-Driven Development (TDD).
+**Acceptance Criteria**:
+- [ ] Migration file created with version number 003
+- [ ] user_id columns added to user_preferences and model_inference_logs
+- [ ] Indices created for performance
+- [ ] Unique constraint added for user_preferences
+- [ ] `alembic upgrade head` runs successfully
+- [ ] `alembic downgrade -1` reverses changes
 
-- [ ] **T004** [P] Modify User API contract tests in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/tests/contract/test_user_contract.py`
-  - Update test_get_current_user() to require X-Forwarded-Access-Token header
-  - Update test_get_workspace_info() to require X-Forwarded-Access-Token header
-  - Add assertion: response.auth_method == "obo"
-  - Add negative test: verify 401 when header missing (local dev should fallback)
-  - Contract: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/specs/002-fix-api-authentication/contracts/user_api.yaml`
-  - Expected: Tests FAIL (implementation not done yet)
-
-- [ ] **T005** [P] Modify Model Serving API contract tests in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/tests/contract/test_model_serving_contract.py`
-  - Update test_list_endpoints() to require X-Forwarded-Access-Token header
-  - Update test_get_endpoint() to require X-Forwarded-Access-Token header
-  - Add assertion: verify SDK uses auth_type="pat"
-  - Contract: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/specs/002-fix-api-authentication/contracts/model_serving_api.yaml`
-  - Expected: Tests FAIL (implementation not done yet)
-
-- [ ] **T006** [P] Modify Unity Catalog API contract tests in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/tests/contract/test_unity_catalog_contract.py`
-  - Update test_list_catalogs() to require X-Forwarded-Access-Token header
-  - Update test_list_schemas() to require X-Forwarded-Access-Token header
-  - Update test_list_tables() to require X-Forwarded-Access-Token header
-  - Add multi-user permission test: verify different users see different catalogs
-  - Contract: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/specs/002-fix-api-authentication/contracts/unity_catalog_api.yaml`
-  - Expected: Tests FAIL (implementation not done yet)
-
-- [ ] **T007** Run all contract tests to verify they FAIL
-  - Command: `cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template && uv run pytest tests/contract/ -v`
-  - Expected: All modified tests FAIL (no implementation yet)
-  - Success: Failing tests confirm contract requirements
-  - Requirement: TDD methodology
+**Related Requirements**: FR-010, FR-013, Data Model Section 5
 
 ---
 
-## Phase 3.3: Authentication Utilities (Core Foundation)
+### T003: Run Database Migration
+**Type**: Database Migration | **Priority**: High | **Dependencies**: T002 | **Estimated**: 10 min
 
-- [ ] **T008** [P] Implement get_user_token() FastAPI dependency in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/lib/auth.py`
-  - Extract token from X-Forwarded-Access-Token header
-  - Return Optional[str] (None if header absent)
-  - Add structured logging: log token presence (not token value)
-  - Type hints: `async def get_user_token(request: Request) -> str | None:`
-  - Requirement: FR-001, FR-017
+Apply database migration to add user_id columns.
 
-- [ ] **T009** [P] Implement get_user_identity() function in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/lib/auth.py`
-  - Accept user_token parameter
-  - Create WorkspaceClient with token and auth_type="pat"
-  - Call client.current_user.me() to extract user identity
-  - Return dict with user_id, email, username, display_name
-  - Handle errors: invalid token, network issues
-  - Type hints: `async def get_user_identity(user_token: str) -> dict:`
-  - Requirement: FR-002, FR-003
+**Commands**:
+```bash
+alembic upgrade head
+```
 
-- [ ] **T010** [P] Implement retry_with_backoff() decorator in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/lib/auth.py`
-  - Exponential backoff: 100ms, 200ms, 400ms (3 attempts)
-  - Total timeout: 5 seconds maximum
-  - Detect HTTP 429 (rate limit) and fail immediately without retry
-  - Log retry attempts with correlation_id
-  - Type hints: `async def retry_with_backoff(func: Callable, max_attempts: int = 3, base_delay: float = 0.1, max_timeout: float = 5.0):`
-  - Requirement: FR-018, FR-019, NFR-006
+**Acceptance Criteria**:
+- [ ] Migration applies without errors
+- [ ] Tables contain new user_id columns
+- [ ] Existing data backfilled with placeholder
 
-- [ ] **T011** [P] Implement create_obo_client() factory in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/lib/auth.py`
-  - Accept user_token parameter
-  - Create WorkspaceClient with explicit auth_type="pat"
-  - Return configured WorkspaceClient instance
-  - Add logging: auth_method="obo", token_present=True
-  - Type hints: `def create_obo_client(user_token: str) -> WorkspaceClient:`
-  - Requirement: FR-003
+**Related Requirements**: FR-010, FR-013
 
-- [ ] **T012** [P] Implement create_service_principal_client() factory in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/lib/auth.py`
-  - Read DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET from environment
-  - Create WorkspaceClient with explicit auth_type="oauth-m2m"
-  - Return configured WorkspaceClient instance
-  - Add logging: auth_method="service_principal"
-  - Never log client_secret (NFR-004)
-  - Type hints: `def create_service_principal_client() -> WorkspaceClient:`
-  - Requirement: FR-004, FR-011
+---
 
-- [ ] **T013** [P] Create unit tests for auth utilities in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/tests/unit/test_auth.py`
-  - Test get_user_token(): header present, absent, malformed
-  - Test get_user_identity(): valid token, invalid token, network error
-  - Test retry_with_backoff(): success on retry, timeout, rate limit
-  - Test SDK client factories: correct auth_type configuration
-  - Mock WorkspaceClient to avoid real API calls
-  - Requirement: Testing strategy
+## Phase 3.2: Contract Tests (TDD - Write Tests First)
+
+### T004 [P]: Contract Test - Authentication Middleware
+**Type**: Contract Test | **Priority**: High | **Dependencies**: T001 | **Estimated**: 45 min
+
+Write contract tests for authentication middleware that extracts tokens and creates correlation IDs.
+
+**Files**:
+- `tests/contract/test_auth_middleware.py` (CREATE)
+
+**Test Scenarios**:
+- Extract X-Forwarded-Access-Token header correctly
+- Generate correlation ID when X-Correlation-ID missing
+- Preserve client-provided X-Correlation-ID
+- Store token in request.state.user_token
+- Set request.state.has_user_token correctly
+- Set request.state.auth_mode based on token presence
+- Never log token value (only presence)
+
+**Acceptance Criteria**:
+- [ ] All 7 test scenarios implemented
+- [ ] Tests FAIL initially (no implementation yet)
+- [ ] Tests use pytest fixtures for FastAPI TestClient
+- [ ] Tests validate request state properly
+- [ ] Tests check structured logs for token presence (not value)
+
+**Related Requirements**: FR-001, FR-017, Contract: auth_models.yaml
+
+---
+
+### T005 [P]: Contract Test - User Identity Extraction
+**Type**: Contract Test | **Priority**: High | **Dependencies**: T001 | **Estimated**: 45 min
+
+Write contract tests for UserService.get_user_info() and user_id extraction.
+
+**Files**:
+- `tests/contract/test_user_identity_extraction.py` (CREATE)
+
+**Test Scenarios**:
+- get_user_info() returns UserIdentity with valid token
+- get_user_info() raises 401 with invalid token
+- get_user_info() raises 401 with expired token
+- get_user_id() returns email address
+- get_user_id() raises 401 when token missing
+- UserIdentity has correct fields (user_id, display_name, active)
+
+**Acceptance Criteria**:
+- [ ] All 6 test scenarios implemented
+- [ ] Tests FAIL initially (no implementation yet)
+- [ ] Tests mock Databricks API responses
+- [ ] Tests validate email format for user_id
+- [ ] Tests check 401 error codes
+
+**Related Requirements**: FR-010, FR-014, Contract: auth_models.yaml
+
+---
+
+### T006 [P]: Contract Test - User Endpoints
+**Type**: Contract Test | **Priority**: High | **Dependencies**: T001 | **Estimated**: 60 min
+
+Write contract tests for user-related endpoints (/api/user/me, /api/user/me/workspace).
+
+**Files**:
+- `tests/contract/test_user_contract.py` (CREATE)
+
+**Test Scenarios**:
+- GET /api/user/me returns UserInfoResponse with valid token
+- GET /api/user/me returns 401 with invalid token
+- GET /api/user/me falls back to service principal when token missing
+- GET /api/user/me/workspace requires valid token
+- GET /api/user/me/workspace returns WorkspaceInfoResponse
+- All endpoints include X-Correlation-ID in response headers
+
+**Acceptance Criteria**:
+- [ ] All 6 test scenarios implemented
+- [ ] Tests FAIL initially (no implementation yet)
+- [ ] Tests validate response schemas match contracts
+- [ ] Tests check correlation ID propagation
+- [ ] Tests verify OBO vs service principal modes
+
+**Related Requirements**: FR-005, FR-006, Contract: user_endpoints.yaml
+
+---
+
+### T007 [P]: Contract Test - User Preferences Endpoints
+**Type**: Contract Test | **Priority**: High | **Dependencies**: T003 | **Estimated**: 60 min
+
+Write contract tests for user preferences endpoints with data isolation validation.
+
+**Files**:
+- `tests/contract/test_preferences_contract.py` (CREATE)
+
+**Test Scenarios**:
+- GET /api/preferences returns only authenticated user's preferences
+- POST /api/preferences saves with correct user_id
+- DELETE /api/preferences/{key} only deletes authenticated user's preference
+- Cross-user access prevented (User A cannot see User B's data)
+- Missing token returns 401
+- Database queries include WHERE user_id = ?
+
+**Acceptance Criteria**:
+- [ ] All 6 test scenarios implemented
+- [ ] Tests FAIL initially (no implementation yet)
+- [ ] Tests use multiple user tokens to verify isolation
+- [ ] Tests check SQL queries for user_id filtering
+- [ ] Tests validate upsert behavior
+
+**Related Requirements**: FR-010, FR-013, FR-014, Contract: user_endpoints.yaml
+
+---
+
+### T008 [P]: Contract Test - UserService Authentication
+**Type**: Contract Test | **Priority**: High | **Dependencies**: T001 | **Estimated**: 45 min
+
+Write contract tests for UserService authentication patterns.
+
+**Files**:
+- `tests/contract/test_user_service_contract.py` (CREATE)
+
+**Test Scenarios**:
+- UserService with user_token creates client with auth_type="pat"
+- UserService without user_token creates client with auth_type="oauth-m2m"
+- UserService.get_user_id() returns email address
+- UserService.get_user_id() raises 401 when user_token missing
+- Client creation logs correct auth_mode
+
+**Acceptance Criteria**:
+- [ ] All 5 test scenarios implemented
+- [ ] Tests FAIL initially (no implementation yet)
+- [ ] Tests mock WorkspaceClient creation
+- [ ] Tests validate explicit auth_type parameter
+- [ ] Tests check structured logs for auth_mode
+
+**Related Requirements**: FR-002, FR-003, FR-004, Contract: service_layers.yaml
+
+---
+
+### T009 [P]: Contract Test - UnityCatalogService Authentication
+**Type**: Contract Test | **Priority**: High | **Dependencies**: T001 | **Estimated**: 30 min
+
+Write contract tests for UnityCatalogService authentication patterns.
+
+**Files**:
+- `tests/contract/test_unity_catalog_service_contract.py` (CREATE)
+
+**Test Scenarios**:
+- With user_token uses OBO (respects user permissions)
+- Without user_token uses service principal
+- list_catalogs() returns different results for different users
+- Client creation uses correct auth_type
+
+**Acceptance Criteria**:
+- [ ] All 4 test scenarios implemented
+- [ ] Tests FAIL initially (no implementation yet)
+- [ ] Tests mock Unity Catalog API responses
+- [ ] Tests validate permission enforcement
+
+**Related Requirements**: FR-008, Contract: service_layers.yaml
+
+---
+
+### T010 [P]: Contract Test - ModelServingService Authentication
+**Type**: Contract Test | **Priority**: High | **Dependencies**: T001 | **Estimated**: 30 min
+
+Write contract tests for ModelServingService authentication patterns.
+
+**Files**:
+- `tests/contract/test_model_serving_service_contract.py` (CREATE)
+
+**Test Scenarios**:
+- With user_token uses OBO
+- Without user_token uses service principal
+- list_endpoints() respects user permissions
+- Client creation uses correct auth_type
+
+**Acceptance Criteria**:
+- [ ] All 4 test scenarios implemented
+- [ ] Tests FAIL initially (no implementation yet)
+- [ ] Tests mock Model Serving API responses
+- [ ] Tests validate permission enforcement
+
+**Related Requirements**: FR-008, Contract: service_layers.yaml
+
+---
+
+### T011 [P]: Contract Test - LakebaseService Data Isolation
+**Type**: Contract Test | **Priority**: High | **Dependencies**: T003 | **Estimated**: 45 min
+
+Write contract tests for LakebaseService user_id filtering.
+
+**Files**:
+- `tests/contract/test_lakebase_service_contract.py` (CREATE)
+
+**Test Scenarios**:
+- LakebaseService NEVER accepts user_token parameter
+- get_user_preferences() includes WHERE user_id = ?
+- save_user_preference() stores with correct user_id
+- Missing user_id raises 401
+- Queries always use service principal database connection
+
+**Acceptance Criteria**:
+- [ ] All 5 test scenarios implemented
+- [ ] Tests FAIL initially (no implementation yet)
+- [ ] Tests validate SQL queries for user_id filtering
+- [ ] Tests check that service principal DB connection is used
+- [ ] Tests verify user_id validation
+
+**Related Requirements**: FR-011, FR-013, FR-014, Contract: service_layers.yaml
+
+---
+
+### T012 [P]: Contract Test - Retry Logic and Error Handling
+**Type**: Contract Test | **Priority**: High | **Dependencies**: T001 | **Estimated**: 60 min
+
+Write contract tests for retry logic with exponential backoff and error handling.
+
+**Files**:
+- `tests/contract/test_retry_logic.py` (CREATE)
+
+**Test Scenarios**:
+- Retry triggers on authentication failures (3 attempts)
+- Exponential backoff delays (100ms, 200ms, 400ms)
+- Total retry time < 5 seconds
+- Rate limiting (429) fails immediately without retry
+- Retry count logged correctly
+- Final error returned after max retries
+- Multiple concurrent requests retry independently (no coordination, stateless pattern per FR-025)
+
+**Acceptance Criteria**:
+- [ ] All 7 test scenarios implemented
+- [ ] Tests FAIL initially (no implementation yet)
+- [ ] Tests measure actual retry delays
+- [ ] Tests mock transient failures
+- [ ] Tests validate timeout behavior
+- [ ] Tests verify concurrent requests retry independently without coordination
+
+**Related Requirements**: FR-018, FR-019, FR-025, NFR-006, Contract: auth_models.yaml
+
+---
+
+### T013 [P]: Contract Test - Correlation ID Propagation
+**Type**: Contract Test | **Priority**: Medium | **Dependencies**: T001 | **Estimated**: 30 min
+
+Write contract tests for correlation ID generation and propagation.
+
+**Files**:
+- `tests/contract/test_correlation_id.py` (CREATE)
+
+**Test Scenarios**:
+- Middleware generates UUID when X-Correlation-ID missing
+- Middleware preserves client-provided X-Correlation-ID
+- Correlation ID included in all response headers
+- Correlation ID included in all log entries for request
+- UUID format validated
+
+**Acceptance Criteria**:
+- [ ] All 5 test scenarios implemented
+- [ ] Tests FAIL initially (no implementation yet)
+- [ ] Tests validate UUID v4 format
+- [ ] Tests check log entries for correlation_id field
+
+**Related Requirements**: FR-017, Contract: auth_models.yaml
+
+---
+
+## Phase 3.3: Core Authentication Implementation
+
+### T014: Implement AuthenticationContext Data Model
+**Type**: Implementation | **Priority**: High | **Dependencies**: T001 | **Estimated**: 30 min
+
+Implement AuthenticationContext dataclass for request state management.
+
+**Files**:
+- `server/models/user_session.py` (CREATE/MODIFY)
+
+**Implementation**:
+```python
+@dataclass
+class AuthenticationContext:
+    """Authentication context for a single request."""
+    user_token: Optional[str]
+    has_user_token: bool
+    auth_mode: str  # "obo" or "service_principal"
+    correlation_id: str
+    user_id: Optional[str] = None  # Lazy-loaded
+    
+    @property
+    def is_obo_mode(self) -> bool:
+        return self.auth_mode == "obo"
+    
+    @property
+    def is_service_principal_mode(self) -> bool:
+        return self.auth_mode == "service_principal"
+```
+
+**Acceptance Criteria**:
+- [ ] AuthenticationContext class implemented
+- [ ] All properties defined per data-model.md
+- [ ] Type hints on all fields
+- [ ] is_obo_mode and is_service_principal_mode properties work
+- [ ] Contract tests T004 pass
+
+**Related Requirements**: FR-002, Data Model Section 3
+
+---
+
+### T015: Implement Token Extraction Middleware
+**Type**: Implementation | **Priority**: High | **Dependencies**: T014 | **Estimated**: 45 min
+
+Implement FastAPI middleware to extract X-Forwarded-Access-Token header and create AuthenticationContext.
+
+**Files**:
+- `server/lib/auth.py` (MODIFY)
+
+**Implementation**:
+```python
+@app.middleware("http")
+async def extract_user_token(request: Request, call_next):
+    user_token = request.headers.get("X-Forwarded-Access-Token")
+    has_token = user_token is not None
+    auth_mode = "obo" if has_token else "service_principal"
+    
+    request.state.user_token = user_token
+    request.state.has_user_token = has_token
+    request.state.auth_mode = auth_mode
+    
+    logger.info("auth.token_extraction", {
+        "has_token": has_token,
+        "endpoint": request.url.path
+    })
+    
+    return await call_next(request)
+```
+
+**Acceptance Criteria**:
+- [ ] Middleware extracts X-Forwarded-Access-Token header
+- [ ] request.state populated with auth context
+- [ ] auth_mode set correctly based on token presence
+- [ ] Token presence logged (not value)
+- [ ] Contract tests T004 pass
+
+**Related Requirements**: FR-001, FR-017, Research Decision 2
+
+---
+
+### T016: Implement Correlation ID Middleware
+**Type**: Implementation | **Priority**: High | **Dependencies**: T014 | **Estimated**: 30 min
+
+Implement middleware to generate/preserve correlation IDs for request tracing.
+
+**Files**:
+- `server/lib/auth.py` (MODIFY)
+
+**Implementation**:
+```python
+import contextvars
+import uuid
+
+correlation_id_var = contextvars.ContextVar('correlation_id', default=None)
+
+@app.middleware("http")
+async def add_correlation_id(request: Request, call_next):
+    correlation_id = request.headers.get("X-Correlation-ID", str(uuid.uuid4()))
+    correlation_id_var.set(correlation_id)
+    request.state.correlation_id = correlation_id
+    
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
+    return response
+```
+
+**Acceptance Criteria**:
+- [ ] Generates UUID v4 when X-Correlation-ID missing
+- [ ] Preserves client-provided X-Correlation-ID
+- [ ] Sets correlation_id in request.state
+- [ ] Adds X-Correlation-ID to response headers
+- [ ] Context variable accessible in all handlers
+- [ ] Contract tests T013 pass
+
+**Related Requirements**: FR-017, Data Model Section 3
+
+---
+
+### T017: Enhance Structured Logger with Correlation IDs
+**Type**: Implementation | **Priority**: High | **Dependencies**: T016 | **Estimated**: 30 min
+
+Enhance existing structured logger to include correlation IDs in all log entries.
+
+**Files**:
+- `server/lib/structured_logger.py` (MODIFY)
+
+**Implementation**:
+```python
+class StructuredLogger:
+    def log(self, level: str, event: str, context: Dict[str, Any] = None):
+        log_entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "level": level,
+            "event": event,
+            "correlation_id": correlation_id_var.get(),
+            **(context or {})
+        }
+        
+        # Never log sensitive data
+        if "token" in log_entry:
+            del log_entry["token"]
+        if "password" in log_entry:
+            del log_entry["password"]
+        
+        print(json.dumps(log_entry))
+```
+
+**Acceptance Criteria**:
+- [ ] correlation_id included in all log entries
+- [ ] Token values never logged
+- [ ] Existing log format preserved
+- [ ] JSON output validated
+- [ ] Contract tests T004, T013 pass
+
+**Related Requirements**: FR-017, NFR-004, Research Decision 7
+
+---
+
+### T018: Implement Retry Logic with Exponential Backoff
+**Type**: Implementation | **Priority**: High | **Dependencies**: T001 | **Estimated**: 60 min
+
+Implement decorator-based retry logic with exponential backoff for authentication failures.
+
+**Files**:
+- `server/lib/auth.py` (MODIFY)
+
+**Implementation**:
+```python
+from tenacity import retry, stop_after_delay, wait_exponential, retry_if_exception_type
+
+class AuthenticationError(Exception):
+    pass
+
+class RateLimitError(Exception):
+    pass
+
+def with_auth_retry(func):
+    @retry(
+        retry=retry_if_exception_type(AuthenticationError),
+        wait=wait_exponential(multiplier=0.1, min=0.1, max=0.4),
+        stop=stop_after_delay(5),
+        reraise=True
+    )
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except DatabricksError as e:
+            if e.error_code == "RESOURCE_EXHAUSTED" or e.status_code == 429:
+                raise RateLimitError("Platform rate limit exceeded") from e
+            
+            logger.warning("auth.retry_attempt", {
+                "error": str(e),
+                "attempt": wrapper.retry.statistics.get("attempt_number", 1)
+            })
+            raise AuthenticationError(f"Authentication failed: {e}") from e
+    
+    return wrapper
+```
+
+**Acceptance Criteria**:
+- [ ] Retry decorator implemented
+- [ ] Exponential backoff with 100ms, 200ms, 400ms delays
+- [ ] Total timeout < 5 seconds
+- [ ] Rate limiting (429) fails immediately
+- [ ] Retry attempts logged
+- [ ] Each request retries independently without coordination (stateless pattern per FR-025)
+- [ ] Contract tests T012 pass
+
+**Related Requirements**: FR-018, FR-019, FR-025, NFR-006, Research Decision 4
+
+---
+
+### T019: Implement Dependency Injection for User Token
+**Type**: Implementation | **Priority**: High | **Dependencies**: T015 | **Estimated**: 20 min
+
+Implement FastAPI dependency for extracting user token from request state.
+
+**Files**:
+- `server/lib/auth.py` (MODIFY)
+
+**Implementation**:
+```python
+def get_user_token(request: Request) -> Optional[str]:
+    """FastAPI dependency to extract user token from request state."""
+    return getattr(request.state, "user_token", None)
+
+def get_auth_context(request: Request) -> AuthenticationContext:
+    """FastAPI dependency to get full authentication context."""
+    return AuthenticationContext(
+        user_token=request.state.user_token,
+        has_user_token=request.state.has_user_token,
+        auth_mode=request.state.auth_mode,
+        correlation_id=request.state.correlation_id
+    )
+```
+
+**Acceptance Criteria**:
+- [ ] get_user_token() dependency function works
+- [ ] get_auth_context() dependency function works
+- [ ] Can be used in endpoint declarations
+- [ ] Returns None when token missing (no error)
+
+**Related Requirements**: FR-002, Research Decision 2
+
+---
+
+### T020: Implement UserIdentity Pydantic Model
+**Type**: Implementation | **Priority**: High | **Dependencies**: T001 | **Estimated**: 20 min
+
+Implement UserIdentity Pydantic model for type-safe user identity representation.
+
+**Files**:
+- `server/models/user_session.py` (MODIFY)
+
+**Implementation**:
+```python
+from pydantic import BaseModel, EmailStr
+from datetime import datetime
+
+class UserIdentity(BaseModel):
+    """User identity extracted from Databricks authentication."""
+    user_id: EmailStr
+    display_name: str
+    active: bool
+    extracted_at: datetime
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": "user@example.com",
+                "display_name": "Jane Doe",
+                "active": True,
+                "extracted_at": "2025-10-10T12:34:56Z"
+            }
+        }
+```
+
+**Acceptance Criteria**:
+- [ ] UserIdentity model implemented with all fields
+- [ ] EmailStr validation for user_id
+- [ ] Type hints on all fields
+- [ ] Example in Config
+- [ ] Contract tests T005 pass
+
+**Related Requirements**: FR-010, Data Model Section 2
+
+---
+
+### T021: Implement API Response Models
+**Type**: Implementation | **Priority**: Medium | **Dependencies**: T020 | **Estimated**: 30 min
+
+Implement Pydantic response models for user endpoints and authentication status.
+
+**Files**:
+- `server/models/user_session.py` (MODIFY)
+
+**Models to Implement**:
+- UserInfoResponse
+- WorkspaceInfoResponse
+- AuthenticationStatusResponse
+- AuthenticationErrorResponse
+
+**Acceptance Criteria**:
+- [ ] All 4 response models implemented
+- [ ] All fields match contracts exactly
+- [ ] Type hints and validation rules applied
+- [ ] Examples provided in Config
+- [ ] Contract tests T006 pass
+
+**Related Requirements**: Contract: user_endpoints.yaml, auth_models.yaml
 
 ---
 
 ## Phase 3.4: Service Layer Modifications
 
-- [ ] **T014** [P] Modify UserService in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/services/user_service.py`
-  - Add user_token parameter to __init__()
-  - Use create_obo_client(user_token) for all operations
-  - Update get_current_user() to use OBO client
-  - Apply retry_with_backoff() to API calls
-  - Add structured logging with user_id
-  - Type hints: `def __init__(self, user_token: str):`
-  - Requirement: FR-005, FR-006
+### T022 [P]: Modify UserService for OBO Authentication
+**Type**: Implementation | **Priority**: High | **Dependencies**: T018, T020 | **Estimated**: 60 min
 
-- [ ] **T015** [P] Modify UnityCatalogService in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/services/unity_catalog_service.py`
-  - Add user_token parameter to __init__()
-  - Use create_obo_client(user_token) for all operations
-  - Update list_catalogs(), list_schemas(), list_tables() to use OBO client
-  - Apply retry_with_backoff() to API calls
-  - Add structured logging with user_id
-  - Type hints: `def __init__(self, user_token: str):`
-  - Requirement: FR-007, FR-008
+Modify UserService to accept user_token and use OBO authentication with retry logic.
 
-- [ ] **T016** [P] Modify ModelServingService in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/services/model_serving_service.py`
-  - Add user_token parameter to __init__()
-  - Use create_obo_client(user_token) for all operations
-  - Update list_endpoints(), get_endpoint() to use OBO client
-  - Apply retry_with_backoff() to API calls
-  - Add structured logging with user_id
-  - Type hints: `def __init__(self, user_token: str):`
-  - Requirement: FR-009
+**Files**:
+- `server/services/user_service.py` (MODIFY)
 
-- [ ] **T017** Verify LakebaseService uses service principal only in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/services/lakebase_service.py`
-  - **Acceptance Criteria**:
-    1. ✅ LakebaseService class has NO user_token parameter in __init__()
-    2. ✅ Database connection creation uses create_service_principal_client() with auth_type="oauth-m2m"
-    3. ✅ All user-scoped methods (get_preferences, set_preference, get_inference_logs) accept user_id parameter
-    4. ✅ FR-014 validation implemented: user_id presence check before executing queries (raise ValueError if missing)
-    5. ✅ FR-013 compliance: All SELECT queries include WHERE user_id = ? clause (review SQL generation)
-    6. ✅ All INSERT queries include user_id in column list and values
-    7. ✅ Type hints present: Methods typed as `async def get_preferences(self, user_id: str) -> list[UserPreference]:`
-  - Requirement: FR-011, FR-013, FR-014
+**Implementation**:
+```python
+class UserService:
+    def __init__(self, user_token: Optional[str] = None):
+        self.user_token = user_token
+        self.workspace_url = os.environ["DATABRICKS_HOST"]
+    
+    def _get_client(self) -> WorkspaceClient:
+        if self.user_token:
+            logger.info("auth.mode", {"mode": "obo", "auth_type": "pat"})
+            return WorkspaceClient(
+                host=self.workspace_url,
+                token=self.user_token,
+                auth_type="pat"
+            )
+        else:
+            logger.info("auth.mode", {"mode": "service_principal", "auth_type": "oauth-m2m"})
+            return WorkspaceClient(
+                host=self.workspace_url,
+                client_id=os.environ["DATABRICKS_CLIENT_ID"],
+                client_secret=os.environ["DATABRICKS_CLIENT_SECRET"],
+                auth_type="oauth-m2m"
+            )
+    
+    @with_auth_retry
+    async def get_user_info(self) -> UserIdentity:
+        client = self._get_client()
+        user = await client.current_user.me()
+        return UserIdentity(
+            user_id=user.user_name,
+            display_name=user.display_name,
+            active=user.active,
+            extracted_at=datetime.utcnow()
+        )
+    
+    async def get_user_id(self) -> str:
+        if not self.user_token:
+            raise HTTPException(status_code=401, detail="User authentication required")
+        user_info = await self.get_user_info()
+        return user_info.user_id
+```
 
----
+**Acceptance Criteria**:
+- [ ] Accepts optional user_token parameter
+- [ ] _get_client() uses correct auth_type
+- [ ] get_user_info() extracts user identity from API
+- [ ] get_user_id() returns email address
+- [ ] Retry logic applied to API calls
+- [ ] Auth mode logged correctly
+- [ ] Contract tests T005, T008 pass
 
-## Phase 3.5: Database Model Updates
-
-- [ ] **T018** [P] Update UserPreference model in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/models/user_preference.py`
-  - Add user_id field: Column(String(255), nullable=False, index=True)
-  - Add unique constraint: Index("ix_user_preferences_user_id_key", "user_id", "key", unique=True)
-  - Update __repr__() to include user_id
-  - Requirement: Data model
-
-- [ ] **T019** [P] Update ModelInferenceLog model in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/models/model_inference.py`
-  - Add user_id field: Column(String(255), nullable=False, index=True)
-  - Add index: Index("ix_model_inference_logs_user_id", "user_id")
-  - Update __repr__() to include user_id
-  - Requirement: Data model
-
-- [ ] **T020** Verify UserSession model has user_id in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/models/user_session.py`
-  - Confirm user_id field exists with proper index
-  - No changes needed if field already exists
-  - Requirement: Data model
-
----
-
-## Phase 3.6: Router Modifications (Endpoint Implementation)
-
-**Note**: These modify same files, so NOT parallel
-
-- [ ] **T021** Update /api/user/me endpoint in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/routers/user.py`
-  - Add get_user_token dependency: `user_token: str | None = Depends(get_user_token)`
-  - Pass user_token to UserService
-  - Handle fallback: if user_token is None, use service principal (FR-016)
-  - Add structured logging: auth_method, token_present, user_id
-  - Update response to include auth_method field
-  - Requirement: FR-001, FR-002, FR-016, FR-021
-
-- [ ] **T022** Update /api/user/me/workspace endpoint in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/routers/user.py`
-  - Add get_user_token dependency
-  - Pass user_token to UserService
-  - Handle fallback to service principal
-  - Add structured logging
-  - Requirement: FR-001, FR-002
-
-- [ ] **T023** Configure upstream service timeouts for transparent loading state
-  - Set timeout parameter to 30 seconds minimum for all Databricks API calls (NFR-010)
-  - Apply to Unity Catalog service methods (list_catalogs, list_schemas, list_tables)
-  - Apply to Model Serving service methods (list_endpoints, get_endpoint)
-  - Implement transparent loading state behavior: maintain loading indicator until service recovers or timeout reached (FR-023)
-  - Location: `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/services/unity_catalog_service.py`, `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/services/model_serving_service.py`
-  - Requirement: FR-023, NFR-010
-
-- [ ] **T024** Update /api/model-serving/endpoints endpoint in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/routers/model_serving.py`
-  - Add get_user_token dependency
-  - Pass user_token to ModelServingService
-  - Add pagination parameters: limit, offset
-  - Add structured logging with user_id
-  - Requirement: FR-009
-
-- [ ] **T025** Update /api/model-serving/endpoints/{endpoint_name} endpoint in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/routers/model_serving.py`
-  - Add get_user_token dependency
-  - Pass user_token to ModelServingService
-  - Add structured logging
-  - Requirement: FR-009
-
-- [ ] **T026** Update /api/unity-catalog/catalogs endpoint in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/routers/unity_catalog.py`
-  - Add get_user_token dependency
-  - Pass user_token to UnityCatalogService
-  - Add pagination parameters: limit, offset
-  - Add structured logging with user_id
-  - Requirement: FR-007
-
-- [ ] **T027** Update /api/unity-catalog/catalogs/{catalog_name}/schemas endpoint in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/routers/unity_catalog.py`
-  - Add get_user_token dependency
-  - Pass user_token to UnityCatalogService
-  - Add pagination parameters
-  - Add structured logging
-  - Requirement: FR-008
-
-- [ ] **T028** Update /api/unity-catalog/catalogs/{catalog_name}/schemas/{schema_name}/tables endpoint in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/routers/unity_catalog.py`
-  - Add get_user_token dependency
-  - Pass user_token to UnityCatalogService
-  - Add pagination parameters
-  - Add structured logging
-  - Requirement: FR-008
-
-- [ ] **T029** Update /api/preferences endpoints in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/routers/lakebase.py`
-  - Add get_user_token dependency
-  - Extract user_id from token via get_user_identity()
-  - Pass user_id to LakebaseService operations (NOT token)
-  - Ensure all queries filtered by user_id
-  - Add structured logging: service principal for DB, user_id for filtering
-  - Requirement: FR-012, FR-013, FR-014
+**Related Requirements**: FR-002, FR-003, FR-004, FR-010, Research Decision 3
 
 ---
 
-## Phase 3.7: Observability & Logging
+### T023 [P]: Modify UnityCatalogService for OBO Authentication
+**Type**: Implementation | **Priority**: High | **Dependencies**: T018 | **Estimated**: 45 min
 
-- [ ] **T030** [P] Add authentication metrics in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/lib/auth.py`
-  - Implement Prometheus-compatible metrics:
-    - auth_success_total (Counter with endpoint, auth_method labels)
-    - auth_failure_total (Counter with endpoint, auth_method, reason labels)
-    - auth_retry_total (Counter with endpoint, attempt_number labels)
-    - auth_request_duration_seconds (Histogram with P95/P99)
-    - auth_requests_by_user (Counter with user_id, endpoint labels)
-  - Requirement: NFR-011, NFR-012
+Modify UnityCatalogService to accept user_token and respect user permissions.
 
-- [ ] **T031** [P] Add /metrics endpoint in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/app.py`
-  - Expose Prometheus metrics endpoint
-  - Include authentication metrics from T030
-  - Test: curl http://localhost:8000/metrics
-  - Requirement: NFR-011, NFR-012
+**Files**:
+- `server/services/unity_catalog_service.py` (MODIFY)
 
-- [ ] **T032** [P] Enhance structured logging in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/server/lib/structured_logger.py`
-  - Add auth_event log level for authentication activities
-  - Include fields: user_id, auth_method, token_present, retry_attempt
-  - Never log token values or credentials (NFR-004)
-  - Requirement: FR-017, NFR-004
+**Implementation Pattern**: Same as UserService (accept user_token, use _get_client())
+
+**Acceptance Criteria**:
+- [ ] Accepts optional user_token parameter
+- [ ] _get_client() uses correct auth_type
+- [ ] list_catalogs() respects user permissions via OBO
+- [ ] Retry logic applied
+- [ ] Contract tests T009 pass
+
+**Related Requirements**: FR-008, Contract: service_layers.yaml
+
+---
+
+### T024 [P]: Modify ModelServingService for OBO Authentication
+**Type**: Implementation | **Priority**: High | **Dependencies**: T018 | **Estimated**: 45 min
+
+Modify ModelServingService to accept user_token and respect endpoint permissions.
+
+**Files**:
+- `server/services/model_serving_service.py` (MODIFY)
+
+**Implementation Pattern**: Same as UserService (accept user_token, use _get_client())
+
+**Acceptance Criteria**:
+- [ ] Accepts optional user_token parameter
+- [ ] _get_client() uses correct auth_type
+- [ ] list_endpoints() respects user permissions via OBO
+- [ ] Retry logic applied
+- [ ] Contract tests T010 pass
+
+**Related Requirements**: FR-008, Contract: service_layers.yaml
+
+---
+
+### T025: Verify LakebaseService Uses Service Principal Only
+**Type**: Verification | **Priority**: High | **Dependencies**: T003 | **Estimated**: 30 min
+
+Verify that LakebaseService always uses service principal authentication (never OBO).
+
+**Files**:
+- `server/services/lakebase_service.py` (VERIFY/MODIFY)
+
+**Verification**:
+- [ ] LakebaseService does NOT accept user_token parameter
+- [ ] Database connection uses service principal credentials from env
+- [ ] Connection params extracted from PGHOST, PGDATABASE, PGUSER, etc.
+
+**Acceptance Criteria**:
+- [ ] No user_token parameter in __init__()
+- [ ] Database connection uses service principal
+- [ ] Environment variables properly extracted
+- [ ] Contract tests T011 pass
+
+**Related Requirements**: FR-011, Research Decision 6
+
+---
+
+### T026: Add user_id Filtering to Lakebase Queries
+**Type**: Implementation | **Priority**: High | **Dependencies**: T025 | **Estimated**: 60 min
+
+Add user_id filtering to all user-scoped Lakebase queries for data isolation.
+
+**Files**:
+- `server/services/lakebase_service.py` (MODIFY)
+
+**Modifications**:
+```python
+async def get_user_preferences(self, user_id: str) -> List[UserPreference]:
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User identity required")
+    
+    query = """
+        SELECT * FROM user_preferences
+        WHERE user_id = :user_id
+        ORDER BY updated_at DESC
+    """
+    return await self.db.execute(query, {"user_id": user_id})
+
+async def save_user_preference(self, user_id: str, key: str, value: str):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User identity required")
+    
+    query = """
+        INSERT INTO user_preferences (user_id, preference_key, preference_value)
+        VALUES (:user_id, :key, :value)
+        ON CONFLICT (user_id, preference_key)
+        DO UPDATE SET preference_value = :value, updated_at = NOW()
+    """
+    await self.db.execute(query, {"user_id": user_id, "key": key, "value": value})
+```
+
+**Acceptance Criteria**:
+- [ ] All user-scoped queries include WHERE user_id = ?
+- [ ] user_id validated before query execution
+- [ ] HTTP 401 returned when user_id missing
+- [ ] Parameterized queries used (SQL injection protection)
+- [ ] Contract tests T011 pass
+
+**Related Requirements**: FR-013, FR-014, Research Decision 6
+
+---
+
+## Phase 3.5: Router/Endpoint Updates
+
+### T027: Update /api/auth/status Endpoint
+**Type**: Implementation | **Priority**: Medium | **Dependencies**: T019, T021 | **Estimated**: 30 min | **Parallel**: No (sequential with T028)
+
+Implement /api/auth/status endpoint for authentication debugging.
+
+**IMPORTANT**: This task modifies `server/routers/user.py` and MUST run sequentially BEFORE T028 (both modify same file). Do not execute in parallel.
+
+**Files**:
+- `server/routers/user.py` (MODIFY)
+
+**Implementation**:
+```python
+@router.get("/api/auth/status", response_model=AuthenticationStatusResponse)
+async def get_auth_status(auth_context: AuthenticationContext = Depends(get_auth_context)):
+    return AuthenticationStatusResponse(
+        authenticated=True,
+        auth_mode=auth_context.auth_mode,
+        has_user_identity=auth_context.user_id is not None,
+        user_id=auth_context.user_id
+    )
+```
+
+**Acceptance Criteria**:
+- [ ] Endpoint returns authentication status
+- [ ] Response matches contract schema
+- [ ] Works with and without user token
+- [ ] Contract tests pass
+
+**Related Requirements**: Contract: auth_models.yaml
+
+---
+
+### T028: Update /api/user/me Endpoint
+**Type**: Implementation | **Priority**: High | **Dependencies**: T019, T022, T027 | **Estimated**: 30 min | **Parallel**: No (sequential after T027)
+
+Update /api/user/me endpoint to use OBO authentication via UserService.
+
+**IMPORTANT**: This task modifies `server/routers/user.py` and MUST run sequentially AFTER T027 (both modify same file). Do not execute in parallel.
+
+**Files**:
+- `server/routers/user.py` (MODIFY)
+
+**Implementation**:
+```python
+@router.get("/api/user/me", response_model=UserInfoResponse)
+async def get_user_info(user_token: Optional[str] = Depends(get_user_token)):
+    service = UserService(user_token=user_token)
+    user_identity = await service.get_user_info()
+    
+    return UserInfoResponse(
+        user_id=user_identity.user_id,
+        display_name=user_identity.display_name,
+        active=user_identity.active,
+        workspace_url=os.environ["DATABRICKS_HOST"]
+    )
+```
+
+**Acceptance Criteria**:
+- [ ] Uses UserService with user_token
+- [ ] Returns user info with valid token
+- [ ] Falls back to service principal when token missing
+- [ ] Returns 401 with invalid token
+- [ ] Contract tests T006 pass
+
+**Related Requirements**: FR-005, Contract: user_endpoints.yaml
+
+---
+
+### T029: Update /api/user/me/workspace Endpoint
+**Type**: Implementation | **Priority**: Medium | **Dependencies**: T022, T028 | **Estimated**: 30 min | **Parallel**: No (sequential after T028)
+
+Update /api/user/me/workspace endpoint to use OBO authentication.
+
+**IMPORTANT**: This task modifies `server/routers/user.py` and MUST run sequentially AFTER T028 (same file). Do not execute in parallel.
+
+**Files**:
+- `server/routers/user.py` (MODIFY)
+
+**Implementation**:
+```python
+@router.get("/api/user/me/workspace", response_model=WorkspaceInfoResponse)
+async def get_user_workspace(user_token: Optional[str] = Depends(get_user_token)):
+    service = UserService(user_token=user_token)
+    workspace_info = await service.get_workspace_info()
+    
+    return WorkspaceInfoResponse(
+        workspace_id=workspace_info.workspace_id,
+        workspace_url=workspace_info.workspace_url,
+        workspace_name=workspace_info.workspace_name
+    )
+```
+
+**Note**: Requires adding public `get_workspace_info()` method to UserService per FR-006a. This method MUST NOT expose the internal `_get_client()` method to routers - it should encapsulate client creation and return workspace information directly.
+
+**Acceptance Criteria**:
+- [ ] UserService.get_workspace_info() is a public method (no underscore prefix)
+- [ ] Endpoint calls get_workspace_info() directly (not _get_client())
+- [ ] Method encapsulates authentication mode selection internally (OBO vs service principal)
+- [ ] Method returns workspace information without exposing client creation logic
+- [ ] Requires valid token
+- [ ] Contract tests T006 pass
+
+**Related Requirements**: FR-006, FR-006a, Contract: user_endpoints.yaml
+
+---
+
+### T030: Update /api/preferences Endpoints
+**Type**: Implementation | **Priority**: High | **Dependencies**: T022, T026, T029 | **Estimated**: 60 min | **Parallel**: Conditional (see note)
+
+Update user preferences endpoints to extract user_id and filter by it.
+
+**Files**:
+- `server/routers/user.py` OR `server/routers/preferences.py` (MODIFY)
+
+**IMPORTANT**: If preferences are in `server/routers/user.py`, this MUST run sequentially AFTER T029 (same file conflict). If preferences are in a separate `server/routers/preferences.py` file, this can run in parallel with T029.
+
+**Implementation**:
+```python
+@router.get("/api/preferences", response_model=List[UserPreferenceResponse])
+async def get_preferences(user_token: Optional[str] = Depends(get_user_token)):
+    user_service = UserService(user_token=user_token)
+    user_id = await user_service.get_user_id()
+    
+    lakebase_service = LakebaseService()
+    preferences = await lakebase_service.get_user_preferences(user_id=user_id)
+    return preferences
+
+@router.post("/api/preferences", response_model=UserPreferenceResponse, status_code=201)
+async def save_preference(
+    request: UserPreferenceRequest,
+    user_token: Optional[str] = Depends(get_user_token)
+):
+    user_service = UserService(user_token=user_token)
+    user_id = await user_service.get_user_id()
+    
+    lakebase_service = LakebaseService()
+    await lakebase_service.save_user_preference(
+        user_id=user_id,
+        key=request.preference_key,
+        value=request.preference_value
+    )
+    return await lakebase_service.get_preference(user_id=user_id, key=request.preference_key)
+
+@router.delete("/api/preferences/{preference_key}", status_code=204)
+async def delete_preference(
+    preference_key: str,
+    user_token: Optional[str] = Depends(get_user_token)
+):
+    user_service = UserService(user_token=user_token)
+    user_id = await user_service.get_user_id()
+    
+    lakebase_service = LakebaseService()
+    await lakebase_service.delete_preference(user_id=user_id, key=preference_key)
+```
+
+**Acceptance Criteria**:
+- [ ] All endpoints extract user_id from token
+- [ ] All endpoints pass user_id to LakebaseService
+- [ ] GET returns only user's preferences
+- [ ] POST saves with correct user_id
+- [ ] DELETE only deletes user's preference
+- [ ] Contract tests T007 pass
+
+**Related Requirements**: FR-010, FR-013, FR-014, Contract: user_endpoints.yaml
+
+---
+
+### T031 [P]: Update Unity Catalog Endpoints
+**Type**: Implementation | **Priority**: High | **Dependencies**: T023 | **Estimated**: 45 min
+
+Update Unity Catalog endpoints to pass user_token to UnityCatalogService.
+
+**Files**:
+- `server/routers/unity_catalog.py` (MODIFY)
+
+**Pattern**: Pass user_token from Depends(get_user_token) to all UnityCatalogService instantiations.
+
+**Acceptance Criteria**:
+- [ ] All UC endpoints pass user_token to service
+- [ ] User permissions enforced via OBO
+- [ ] Service principal fallback works
+- [ ] Contract tests pass
+
+**Related Requirements**: FR-008, Contract: service_layers.yaml
+
+---
+
+### T032 [P]: Update Model Serving Endpoints
+**Type**: Implementation | **Priority**: High | **Dependencies**: T024 | **Estimated**: 45 min
+
+Update Model Serving endpoints to pass user_token to ModelServingService.
+
+**Files**:
+- `server/routers/model_serving.py` (MODIFY)
+
+**Pattern**: Pass user_token from Depends(get_user_token) to all ModelServingService instantiations.
+
+**Acceptance Criteria**:
+- [ ] All model serving endpoints pass user_token
+- [ ] User permissions enforced via OBO
+- [ ] Service principal fallback works
+- [ ] Contract tests pass
+
+**Related Requirements**: FR-008, Contract: service_layers.yaml
+
+---
+
+## Phase 3.6: Observability and Metrics
+
+### T033 [P]: Implement Prometheus Metrics Module
+**Type**: Implementation | **Priority**: Medium | **Dependencies**: T001 | **Estimated**: 60 min
+
+Implement Prometheus-compatible metrics for authentication and performance monitoring.
+
+**Files**:
+- `server/lib/metrics.py` (CREATE)
+
+**Metrics to Implement**:
+```python
+# Authentication metrics
+auth_requests_total = Counter('auth_requests_total', 'Total authentication attempts', ['endpoint', 'mode', 'status'])
+auth_retry_total = Counter('auth_retry_total', 'Total retry attempts', ['endpoint', 'attempt_number'])
+auth_fallback_total = Counter('auth_fallback_total', 'Service principal fallback events', ['reason'])
+
+# Performance metrics
+request_duration_seconds = Histogram('request_duration_seconds', 'Request duration', ['endpoint', 'method', 'status'])
+auth_overhead_seconds = Histogram('auth_overhead_seconds', 'Auth overhead', ['mode'])
+upstream_api_duration_seconds = Histogram('upstream_api_duration_seconds', 'Upstream API duration', ['service', 'operation'])
+
+# User metrics
+active_users_gauge = Gauge('active_users', 'Active users in last 5 minutes')
+```
+
+**Acceptance Criteria**:
+- [ ] All 6 metric types implemented
+- [ ] Metrics follow Prometheus naming conventions
+- [ ] Labels defined per NFR-011
+- [ ] Histogram buckets appropriate for auth latency
+
+**Related Requirements**: NFR-011, NFR-012, Research Decision 8
+
+---
+
+### T034: Implement /metrics Endpoint
+**Type**: Implementation | **Priority**: Medium | **Dependencies**: T033 | **Estimated**: 20 min
+
+Add /metrics endpoint to expose Prometheus metrics.
+
+**Files**:
+- `server/app.py` (MODIFY)
+
+**Implementation**:
+```python
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint. Public access for monitoring systems."""
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST
+    )
+```
+
+**Acceptance Criteria**:
+- [ ] /metrics endpoint returns Prometheus format
+- [ ] All defined metrics visible
+- [ ] Endpoint accessible without authentication (public for monitoring systems)
+- [ ] Standard Prometheus content type used
+
+**Related Requirements**: NFR-011, NFR-012
+
+---
+
+### T035: Add Metrics Recording to Middleware
+**Type**: Implementation | **Priority**: Medium | **Dependencies**: T033, T015 | **Estimated**: 45 min
+
+Add metrics recording to authentication middleware.
+
+**Files**:
+- `server/lib/auth.py` (MODIFY)
+
+**Implementation**: Increment counters and record histograms for authentication events.
+
+**Acceptance Criteria**:
+- [ ] auth_requests_total incremented per request
+- [ ] auth_fallback_total incremented on fallback
+- [ ] auth_overhead_seconds recorded
+- [ ] request_duration_seconds recorded
+- [ ] Metrics visible at /metrics endpoint
+
+**Related Requirements**: NFR-011
+
+---
+
+### T036: Add Metrics Recording to Services
+**Type**: Implementation | **Priority**: Medium | **Dependencies**: T033, T022-T024 | **Estimated**: 45 min
+
+Add metrics recording to service layer API calls.
+
+**Files**:
+- `server/services/user_service.py` (MODIFY)
+- `server/services/unity_catalog_service.py` (MODIFY)
+- `server/services/model_serving_service.py` (MODIFY)
+
+**Implementation**: Record upstream_api_duration_seconds for all Databricks API calls.
+
+**Acceptance Criteria**:
+- [ ] API call durations recorded
+- [ ] Retry attempts counted
+- [ ] Success/failure status tracked
+- [ ] Metrics visible at /metrics endpoint
+
+**Related Requirements**: NFR-011
+
+---
+
+### T037: Configure Upstream Service Timeouts
+**Type**: Configuration | **Priority**: High | **Dependencies**: T022-T024 | **Estimated**: 30 min
+
+Configure SDK client timeouts to 30 seconds for all upstream Databricks API calls (Unity Catalog, Model Serving, User APIs) to enable transparent loading state behavior when services are temporarily slow or unavailable.
+
+**Files**:
+- `server/services/user_service.py` (MODIFY)
+- `server/services/unity_catalog_service.py` (MODIFY)
+- `server/services/model_serving_service.py` (MODIFY)
+
+**Implementation**:
+```python
+# In service classes _get_client() method
+# Use databricks.sdk.config.Config (existing SDK class, not a new class to create)
+from databricks.sdk.config import Config
+
+def _get_client(self) -> WorkspaceClient:
+    """Get WorkspaceClient with appropriate authentication and timeout."""
+    # Configure timeout settings (30 seconds per NFR-010)
+    config = Config()
+    config.timeout = 30  # 30 second timeout for upstream API calls
+    config.retry_timeout = 30  # Allow full timeout window
+    
+    if self.user_token:
+        # OBO authentication with timeout
+        return WorkspaceClient(
+            host=self.workspace_url,
+            token=self.user_token,
+            auth_type="pat",
+            config=config
+        )
+    else:
+        # Service principal authentication with timeout
+        return WorkspaceClient(
+            host=self.workspace_url,
+            client_id=os.environ["DATABRICKS_CLIENT_ID"],
+            client_secret=os.environ["DATABRICKS_CLIENT_SECRET"],
+            auth_type="oauth-m2m",
+            config=config
+        )
+```
+
+**Note**: This uses the Databricks SDK's existing `Config` class for timeout configuration. Do NOT create a new ClientConfig class - that pattern from data-model.md should be removed (see issue I4).
+
+**Acceptance Criteria**:
+- [ ] All service layer SDK clients configured with 30-second timeout using SDK's Config class
+- [ ] Timeout applied to both OBO and service principal modes
+- [ ] Services maintain loading state until timeout or success
+- [ ] Timeout errors return clear message to client
+- [ ] Frontend can display loading indicators for full 30 seconds
+
+**Related Requirements**: NFR-010, FR-023
+
+---
+
+### T038 [P]: Update Application Configuration Files
+**Type**: Configuration | **Priority**: Medium | **Dependencies**: T001, T037 | **Estimated**: 20 min
+
+Update application configuration files to document authentication settings and SDK version requirements.
+
+**Files**:
+- `pyproject.toml` (VERIFY - already updated by T001)
+- `server/app.py` (VERIFY - timeout settings from T037)
+- `.env.example` (MODIFY)
+
+**Updates Needed**:
+```bash
+# Verify pyproject.toml has pinned SDK version
+# Verify timeout configurations applied in services
+# Document authentication environment variables in .env.example
+```
+
+**Acceptance Criteria**:
+- [ ] SDK version 0.67.0 confirmed in pyproject.toml
+- [ ] Timeout configurations verified in service layer
+- [ ] Authentication env vars documented in .env.example
+- [ ] All configuration changes align with research.md decisions
+
+**Related Requirements**: FR-024, NFR-013, Research Decision 10
+
+---
+
+## Phase 3.7: Configuration and Local Development
+
+### T039 [P]: Create User Token Fetching Script
+**Type**: Configuration | **Priority**: Medium | **Dependencies**: T001 | **Estimated**: 30 min
+
+Create script to fetch user access tokens for local OBO testing.
+
+**Files**:
+- `scripts/get_user_token.py` (CREATE)
+
+**Implementation**:
+```python
+#!/usr/bin/env python3
+"""Fetch user access token for local OBO testing."""
+import subprocess
+import sys
+
+def get_databricks_user_token() -> str:
+    try:
+        result = subprocess.run(
+            ["databricks", "auth", "token"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f"Error: Failed to fetch token: {e}", file=sys.stderr)
+        sys.exit(1)
+    except FileNotFoundError:
+        print("Error: Databricks CLI not installed", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    print(get_databricks_user_token())
+```
+
+**Acceptance Criteria**:
+- [ ] Script executes successfully
+- [ ] Returns valid user access token
+- [ ] Handles errors gracefully
+- [ ] Works with Databricks CLI authentication
+
+**Related Requirements**: FR-020, FR-022, Research Decision 9
+
+---
+
+### T040 [P]: Update Environment Configuration Documentation
+**Type**: Documentation | **Priority**: Medium | **Dependencies**: None | **Estimated**: 30 min
+
+Document required environment variables for dual authentication.
+
+**Files**:
+- `.env.example` (MODIFY)
+- `README.md` (MODIFY)
+
+**Documentation to Add**:
+- DATABRICKS_HOST
+- DATABRICKS_CLIENT_ID (service principal)
+- DATABRICKS_CLIENT_SECRET (service principal)
+- PGHOST, PGDATABASE, PGUSER, PGPORT, PGSSLMODE (Lakebase)
+
+**Acceptance Criteria**:
+- [ ] All required env vars documented
+- [ ] Examples provided
+- [ ] Local development vs production differences explained
+
+**Related Requirements**: FR-020, Research Decision 10
+
+---
+
+### T041 [P]: Add OBO Testing Instructions to Documentation
+**Type**: Documentation | **Priority**: Medium | **Dependencies**: T039 | **Estimated**: 30 min
+
+Add local OBO testing instructions to documentation.
+
+**Files**:
+- `docs/LOCAL_DEVELOPMENT.md` (CREATE/MODIFY)
+
+**Content**: Follow pattern from Research Decision 9 (local token fetching workflow).
+
+**Acceptance Criteria**:
+- [ ] Step-by-step instructions for local OBO testing
+- [ ] Example curl commands with X-Forwarded-Access-Token
+- [ ] Troubleshooting section added
+
+**Related Requirements**: FR-020, FR-022
 
 ---
 
 ## Phase 3.8: Integration Testing
 
-- [ ] **T033** Run contract tests to verify they PASS
-  - Command: `cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template && uv run pytest tests/contract/ -v`
-  - Expected: All tests PASS (implementation complete)
-  - Success: Tests that failed in T007 now pass
-  - Requirement: TDD validation
+### T042 [P]: Integration Test - Multi-User Data Isolation
+**Type**: Integration Test | **Priority**: High | **Dependencies**: T030 | **Estimated**: 60 min
 
-- [ ] **T034** [P] Run multi-user isolation tests in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/tests/integration/test_multi_user_isolation.py`
-  - Verify two users see different catalogs (Unity Catalog permission isolation)
-  - Verify two users see different preferences (Lakebase user_id filtering)
-  - Verify user_id is logged correctly in audit trail
-  - Requirement: Scenario 2, Scenario 4 from quickstart.md
+Enhance existing multi-user isolation tests to validate authentication-based isolation.
 
-- [ ] **T035** [P] Run observability tests in `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/tests/integration/test_observability.py`
-  - Verify structured logging includes authentication events
-  - Verify metrics endpoint exposes auth metrics
-  - Verify no credentials logged
-  - Requirement: FR-017, NFR-004, NFR-011
+**Files**:
+- `tests/integration/test_multi_user_isolation.py` (MODIFY)
 
----
+**Test Scenarios**:
+- User A creates preference, User B cannot see it
+- User A and User B create preference with same key (isolated)
+- User A cannot delete User B's preference
+- Cross-user queries return empty results
 
-## Phase 3.9: Quickstart Validation (Manual Testing)
+**Acceptance Criteria**:
+- [ ] All scenarios pass
+- [ ] Uses real user tokens (from Databricks CLI)
+- [ ] Validates database-level isolation
+- [ ] Tests run in CI/CD
 
-Execute validation scenarios from `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/specs/002-fix-api-authentication/quickstart.md`:
-
-- [ ] **T036** Execute Scenario 1: Basic OBO Authentication
-  - Test /api/user/me with X-Forwarded-Access-Token header
-  - Expected: Returns authenticated user info (not service principal)
-  - Verify: auth_method="obo" in response
-
-- [ ] **T037** Execute Scenario 2: Unity Catalog Permission Isolation
-  - Test /api/unity-catalog/catalogs with two different user tokens
-  - Expected: Different users see different catalogs
-
-- [ ] **T038** Execute Scenario 3: Model Serving Endpoint Access
-  - Test /api/model-serving/endpoints with user token
-  - Expected: Returns endpoints user has access to
-
-- [ ] **T039** Execute Scenario 4: Lakebase Service Principal + User ID Filtering
-  - Test /api/preferences with two different user tokens
-  - Expected: Different users see different preferences (data isolation)
-  - Verify: Database logs show service principal, application logs show user_id
-
-- [ ] **T040** Execute Scenario 5: Local Development Fallback
-  - Test /api/user/me WITHOUT X-Forwarded-Access-Token header
-  - Expected: Fallback to service principal, no 401 error
-  - Verify: auth_method="service_principal" in response
-
-- [ ] **T041** Execute Scenario 6: Exponential Backoff Retry
-  - Monitor logs during authentication attempts
-  - Verify: Retry delays are 100ms, 200ms, 400ms
-  - Verify: Total timeout does not exceed 5 seconds
-
-- [ ] **T042** Execute Scenario 7: Multi-Tab User Session
-  - Open two browser tabs, authenticate same user
-  - Close one tab, verify other tab continues to work
-  - Expected: Stateless auth, no shared state
-
-- [ ] **T043** Execute Scenario 8: Token Expiration Transparency
-  - Wait for token to expire (or use short-lived token)
-  - Expected: Platform refreshes token, application continues working
-
-- [ ] **T044** Execute Scenario 9: Rate Limiting Compliance
-  - Simulate HTTP 429 response (or make rapid requests)
-  - Expected: No retry on 429, immediate failure
-
-- [ ] **T045** Execute Scenario 10: Concurrent Request Retry Independence
-  - Make 5 concurrent requests with same user token
-  - Verify: Each request has unique correlation_id
-  - Verify: Requests retry independently (no coordination)
+**Related Requirements**: FR-013, Contract: user_endpoints.yaml
 
 ---
 
-## Phase 3.10: Frontend API Client Regeneration
+### T043 [P]: Integration Test - Observability Validation
+**Type**: Integration Test | **Priority**: Medium | **Dependencies**: T035, T036 | **Estimated**: 45 min
 
-- [ ] **T046** Regenerate TypeScript API client
-  - Command: `cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template && uv run python scripts/make_fastapi_client.py`
-  - Verify: No TypeScript compilation errors
-  - Check: X-Forwarded-Access-Token header included in generated types
-  - Requirement: Auto-generated API clients principle
+Enhance observability tests to validate authentication metrics and logs.
 
-- [ ] **T047** Test frontend compilation
-  - Command: `cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template/client && bun run build`
-  - Expected: No TypeScript errors, successful build
-  - Requirement: Type safety throughout
+**Files**:
+- `tests/integration/test_observability.py` (MODIFY)
 
-- [ ] **T048** Test frontend connectivity with backend
-  - Start backend: `cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template && ./watch.sh`
-  - Start frontend: Open browser to http://localhost:5173
-  - Test user info, Unity Catalog, Model Serving pages
-  - Verify: No authentication errors in console
+**Test Scenarios**:
+- Structured logs contain correlation_id
+- Logs contain auth_mode and token presence
+- Metrics endpoint returns auth metrics
+- Auth overhead < 10ms (P95)
 
----
+**Acceptance Criteria**:
+- [ ] All scenarios pass
+- [ ] Validates log structure
+- [ ] Validates metrics presence
+- [ ] Performance assertions pass
 
-## Phase 3.11: Documentation Updates
-
-- [ ] **T049** [P] Update `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/docs/OBO_AUTHENTICATION.md`
-  - Document OBO authentication architecture
-  - Add code examples: get_user_token(), create_obo_client()
-  - Explain dual authentication pattern (OBO vs service principal)
-  - Include troubleshooting section
-  - Requirement: Documentation requirements
-
-- [ ] **T050** [P] Update `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/README.md` with local OBO authentication documentation
-  - Add section: "Local OBO Testing with Databricks CLI"
-  - Document CLI command pattern: `export DATABRICKS_USER_TOKEN=$(databricks auth token)`
-  - Include usage example: Test OBO endpoints locally using CLI-generated token
-  - Document environment variables (DATABRICKS_USER_TOKEN, DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET)
-  - Explain fallback behavior when X-Forwarded-Access-Token header absent (service principal mode)
-  - Requirement: FR-022, Documentation requirements
-
-- [ ] **T051** [P] Update agent context
-  - Command: `cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template && .specify/scripts/bash/update-agent-context.sh cursor`
-  - Update CLAUDE.md with OBO authentication patterns
-  - Add recent changes: dual authentication, user_id tracking, retry logic
-  - Requirement: Agent context maintenance
+**Related Requirements**: NFR-001, NFR-011, FR-017
 
 ---
 
-## Phase 3.12: Deployment Validation
+### T044 [P]: Integration Test - Error Handling and Retry
+**Type**: Integration Test | **Priority**: Medium | **Dependencies**: T018 | **Estimated**: 45 min
 
-- [ ] **T052** Validate Databricks bundle configuration
-  - Command: `cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template && databricks bundle validate`
-  - Expected: No validation errors
-  - Requirement: Asset bundle deployment
+Write integration tests for retry logic and error handling with real API errors.
 
-- [ ] **T053** Deploy to dev/staging environment
-  - Command: `cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template && databricks bundle deploy --target dev`
-  - Monitor deployment logs
-  - Verify: No Python exceptions during startup
+**Files**:
+- `tests/integration/test_error_handling.py` (CREATE)
 
-- [ ] **T054** Validate deployment strategy for production
-  - Verify: This is the first production deployment (greenfield - no existing users per spec clarification)
-  - Document: Future deployments will use rolling updates with stateless authentication (NFR-007)
-  - Test: Brief transient errors during deployment cutover are acceptable degradation
-  - Note: Zero-downtime design validated by stateless auth pattern (no token caching, fresh extraction per request)
-  - Requirement: NFR-007
+**Test Scenarios**:
+- Invalid token triggers 3 retries then 401
+- Rate limit (429) returns immediately
+- Transient errors retry successfully
+- Total retry time < 5 seconds
 
-- [ ] **T055** Monitor application logs for 60 seconds
-  - Command: `cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template && ./dba_logz.py --duration 60`
-  - Expected: No "more than one authorization method configured" errors
-  - Expected: No Python exceptions
-  - Verify: Authentication events logged correctly
+**Acceptance Criteria**:
+- [ ] All scenarios pass
+- [ ] Uses mocked Databricks API errors
+- [ ] Validates retry timing
+- [ ] Validates error responses
 
-- [ ] **T056** Test deployed endpoints
-  - Command: `cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template && ./dba_client.py test-user-me`
-  - Command: `./dba_client.py test-unity-catalog`
-  - Command: `./dba_client.py test-model-serving`
-  - Expected: All endpoints return 200 OK
-  - Verify: Zero authentication errors
+**Related Requirements**: FR-018, FR-019, NFR-006
 
-- [ ] **T057** Verify observability metrics in production
-  - Access /metrics endpoint or monitoring dashboard
-  - Verify: Metrics format is Prometheus-compatible (test with Prometheus client library or curl parsing)
-  - Verify: auth_success_total counter incrementing
-  - Verify: auth_failure_total is zero or low
-  - Verify: P95/P99 latencies within acceptable range (<10ms)
-  - Verify: Metrics can be scraped by Prometheus/Datadog/CloudWatch exporters
-  - Requirement: NFR-001, NFR-011, NFR-012
+---
+
+### T044a [P]: Integration Test - Upstream Service Degradation
+**Type**: Integration Test | **Priority**: Medium | **Dependencies**: T037 | **Estimated**: 45 min
+
+Write integration tests for upstream service degradation and timeout behavior.
+
+**Files**:
+- `tests/integration/test_upstream_degradation.py` (CREATE)
+
+**Test Scenarios**:
+- Slow upstream service responds within 30 seconds (success)
+- Upstream service timeout after 30 seconds (graceful failure)
+- Transient upstream failures recover within timeout window
+- Frontend can maintain loading state for full 30 seconds
+- Multiple concurrent requests handle degradation independently
+
+**Acceptance Criteria**:
+- [ ] All scenarios pass
+- [ ] Uses mocked slow/unavailable Databricks API responses
+- [ ] Validates 30-second timeout behavior
+- [ ] Verifies transparent loading state (no immediate failure)
+- [ ] Tests measure actual wait time
+
+**Related Requirements**: FR-023, NFR-010
+
+---
+
+## Phase 3.9: Documentation Updates
+
+### T045 [P]: Update OBO Authentication Documentation
+**Type**: Documentation | **Priority**: High | **Dependencies**: None | **Estimated**: 45 min
+
+Update existing OBO authentication documentation with implementation details.
+
+**Files**:
+- `docs/OBO_AUTHENTICATION.md` (MODIFY)
+
+**Content to Add**:
+- Dual authentication pattern explanation
+- When to use OBO vs service principal
+- Code examples for both patterns
+- Troubleshooting section
+
+**Acceptance Criteria**:
+- [ ] Documentation updated with implementation patterns
+- [ ] Code examples match actual implementation
+- [ ] Troubleshooting section comprehensive
+
+**Related Requirements**: Constitution Principle: Dual Authentication Patterns
+
+---
+
+### T046 [P]: Create Authentication Patterns Documentation
+**Type**: Documentation | **Priority**: Medium | **Dependencies**: T045 | **Estimated**: 60 min
+
+Create comprehensive documentation for dual authentication patterns.
+
+**Files**:
+- `docs/databricks_apis/authentication_patterns.md` (CREATE)
+
+**Content**:
+- Pattern A: Service Principal (system operations)
+- Pattern B: OBO (user operations)
+- Pattern C: Lakebase (service principal + user_id filtering)
+- Decision matrix: when to use which pattern
+- Code examples for each service
+
+**Acceptance Criteria**:
+- [ ] All 3 patterns documented
+- [ ] Decision matrix clear
+- [ ] Code examples tested
+- [ ] Aligned with research.md decisions
+
+**Related Requirements**: Research Decisions 1-6
+
+---
+
+### T047 [P]: Update README with OBO Features
+**Type**: Documentation | **Priority**: Medium | **Dependencies**: T040 | **Estimated**: 30 min
+
+Update README to highlight OBO authentication implementation and refresh agent context file.
+
+**Files**:
+- `README.md` (MODIFY)
+- `.cursor/rules/specify-rules.mdc` (AUTO-UPDATE via script)
+
+**Content to Add**:
+- OBO authentication feature highlight
+- Multi-user data isolation mention
+- Link to authentication documentation
+- Quick start for local OBO testing
+
+**Commands**:
+```bash
+# After updating README, refresh agent context
+.specify/scripts/bash/update-agent-context.sh cursor
+```
+
+**Acceptance Criteria**:
+- [ ] README updated with OBO features
+- [ ] Links to detailed documentation
+- [ ] Quick start section clear
+- [ ] Agent context file refreshed with feature updates
+
+**Related Requirements**: General documentation requirement, plan.md:246
+
+---
+
+## Phase 3.10: Validation and Deployment
+
+### T048: Run All Contract Tests
+**Type**: Validation | **Priority**: High | **Dependencies**: T004-T013, T022-T026, T044a | **Estimated**: 30 min
+
+Run all contract tests and ensure they pass.
+
+**Commands**:
+```bash
+pytest tests/contract/ -v
+```
+
+**Acceptance Criteria**:
+- [ ] All contract tests pass
+- [ ] No authentication errors
+- [ ] Test coverage > 80% for auth code
+- [ ] All edge cases validated
+
+**Related Requirements**: All contract requirements
+
+---
+
+### T049: Run Manual Quickstart Tests
+**Type**: Validation | **Priority**: High | **Dependencies**: T048 | **Estimated**: 60 min
+
+Execute manual test scenarios from quickstart.md.
+
+**Files**:
+- `specs/002-fix-api-authentication/quickstart.md` (FOLLOW)
+
+**Test Phases**:
+- Phase 1: Local development testing
+- Phase 2: Local OBO testing
+- Phase 3: Multi-user isolation
+- Phase 4: Error handling
+- Phase 5: Observability validation
+
+**Acceptance Criteria**:
+- [ ] All quickstart phases completed
+- [ ] All success criteria met
+- [ ] No authentication errors logged
+- [ ] Performance goals achieved (auth overhead < 10ms)
+
+**Related Requirements**: All quickstart test scenarios
+
+---
+
+### T050: Deploy and Validate in Databricks Apps
+**Type**: Validation | **Priority**: High | **Dependencies**: T049 | **Estimated**: 60 min
+
+Deploy to Databricks Apps dev environment and validate OBO authentication.
+
+**Commands**:
+```bash
+databricks bundle validate
+databricks bundle deploy -t dev
+python dba_logz.py  # Monitor logs for 60 seconds
+```
+
+**Validation Steps**:
+- No "more than one authorization method configured" errors
+- User info endpoint returns correct data
+- Multi-user isolation working in platform
+- Metrics endpoint accessible
+
+**Acceptance Criteria**:
+- [ ] Deployment succeeds without errors
+- [ ] No authentication errors in logs
+- [ ] All endpoints return successful responses
+- [ ] Platform automatically injects user tokens
+- [ ] Multi-user isolation validated in platform
+
+**Related Requirements**: All functional and non-functional requirements
 
 ---
 
 ## Dependencies
 
-### Critical Path
-```
-T001-T003 (Setup)
-  ↓
-T004-T007 (Contract Tests - Must Fail)
-  ↓
-T008-T013 (Auth Utilities)
-  ↓
-T014-T020 (Services & Models)
-  ↓
-T021-T029 (Routers + Timeout Config)
-  ↓
-T030-T032 (Observability)
-  ↓
-T033-T035 (Integration Tests)
-  ↓
-T036-T045 (Quickstart Validation)
-  ↓
-T046-T048 (Frontend)
-  ↓
-T049-T051 (Documentation)
-  ↓
-T052-T057 (Deployment)
-```
+**Layer 1 (Foundation)**: T001-T003, T004-T013  
+**Layer 2 (Core Auth)**: T014-T021  
+**Layer 3 (Services)**: T022-T026, T037 (timeouts)  
+**Layer 4 (Endpoints)**: T027-T032  
+**Layer 5 (Observability)**: T033-T036  
+**Layer 6 (Config & Docs)**: T038-T041, T045-T047  
+**Layer 7 (Testing)**: T042-T044, T044a  
+**Layer 8 (Validation)**: T048-T050
 
-### Parallel Execution Groups
+**Blocking Dependencies**:
+- T003 blocks all Lakebase-related tasks (T007, T011, T025, T026, T030, T042)
+- T018 blocks all service layer tasks (T022-T024)
+- T022 blocks user endpoint tasks (T028-T030)
+- T037 (timeout config) depends on T022-T024 (service layer implementations)
+- All contract tests (T004-T013) should complete before implementation
+- T048 blocks T049, T049 blocks T050
 
-**Group 1: Contract Tests (After T003)**
+---
+
+## Parallel Execution Examples
+
+### Parallel Batch 1: Contract Tests (After T001)
 ```bash
-# Can run in parallel - different test files
-Task T004: tests/contract/test_user_contract.py
-Task T005: tests/contract/test_model_serving_contract.py
-Task T006: tests/contract/test_unity_catalog_contract.py
+# All contract tests can run simultaneously (different files)
+Task: "Contract test auth middleware in tests/contract/test_auth_middleware.py"
+Task: "Contract test user identity in tests/contract/test_user_identity_extraction.py"
+Task: "Contract test user endpoints in tests/contract/test_user_contract.py"
+Task: "Contract test preferences in tests/contract/test_preferences_contract.py"
+Task: "Contract test UserService in tests/contract/test_user_service_contract.py"
+Task: "Contract test UnityCatalogService in tests/contract/test_unity_catalog_service_contract.py"
+Task: "Contract test ModelServingService in tests/contract/test_model_serving_service_contract.py"
+Task: "Contract test retry logic in tests/contract/test_retry_logic.py"
+Task: "Contract test correlation IDs in tests/contract/test_correlation_id.py"
 ```
 
-**Group 2: Auth Utilities (After T007)**
+### Parallel Batch 2: Service Layer (After T018)
 ```bash
-# Can run in parallel - different functions in same file or separate concerns
-Task T008: get_user_token() function
-Task T009: get_user_identity() function
-Task T010: retry_with_backoff() function
-Task T011: create_obo_client() function
-Task T012: create_service_principal_client() function
-Task T013: Unit tests
+# All service modifications can run simultaneously (different files)
+Task: "Modify UserService in server/services/user_service.py"
+Task: "Modify UnityCatalogService in server/services/unity_catalog_service.py"
+Task: "Modify ModelServingService in server/services/model_serving_service.py"
 ```
 
-**Group 3: Services & Models (After T008-T012)**
+### Parallel Batch 3: Endpoints (After Service Layer)
 ```bash
-# Can run in parallel - different service files
-Task T014: server/services/user_service.py
-Task T015: server/services/unity_catalog_service.py
-Task T016: server/services/model_serving_service.py
-Task T017: server/services/lakebase_service.py (verify only)
-Task T018: server/models/user_preference.py
-Task T019: server/models/model_inference.py
-Task T020: server/models/user_session.py (verify only)
+# IMPORTANT: T027 and T028 MUST run sequentially (both modify server/routers/user.py)
+# Execute in strict order: T027 → T028 (NOT parallel)
+Task: "Update /api/auth/status in server/routers/user.py" (T027) - FIRST
+Task: "Update /api/user/me in server/routers/user.py" (T028) - AFTER T027
+
+# These can run in parallel (different files):
+Task: "Update /api/user/me/workspace in server/routers/user.py" (T029) - AFTER T028 [sequential]
+Task: "Update /api/preferences in server/routers/user.py" (T030) - AFTER T029 [sequential]
+Task: "Update UC endpoints in server/routers/unity_catalog.py" (T031) [P]
+Task: "Update model serving endpoints in server/routers/model_serving.py" (T032) [P]
+
+# NOTE: T029 and T030 also modify server/routers/user.py, so they run sequentially after T028
 ```
 
-**Group 4: Routers (After T014-T020)**
-```
-# NOT parallel - same files modified
-Task T021: server/routers/user.py (endpoint 1)
-Task T022: server/routers/user.py (endpoint 2)
-Task T023: server/services/unity_catalog_service.py, server/services/model_serving_service.py (timeout config)
-Task T024: server/routers/model_serving.py (endpoint 1)
-Task T025: server/routers/model_serving.py (endpoint 2)
-Task T026: server/routers/unity_catalog.py (endpoint 1)
-Task T027: server/routers/unity_catalog.py (endpoint 2)
-Task T028: server/routers/unity_catalog.py (endpoint 3)
-Task T029: server/routers/lakebase.py
-```
-
-**Group 5: Observability (After T021-T029)**
+### Parallel Batch 4: Documentation (Anytime)
 ```bash
-# Can run in parallel - different concerns
-Task T030: server/lib/auth.py (metrics)
-Task T031: server/app.py (metrics endpoint)
-Task T032: server/lib/structured_logger.py (logging)
-```
-
-**Group 6: Integration Tests (After T030-T032)**
-```bash
-# Can run in parallel - different test files
-Task T034: tests/integration/test_multi_user_isolation.py
-Task T035: tests/integration/test_observability.py
-```
-
-**Group 7: Documentation (After T045, parallel with T046-T048)**
-```bash
-# Can run in parallel - different documentation files
-Task T049: docs/OBO_AUTHENTICATION.md
-Task T050: README.md (local OBO + CLI documentation)
-Task T051: Update agent context
+# Documentation tasks are independent
+Task: "Update OBO docs in docs/OBO_AUTHENTICATION.md"
+Task: "Create auth patterns doc in docs/databricks_apis/authentication_patterns.md"
+Task: "Update README.md"
+Task: "Create local dev docs in docs/LOCAL_DEVELOPMENT.md"
 ```
 
 ---
 
 ## Validation Checklist
 
-Before marking feature complete, verify:
+### Contract Coverage
+- [x] All contract files have corresponding test tasks
+- [x] auth_models.yaml → T004, T005, T012, T013
+- [x] user_endpoints.yaml → T006, T007
+- [x] service_layers.yaml → T008, T009, T010, T011
 
-### Functional Requirements
-- [x] FR-001: User tokens extracted from X-Forwarded-Access-Token header
-- [x] FR-002: User identity extracted via WorkspaceClient.current_user.me()
-- [x] FR-003: OBO SDK client created with auth_type="pat"
-- [x] FR-004: Service principal SDK client created with auth_type="oauth-m2m"
-- [x] FR-005: UserService accepts user_token parameter
-- [x] FR-006: UserService uses OBO client for all operations
-- [x] FR-007: UnityCatalogService uses OBO client
-- [x] FR-008: UnityCatalogService respects user permissions
-- [x] FR-009: ModelServingService uses OBO client
-- [x] FR-010: user_id stored in all user-scoped database records
-- [x] FR-011: LakebaseService uses service principal exclusively
-- [x] FR-012: Preferences endpoints extract user_id from token
-- [x] FR-013: All user-scoped queries filtered by user_id
-- [x] FR-014: user_id validation before database operations
-- [x] FR-016: Graceful fallback to service principal in local dev
-- [x] FR-017: Authentication activity logged with structured logging
-- [x] FR-018: Exponential backoff retry logic (100ms, 200ms, 400ms)
-- [x] FR-019: HTTP 429 triggers immediate failure (no retry)
-- [x] FR-021: Clear logging when using service principal fallback
-- [x] FR-023: Transparent loading state for upstream service degradation (timeout configured)
-- [x] FR-024: Databricks SDK version 0.59.0 pinned in requirements.txt
-- [x] FR-025: Retry logic independent per request (no coordination)
+### Entity Coverage
+- [x] All data models have implementation tasks
+- [x] AuthenticationContext → T014
+- [x] UserIdentity → T020
+- [x] Response models → T021
 
-### Non-Functional Requirements
-- [x] NFR-001: Authentication overhead <10ms per request
-- [x] NFR-004: No sensitive data logged (tokens, credentials)
-- [x] NFR-005: No token caching (stateless authentication)
-- [x] NFR-006: Total retry timeout <5 seconds
-- [x] NFR-009: Support <50 concurrent users, <1000 requests/min
-- [x] NFR-011: Comprehensive metrics exposed (auth success/failure, latencies, per-user)
-- [x] NFR-012: Prometheus/Datadog/CloudWatch compatible metrics
-- [x] NFR-013: SDK version pinned exactly (not range)
+### Endpoint Coverage
+- [x] All endpoints have implementation tasks
+- [x] /api/auth/status → T027
+- [x] /api/user/me → T028
+- [x] /api/user/me/workspace → T029
+- [x] /api/preferences → T030
+- [x] Unity Catalog endpoints → T031
+- [x] Model Serving endpoints → T032
 
-### Contract Compliance
-- [x] All 3 contract files have corresponding tests (user, model_serving, unity_catalog)
-- [x] All 7 endpoints implemented (2 user, 2 model serving, 3 unity catalog)
-- [x] All endpoints accept X-Forwarded-Access-Token header
-- [x] All endpoints return proper error responses (401, 403, 429, 500)
+### Test Coverage
+- [x] Contract tests before implementation (TDD)
+- [x] Integration tests for multi-user scenarios
+- [x] Manual validation via quickstart
 
-### Testing
-- [x] Contract tests pass (test_user_contract, test_model_serving_contract, test_unity_catalog_contract)
-- [x] Unit tests pass (test_auth.py)
-- [x] Integration tests pass (test_multi_user_isolation, test_observability)
-- [x] All 10 quickstart scenarios validated
-
-### Deployment
-- [x] Zero "more than one authorization method configured" errors
-- [x] All endpoints return 200 OK in production
-- [x] Observability metrics available and healthy
-- [x] Logs show proper authentication events
-
----
-
-## Success Metrics
-
-The feature is successfully implemented when:
-
-1. ✅ **Zero Authentication Errors**: No "more than one authorization method configured" errors in logs
-2. ✅ **OBO Authentication Working**: User endpoints return authenticated user info (not service principal)
-3. ✅ **Permission Isolation**: Different users see different data (Unity Catalog, Lakebase)
-4. ✅ **Audit Trail**: All operations logged with user_id
-5. ✅ **Retry Logic**: Transient failures handled with exponential backoff
-6. ✅ **Observability**: Metrics queryable in standard platforms
-7. ✅ **Data Isolation**: User-scoped data filtered by user_id
-8. ✅ **Multi-Tab Support**: Stateless authentication enables independent tab operations
-9. ✅ **Rate Limit Compliance**: HTTP 429 handled correctly (no retry)
-10. ✅ **Concurrent Requests**: Each request retries independently without coordination
+### Parallel Task Validation
+- [x] T004-T013 parallelizable (different test files)
+- [x] T022-T024 parallelizable (different service files)
+- [x] T027-T028 sequential (same file: server/routers/user.py)
+- [x] T031, T032 parallelizable (different router files)
+- [x] T039-T041, T045-T047 parallelizable (different doc files)
+- [x] No same-file conflicts in parallel tasks (T027/T028 marked sequential)
 
 ---
 
 ## Notes
 
-- **TDD Approach**: Contract tests MUST fail initially (T004-T007), then pass after implementation (T032)
-- **Parallel Tasks**: Tasks marked [P] can run in parallel, grouped by phase
-- **Sequential Tasks**: Router modifications (T021-T028) are NOT parallel (same files)
-- **Authentication Types**: OBO (auth_type="pat") for user operations, service principal (auth_type="oauth-m2m") for Lakebase
-- **User ID Tracking**: All user-scoped operations require user_id from OBO token
-- **No Token Caching**: Security requirement - extract token fresh from headers every request
-- **Stateless Retry**: Each request retries independently (no coordination across concurrent requests)
-- **Commit Frequency**: Commit after each completed task for incremental progress
+### Critical Requirements
+- Always specify explicit `auth_type` parameter (FR-003, FR-004)
+- Never log token values (NFR-004)
+- Always filter by user_id for user-scoped queries (FR-013)
+- Validate user_id presence before database operations (FR-014)
+- Auth overhead must be < 10ms (NFR-001)
+
+### Testing Strategy
+- TDD approach: Write contract tests first (Phase 3.2)
+- Tests should FAIL initially
+- Implementation in Phase 3.3-3.5 makes tests pass
+- Validation in Phase 3.10 ensures everything works end-to-end
+
+### Deployment Checklist
+- [ ] All contract tests pass
+- [ ] Integration tests pass
+- [ ] Manual quickstart tests complete
+- [ ] No authentication errors in logs
+- [ ] Metrics show auth overhead < 10ms
+- [ ] Multi-user isolation validated
+- [ ] Documentation updated
+
+### Commit Strategy
+- Commit after each task completion
+- Keep commits small and focused
+- Include task ID in commit message (e.g., "T014: Implement AuthenticationContext")
 
 ---
 
-*Based on Constitution v1.2.0 - See `.specify/memory/constitution.md`*
-*Generated from: plan.md, research.md, data-model.md, contracts/, quickstart.md*
-
+*Based on Constitution v1.1.1 - See `.specify/memory/constitution.md`*  
+*Generated from plan.md, research.md, data-model.md, contracts/, quickstart.md*  
+*Total Estimated Time: 38.5-45.5 hours over 3-5 days (49 tasks)*

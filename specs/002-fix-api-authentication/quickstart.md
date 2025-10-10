@@ -1,648 +1,621 @@
-# Quickstart: OBO Authentication Validation
+# Quickstart: Testing OBO Authentication Implementation
 
-**Date**: 2025-10-09  
-**Feature**: Fix API Authentication and Implement On-Behalf-Of User (OBO)  
-**Purpose**: End-to-end validation scenarios for authentication implementation
+**Feature**: Fix API Authentication and Implement On-Behalf-Of User (OBO) Authentication  
+**Date**: 2025-10-10  
+**Estimated Time**: 30 minutes
+
+---
+
+## Overview
+
+This quickstart guide provides step-by-step instructions to manually test the dual authentication implementation (On-Behalf-Of-User for Databricks APIs and Service Principal for Lakebase) in both local development and Databricks Apps deployment environments.
 
 ---
 
 ## Prerequisites
 
-### Environment Setup
-```bash
-# 1. Navigate to repository root
-cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template
+### Required Tools
+- ✅ Python 3.11+ installed
+- ✅ `uv` package manager installed
+- ✅ Databricks CLI installed and configured
+- ✅ Access to Databricks workspace
+- ✅ Service principal credentials (for local dev)
 
-# 2. Ensure environment variables are configured
-# For Databricks Apps deployment:
-#   - X-Forwarded-Access-Token header provided by platform automatically
-#   - DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET set by platform
-#
-# For local development:
-cat > .env.local << 'EOF'
+### Environment Variables (Local Development)
+
+Create `.env.local` file in repository root:
+
+```bash
+# Databricks workspace
 DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
-DATABRICKS_CLIENT_ID=your_service_principal_client_id
-DATABRICKS_CLIENT_SECRET=your_service_principal_client_secret
-DATABRICKS_USER_TOKEN=your_personal_access_token  # Optional: for local OBO testing
-EOF
 
-# 3. Install dependencies
-uv sync
-cd client && bun install && cd ..
+# Service principal credentials (for local dev)
+DATABRICKS_CLIENT_ID=your-service-principal-client-id
+DATABRICKS_CLIENT_SECRET=your-service-principal-client-secret
 
-# 4. Run database migrations
-uv run alembic upgrade head
+# Lakebase connection (if testing locally with Lakebase)
+PGHOST=your-lakebase-host
+PGDATABASE=your-database
+PGUSER=your-service-principal-role
+PGPORT=5432
+PGSSLMODE=require
+```
 
-# 5. Start the application
+### Installation
+
+1. **Clone repository and install dependencies**:
+   ```bash
+   cd /path/to/databricks-app-template
+   uv sync
+   ```
+
+2. **Verify Databricks SDK version**:
+   ```bash
+   uv pip list | grep databricks-sdk
+   # Should show: databricks-sdk==0.67.0
+   ```
+
+3. **Install Databricks CLI** (if not already installed):
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+   databricks --version
+   ```
+
+4. **Authenticate Databricks CLI**:
+   ```bash
+   databricks auth login --host https://your-workspace.cloud.databricks.com
+   ```
+
+---
+
+## Test Plan
+
+### Phase 1: Local Development Testing (Service Principal Fallback)
+
+#### 1.1 Start Local Development Server
+
+```bash
+# Start backend and frontend with hot reloading
 ./watch.sh
+
+# Monitor logs in separate terminal
+tail -f nohup.out | grep -E "(auth\.|ERROR)"
 ```
 
-### Test Users Setup (for multi-user testing)
-- **User A**: Admin user with full Unity Catalog access
-- **User B**: Restricted user with limited catalog access
-- Both users should have different PAT tokens or be accessed via different browser sessions
+**Expected Output**:
+```
+{"timestamp": "2025-10-10T12:00:00Z", "level": "INFO", "event": "server.start", "port": 8000}
+```
 
----
+#### 1.2 Test Health Check (No Authentication Required)
 
-## Validation Scenarios
-
-### Scenario 1: Basic OBO Authentication - User Information Endpoint
-
-**Objective**: Verify that `/api/user/me` endpoint successfully uses OBO token to return authenticated user information.
-
-**Steps**:
 ```bash
-# 1. In Databricks Apps deployment
-# Request includes X-Forwarded-Access-Token header automatically
-
-# Test with curl (simulate platform header)
-curl -X GET http://localhost:8000/api/user/me \
-  -H "X-Forwarded-Access-Token: ${DATABRICKS_USER_TOKEN}" \
-  -H "Content-Type: application/json"
-
-# Expected response:
-# {
-#   "user_id": "1234567890abcdef",
-#   "email": "user@example.com",
-#   "username": "user@example.com",
-#   "display_name": "Example User",
-#   "is_authenticated": true,
-#   "auth_method": "obo"
-# }
+# Test basic endpoint with service principal fallback
+curl http://localhost:8000/api/health | jq .
 ```
 
-**Success Criteria**:
-- ✅ Response returns 200 OK
-- ✅ Response contains valid user_id, email, username
-- ✅ `auth_method` field shows "obo"
-- ✅ No SDK authentication error in logs
-- ✅ Logs show: `auth_type="pat"` in structured output
-
-**Failure Indicators**:
-- ❌ Error: "more than one authorization method configured: oauth and pat"
-- ❌ Response returns service principal user instead of actual user
-- ❌ Response returns 401 Unauthorized
-
-**Log Validation**:
-```bash
-# Check logs for authentication details
-./dba_logz.py | grep -A 5 "user_token"
-
-# Expected log entry:
-# {
-#   "timestamp": "2025-10-09T10:00:00Z",
-#   "level": "INFO",
-#   "message": "User authenticated",
-#   "user_id": "1234567890abcdef",
-#   "auth_method": "obo",
-#   "token_present": true,
-#   "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
-# }
-```
-
----
-
-### Scenario 2: Unity Catalog Permission Isolation
-
-**Objective**: Verify that different users see only catalogs they have permissions for.
-
-**Steps**:
-```bash
-# Test with User A (admin - has access to all catalogs)
-curl -X GET http://localhost:8000/api/unity-catalog/catalogs \
-  -H "X-Forwarded-Access-Token: ${USER_A_TOKEN}" \
-  -H "Content-Type: application/json"
-
-# Expected: Returns all catalogs (main, dev, prod, etc.)
-# {
-#   "catalogs": [
-#     {"name": "main", "owner": "admin@example.com", ...},
-#     {"name": "dev", "owner": "admin@example.com", ...},
-#     {"name": "prod", "owner": "admin@example.com", ...}
-#   ],
-#   "total_count": 3
-# }
-
-# Test with User B (restricted - has access to dev only)
-curl -X GET http://localhost:8000/api/unity-catalog/catalogs \
-  -H "X-Forwarded-Access-Token: ${USER_B_TOKEN}" \
-  -H "Content-Type: application/json"
-
-# Expected: Returns only dev catalog
-# {
-#   "catalogs": [
-#     {"name": "dev", "owner": "user@example.com", ...}
-#   ],
-#   "total_count": 1
-# }
-```
-
-**Success Criteria**:
-- ✅ User A sees all catalogs (main, dev, prod)
-- ✅ User B sees only dev catalog
-- ✅ Different responses for different users (permission isolation verified)
-- ✅ No SDK authentication errors
-- ✅ Logs show different user_id for each request
-
-**Failure Indicators**:
-- ❌ Both users see same catalogs (permission isolation failed)
-- ❌ Service principal user shown instead of actual user
-- ❌ Authorization errors in logs
-
-**Log Validation**:
-```bash
-# Check that different user_ids are logged
-./dba_logz.py | grep "catalog_access" | jq '.user_id'
-
-# Expected: Two different user_ids
-```
-
----
-
-### Scenario 3: Model Serving Endpoint Access with OBO
-
-**Objective**: Verify that model serving endpoint listing uses user credentials and respects permissions.
-
-**Steps**:
-```bash
-# Test listing model endpoints
-curl -X GET http://localhost:8000/api/model-serving/endpoints \
-  -H "X-Forwarded-Access-Token: ${DATABRICKS_USER_TOKEN}" \
-  -H "Content-Type: application/json"
-
-# Expected response:
-# {
-#   "endpoints": [
-#     {
-#       "name": "llama-2-70b-chat",
-#       "state": "READY",
-#       "creator": "user@example.com",
-#       ...
-#     }
-#   ],
-#   "total_count": 1,
-#   "limit": 50,
-#   "offset": 0
-# }
-```
-
-**Success Criteria**:
-- ✅ Response returns 200 OK
-- ✅ Only endpoints the user has access to are returned
-- ✅ No SDK authentication errors
-- ✅ Logs show `auth_type="pat"` for model serving API calls
-
-**Failure Indicators**:
-- ❌ Error: "more than one authorization method configured"
-- ❌ Returns all endpoints regardless of user permissions
-- ❌ Response returns 403 Forbidden (service principal vs. user auth confusion)
-
----
-
-### Scenario 4: Lakebase Service Principal Authentication
-
-**Objective**: Verify that Lakebase connections use service principal (NOT OBO token) and user_id filtering works.
-
-**Steps**:
-```bash
-# Test user preferences endpoint (Lakebase operation)
-curl -X GET http://localhost:8000/api/preferences \
-  -H "X-Forwarded-Access-Token: ${USER_A_TOKEN}" \
-  -H "Content-Type: application/json"
-
-# Expected: Returns preferences for User A only
-# {
-#   "preferences": [
-#     {"key": "theme", "value": "dark", "user_id": "user_a_id"}
-#   ]
-# }
-
-# Test with User B
-curl -X GET http://localhost:8000/api/preferences \
-  -H "X-Forwarded-Access-Token: ${USER_B_TOKEN}" \
-  -H "Content-Type: application/json"
-
-# Expected: Returns preferences for User B only (different data)
-# {
-#   "preferences": [
-#     {"key": "theme", "value": "light", "user_id": "user_b_id"}
-#   ]
-# }
-
-# Verify preferences are isolated
-curl -X POST http://localhost:8000/api/preferences \
-  -H "X-Forwarded-Access-Token: ${USER_A_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"key": "language", "value": "en"}'
-
-# User B should NOT see User A's new preference
-curl -X GET http://localhost:8000/api/preferences \
-  -H "X-Forwarded-Access-Token: ${USER_B_TOKEN}" \
-  -H "Content-Type: application/json"
-
-# Expected: User B's response does NOT include language preference
-```
-
-**Success Criteria**:
-- ✅ User A and User B see different preferences (data isolation)
-- ✅ Database connection uses service principal (check logs)
-- ✅ All queries include WHERE user_id = ? clause (check SQL logs)
-- ✅ No user OBO token passed to Lakebase connection
-- ✅ user_id field present in all database records
-
-**Failure Indicators**:
-- ❌ User A sees User B's preferences (data isolation failed)
-- ❌ Database connection attempts to use OBO token
-- ❌ Missing user_id in database queries
-
-**Log Validation**:
-```bash
-# Check database connection logs
-./dba_logz.py | grep "database_connection" | jq '.'
-
-# Expected log entry:
-# {
-#   "message": "Database connection established",
-#   "auth_method": "service_principal",
-#   "connection_type": "lakebase",
-#   "user_id": "1234567890abcdef"  # User context for filtering, not DB auth
-# }
-```
-
----
-
-### Scenario 5: Local Development Fallback (No OBO Token)
-
-**Objective**: Verify that application works in local development without X-Forwarded-Access-Token header.
-
-**Steps**:
-```bash
-# Unset user token to simulate local development
-unset DATABRICKS_USER_TOKEN
-
-# Test endpoint without token header
-curl -X GET http://localhost:8000/api/user/me \
-  -H "Content-Type: application/json"
-
-# Expected response (service principal fallback):
-# {
-#   "user_id": "service_principal_id",
-#   "username": "service_principal@databricks.com",
-#   "is_authenticated": true,
-#   "auth_method": "service_principal"
-# }
-```
-
-**Success Criteria**:
-- ✅ Response returns 200 OK (no 401 error)
-- ✅ `auth_method` field shows "service_principal"
-- ✅ Logs clearly indicate fallback mode
-- ✅ Application remains functional for development
-
-**Failure Indicators**:
-- ❌ Response returns 401 Unauthorized
-- ❌ SDK authentication errors
-- ❌ Application crashes or hangs
-
-**Log Validation**:
-```bash
-# Check fallback logs
-./dba_logz.py | grep "auth_fallback" | jq '.'
-
-# Expected log entry:
-# {
-#   "level": "WARNING",
-#   "message": "No user token found, using service principal",
-#   "auth_method": "service_principal",
-#   "environment": "local_development"
-# }
-```
-
----
-
-### Scenario 6: Authentication Retry with Exponential Backoff
-
-**Objective**: Verify that transient authentication failures trigger retry with exponential backoff.
-
-**Steps**:
-```bash
-# This scenario requires simulating transient failures
-# Can be tested with mock responses or network disruption
-
-# Monitor logs during authentication attempts
-./dba_logz.py | grep "auth_retry" | jq '.'
-
-# Expected log sequence (if retry occurs):
-# {
-#   "level": "WARNING",
-#   "message": "Authentication failed, retrying",
-#   "attempt": 1,
-#   "delay_ms": 100,
-#   "correlation_id": "..."
-# }
-# {
-#   "level": "WARNING",
-#   "message": "Authentication failed, retrying",
-#   "attempt": 2,
-#   "delay_ms": 200,
-#   "correlation_id": "..."
-# }
-# {
-#   "level": "INFO",
-#   "message": "Authentication succeeded",
-#   "attempt": 3,
-#   "total_duration_ms": 450,
-#   "correlation_id": "..."
-# }
-```
-
-**Success Criteria**:
-- ✅ Retry attempts logged with attempt number and delay
-- ✅ Exponential backoff delays: 100ms, 200ms, 400ms
-- ✅ Total timeout does not exceed 5 seconds
-- ✅ Successful recovery after transient failure
-- ✅ HTTP 429 (rate limit) triggers immediate failure without retries
-
-**Failure Indicators**:
-- ❌ No retry attempts on transient failures
-- ❌ Linear backoff instead of exponential
-- ❌ Timeout exceeds 5 seconds
-- ❌ Retry occurs on HTTP 429 (should fail immediately)
-
----
-
-### Scenario 7: Multi-Tab User Session (Stateless Auth)
-
-**Objective**: Verify that multiple browser tabs work independently with stateless authentication.
-
-**Steps**:
-1. Open the app in Browser Tab 1, authenticate as User A
-2. Open the app in Browser Tab 2, authenticate as User A (same user)
-3. In Tab 1, list Unity Catalog catalogs
-4. In Tab 2, list Model Serving endpoints
-5. Close Tab 1
-6. In Tab 2, list Unity Catalog catalogs again
-
-**Success Criteria**:
-- ✅ Tab 2 continues to work after Tab 1 is closed (stateless)
-- ✅ Both tabs operate independently
-- ✅ No shared state or token caching between tabs
-- ✅ Each request extracts token fresh from headers
-
-**Failure Indicators**:
-- ❌ Tab 2 fails after Tab 1 is closed (state sharing)
-- ❌ Authentication errors when multiple tabs open
-- ❌ Token caching causes stale data
-
----
-
-### Scenario 8: Token Expiration and Platform Refresh
-
-**Objective**: Verify that the platform's token refresh is transparent to the application.
-
-**Note**: This scenario validates stateless authentication from a token lifecycle perspective, complementing Scenario 7's multi-tab validation. Both scenarios confirm no token caching (NFR-005) but focus on different aspects: Scenario 7 tests spatial independence (multiple tabs), while Scenario 8 tests temporal independence (token refresh over time).
-
-**Steps**:
-```bash
-# 1. Make initial request with valid token
-curl -X GET http://localhost:8000/api/user/me \
-  -H "X-Forwarded-Access-Token: ${VALID_TOKEN}" \
-  -H "Content-Type: application/json"
-
-# Expected: Success
-
-# 2. Wait for token to approach expiration (platform will refresh)
-# Platform automatically updates X-Forwarded-Access-Token header
-
-# 3. Make another request (platform provides refreshed token)
-curl -X GET http://localhost:8000/api/user/me \
-  -H "X-Forwarded-Access-Token: ${REFRESHED_TOKEN}" \
-  -H "Content-Type: application/json"
-
-# Expected: Success with no application-level token management
-```
-
-**Success Criteria**:
-- ✅ Application accepts both old and new tokens seamlessly
-- ✅ No token caching in application (fresh extraction each request)
-- ✅ Platform handles refresh transparently
-- ✅ No user-visible errors during token refresh
-
-**Failure Indicators**:
-- ❌ Application caches old token, rejects new token
-- ❌ Authentication errors during token refresh window
-- ❌ Application attempts to manage token lifecycle
-
----
-
-### Scenario 9: Rate Limiting Compliance (HTTP 429)
-
-**Objective**: Verify that the application respects platform rate limits and fails immediately on HTTP 429.
-
-**Steps**:
-```bash
-# Simulate rate limit response (requires mock or actual rate limiting)
-# Make rapid requests to trigger rate limiting
-
-# Monitor logs for rate limit handling
-./dba_logz.py | grep "rate_limit" | jq '.'
-
-# Expected log entry:
-# {
-#   "level": "ERROR",
-#   "message": "Rate limit exceeded, failing request",
-#   "status_code": 429,
-#   "retry_attempts": 0,
-#   "correlation_id": "..."
-# }
-```
-
-**Success Criteria**:
-- ✅ HTTP 429 response triggers immediate failure (no retries)
-- ✅ Error logged with status_code=429
-- ✅ Client receives HTTP 429 response
-- ✅ No exponential backoff retry on rate limit
-
-**Failure Indicators**:
-- ❌ Retry attempts on HTTP 429 (violates platform limits)
-- ❌ Infinite retry loop
-- ❌ Rate limit not detected
-
----
-
-### Scenario 10: Concurrent Request Retry Independence
-
-**Objective**: Verify that concurrent API requests from the same user each retry independently without coordination.
-
-**Steps**:
-```bash
-# Make 5 concurrent requests from same user
-for i in {1..5}; do
-  curl -X GET http://localhost:8000/api/unity-catalog/catalogs \
-    -H "X-Forwarded-Access-Token: ${DATABRICKS_USER_TOKEN}" \
-    -H "X-Correlation-ID: $(uuidgen)" \
-    -H "Content-Type: application/json" &
-done
-wait
-
-# Check logs to see if requests were handled independently
-./dba_logz.py | grep "correlation_id" | jq -c '{correlation_id, message, attempt}' | tail -20
-
-# If auth temporarily fails, check retry patterns
-./dba_logz.py | grep "auth_retry" | jq -c '{correlation_id, attempt, delay_ms}'
-```
-
-**Expected Behavior**:
+**Expected Response**:
 ```json
-// Request 1 succeeds immediately
-{"correlation_id": "550e8400-e29b-41d4-a716-446655440001", "message": "Auth succeeded", "attempt": 1}
-
-// Request 2 retries independently
-{"correlation_id": "550e8400-e29b-41d4-a716-446655440002", "message": "Auth failed, retrying", "attempt": 1}
-{"correlation_id": "550e8400-e29b-41d4-a716-446655440002", "message": "Auth succeeded", "attempt": 2}
-
-// Request 3 succeeds immediately (while Request 2 was retrying)
-{"correlation_id": "550e8400-e29b-41d4-a716-446655440003", "message": "Auth succeeded", "attempt": 1}
+{
+  "status": "healthy",
+  "timestamp": "2025-10-10T12:00:00Z"
+}
 ```
 
-**Success Criteria**:
-- ✅ Each request has unique correlation_id
-- ✅ If retries occur, each request retries independently (different correlation_ids in logs)
-- ✅ No shared retry state or coordination between requests
-- ✅ Some requests may succeed while others retry (stateless pattern)
-- ✅ Total retry count can be N requests × 3 attempts (independent retries)
-- ✅ Each request respects 5s timeout independently
-
-**Failure Indicators**:
-- ❌ Retry coordination or shared state between requests
-- ❌ All requests wait for first request's retry to complete
-- ❌ Requests share retry counters or backoff timers
-- ❌ Second request doesn't start until first completes
-
-**Log Validation**:
-```bash
-# Verify independent retry behavior
-./dba_logz.py | grep "auth" | jq '{correlation_id, message, attempt, timestamp}' > auth_logs.json
-
-# Check for overlapping timestamps (parallel execution)
-# Expected: Some requests should have overlapping timestamps, indicating parallel processing
-
-# Count unique correlation IDs
-./dba_logz.py | grep "auth" | jq -r '.correlation_id' | sort | uniq | wc -l
-# Expected: 5 (one per concurrent request)
+**Expected Logs**:
+```json
+{"level": "INFO", "event": "auth.fallback_triggered", "reason": "missing_token", "environment": "local"}
+{"level": "INFO", "event": "auth.mode", "mode": "service_principal", "auth_type": "oauth-m2m"}
 ```
 
-**Rationale**:
-- FR-025 requires independent retry logic per request
-- NFR-005 requires no token caching (enables stateless pattern)
-- Validates that multi-tab scenarios (Scenario 7) work correctly
-- Ensures thread-safe authentication without locks or shared state
+#### 1.3 Test Authentication Status Endpoint
 
----
-
-## Automated Test Suite
-
-### Contract Tests (TDD - Run BEFORE Implementation)
 ```bash
-# Contract tests validate API endpoints match OpenAPI contracts
-# These tests MUST fail initially (no implementation yet)
-
-cd /Users/pulkit.chadha/Documents/Projects/databricks-app-template
-
-# Run contract tests
-uv run pytest tests/contract/test_user_contract.py -v
-uv run pytest tests/contract/test_model_serving_contract.py -v
-uv run pytest tests/contract/test_unity_catalog_contract.py -v
-
-# Expected: All tests FAIL (implementation not done yet)
-# After implementation: All tests PASS
+# Check authentication status (should show service principal mode)
+curl http://localhost:8000/api/auth/status | jq .
 ```
 
-### Integration Tests (Multi-User Isolation)
-```bash
-# Run multi-user isolation tests
-uv run pytest tests/integration/test_multi_user_isolation.py -v
-
-# Test coverage:
-# - Two users with different permissions
-# - Verify data isolation in Lakebase
-# - Verify Unity Catalog permission enforcement
-# - Verify audit logs show correct user_id
-```
-
-### Unit Tests (Auth Utilities)
-```bash
-# Run auth utility unit tests
-uv run pytest tests/unit/test_auth.py -v
-
-# Test coverage:
-# - Token extraction from headers (present, absent, malformed)
-# - Exponential backoff logic (delays, timeout)
-# - User_id validation in service constructors
-# - SDK auth_type configuration
+**Expected Response**:
+```json
+{
+  "authenticated": true,
+  "auth_mode": "service_principal",
+  "has_user_identity": false,
+  "user_id": null
+}
 ```
 
 ---
 
-## Deployment Validation
+### Phase 2: Local OBO Testing (Real User Tokens)
 
-### Post-Deployment Checklist (Databricks Apps)
+#### 2.1 Fetch User Access Token
+
 ```bash
-# 1. Deploy to Databricks Apps
+# Get user access token from Databricks CLI
+export DATABRICKS_USER_TOKEN=$(databricks auth token)
+
+# Verify token is set
+echo ${DATABRICKS_USER_TOKEN:0:20}...
+# Should output: eyJhbGciOiJSUzI1NiIs...
+```
+
+#### 2.2 Test User Info Endpoint with OBO
+
+```bash
+# Call /api/user/me with user token
+curl -H "X-Forwarded-Access-Token: $DATABRICKS_USER_TOKEN" \
+     http://localhost:8000/api/user/me | jq .
+```
+
+**Expected Response**:
+```json
+{
+  "user_id": "your-email@example.com",
+  "display_name": "Your Name",
+  "active": true,
+  "workspace_url": "https://your-workspace.cloud.databricks.com"
+}
+```
+
+**Expected Logs**:
+```json
+{"level": "INFO", "event": "auth.token_extraction", "has_token": true}
+{"level": "INFO", "event": "auth.mode", "mode": "obo", "auth_type": "pat"}
+{"level": "INFO", "event": "auth.user_id_extracted", "user_id": "your-email@example.com"}
+```
+
+#### 2.3 Test Workspace Info Endpoint
+
+```bash
+# Call /api/user/me/workspace with user token
+curl -H "X-Forwarded-Access-Token: $DATABRICKS_USER_TOKEN" \
+     http://localhost:8000/api/user/me/workspace | jq .
+```
+
+**Expected Response**:
+```json
+{
+  "workspace_id": "1234567890123456",
+  "workspace_url": "https://your-workspace.cloud.databricks.com",
+  "workspace_name": "Your Workspace"
+}
+```
+
+#### 2.4 Test Unity Catalog Permissions (OBO)
+
+```bash
+# List catalogs user can access (OBO enforces permissions)
+curl -H "X-Forwarded-Access-Token: $DATABRICKS_USER_TOKEN" \
+     http://localhost:8000/api/unity-catalog/catalogs | jq .
+```
+
+**Expected Response** (user sees only their accessible catalogs):
+```json
+[
+  {
+    "name": "main",
+    "owner": "workspace-admin",
+    "comment": "Main catalog"
+  }
+]
+```
+
+**Validation**: Different users with different permissions should see different catalogs.
+
+#### 2.5 Test Model Serving Endpoints (OBO)
+
+```bash
+# List model serving endpoints user can access
+curl -H "X-Forwarded-Access-Token: $DATABRICKS_USER_TOKEN" \
+     http://localhost:8000/api/model-serving/endpoints | jq .
+```
+
+**Expected Response**:
+```json
+[
+  {
+    "name": "my-model-endpoint",
+    "state": "READY",
+    "creator": "your-email@example.com"
+  }
+]
+```
+
+---
+
+### Phase 3: Multi-User Data Isolation Testing (Lakebase)
+
+#### 3.1 Test User Preferences (User A)
+
+```bash
+# Save preference as User A
+curl -X POST \
+     -H "X-Forwarded-Access-Token: $DATABRICKS_USER_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"preference_key": "theme", "preference_value": "dark"}' \
+     http://localhost:8000/api/preferences | jq .
+```
+
+**Expected Response**:
+```json
+{
+  "preference_key": "theme",
+  "preference_value": "dark",
+  "created_at": "2025-10-10T12:00:00Z",
+  "updated_at": "2025-10-10T12:00:00Z"
+}
+```
+
+**Expected Logs**:
+```json
+{"level": "INFO", "event": "service.database_query", "query_type": "insert", "user_id": "user-a@example.com"}
+{"level": "INFO", "event": "lakebase.preference_saved", "user_id": "user-a@example.com", "key": "theme"}
+```
+
+#### 3.2 Retrieve Preferences (User A)
+
+```bash
+# Get preferences as User A
+curl -H "X-Forwarded-Access-Token: $DATABRICKS_USER_TOKEN" \
+     http://localhost:8000/api/preferences | jq .
+```
+
+**Expected Response**:
+```json
+[
+  {
+    "preference_key": "theme",
+    "preference_value": "dark",
+    "created_at": "2025-10-10T12:00:00Z",
+    "updated_at": "2025-10-10T12:00:00Z"
+  }
+]
+```
+
+#### 3.3 Test Cross-User Isolation (User B)
+
+```bash
+# Get token for different user (User B)
+# RECOMMENDED: Use named profiles (cleaner, allows switching without re-auth)
+
+# Option 1: Named profiles (RECOMMENDED)
+databricks auth login --profile user-b --host https://your-workspace.cloud.databricks.com
+export DATABRICKS_USER_B_TOKEN=$(databricks auth token --profile user-b)
+
+# Option 2: Re-authenticate with default profile (requires logout)
+# Only use if named profiles are not available in your CLI version
+# databricks auth login --host https://your-workspace.cloud.databricks.com
+# export DATABRICKS_USER_B_TOKEN=$(databricks auth token)
+
+# Try to get preferences as User B
+curl -H "X-Forwarded-Access-Token: $DATABRICKS_USER_B_TOKEN" \
+     http://localhost:8000/api/preferences | jq .
+```
+
+**Why Option 1 is preferred**: Named profiles maintain multiple authenticated sessions simultaneously, allowing easy switching between users without re-authentication. This is essential for efficient multi-user testing.
+
+**Expected Response** (empty array - User B sees no preferences):
+```json
+[]
+```
+
+**Validation**: User B should NOT see User A's preferences (data isolation working).
+
+#### 3.4 Test Database Query Filtering
+
+Check application logs to verify SQL queries include `user_id` filtering:
+
+```bash
+# Search logs for database queries
+grep "service.database_query" nohup.out | tail -5
+```
+
+**Expected Log Entries**:
+```json
+{"event": "service.database_query", "query_type": "select", "user_id": "user-a@example.com", "correlation_id": "..."}
+{"event": "service.database_query", "query_type": "select", "user_id": "user-b@example.com", "correlation_id": "..."}
+```
+
+All queries should include `user_id` field.
+
+---
+
+### Phase 4: Error Handling and Retry Logic
+
+#### 4.1 Test Missing User Token (Requires user_id)
+
+```bash
+# Try to save preference without user token (should fail)
+curl -X POST \
+     -H "Content-Type: application/json" \
+     -d '{"preference_key": "theme", "preference_value": "dark"}' \
+     http://localhost:8000/api/preferences
+```
+
+**Expected Response** (HTTP 401):
+```json
+{
+  "detail": "User authentication required for this operation",
+  "error_code": "AUTH_TOKEN_MISSING"
+}
+```
+
+#### 4.2 Test Invalid/Expired Token
+
+```bash
+# Use invalid token
+curl -H "X-Forwarded-Access-Token: invalid-token-12345" \
+     http://localhost:8000/api/user/me | jq .
+```
+
+**Expected Response** (HTTP 401 after retries):
+```json
+{
+  "detail": "Failed to extract user identity from access token",
+  "error_code": "AUTH_USER_IDENTITY_FAILED"
+}
+```
+
+**Expected Logs** (shows retry attempts per spec.md Edge Cases section):
+```json
+{"level": "WARNING", "event": "auth.retry_attempt", "attempt": 1, "error_type": "AuthenticationError"}
+{"level": "WARNING", "event": "auth.retry_attempt", "attempt": 2, "error_type": "AuthenticationError"}
+{"level": "WARNING", "event": "auth.retry_attempt", "attempt": 3, "error_type": "AuthenticationError"}
+{"level": "ERROR", "event": "auth.failed", "retry_count": 3}
+```
+
+**Validation** (per spec.md FR-018): 
+- Should see 3 retry attempts with delays (100ms, 200ms, 400ms)
+- Total time should be < 5 seconds
+
+#### 4.3 Test Correlation ID Propagation
+
+```bash
+# Send request with custom correlation ID
+curl -H "X-Forwarded-Access-Token: $DATABRICKS_USER_TOKEN" \
+     -H "X-Correlation-ID: 12345678-1234-1234-1234-123456789abc" \
+     http://localhost:8000/api/user/me -v 2>&1 | grep -i correlation
+```
+
+**Expected Output**:
+```
+< X-Correlation-ID: 12345678-1234-1234-1234-123456789abc
+```
+
+**Expected Logs** (all logs should have same correlation_id):
+```json
+{"correlation_id": "12345678-1234-1234-1234-123456789abc", "event": "auth.token_extraction"}
+{"correlation_id": "12345678-1234-1234-1234-123456789abc", "event": "auth.mode"}
+{"correlation_id": "12345678-1234-1234-1234-123456789abc", "event": "auth.user_id_extracted"}
+```
+
+---
+
+### Phase 5: Observability Validation
+
+#### 5.1 Check Structured Logging
+
+```bash
+# View structured logs (JSON format)
+tail -50 nohup.out | jq 'select(.event | startswith("auth."))'
+```
+
+**Expected Events** (all should be present):
+- `auth.token_extraction`
+- `auth.mode`
+- `auth.user_id_extracted`
+- `auth.fallback_triggered`
+- `auth.retry_attempt` (when errors occur)
+- `auth.failed` (when retries exhausted)
+
+#### 5.2 Check Metrics Endpoint
+
+```bash
+# View Prometheus metrics
+curl http://localhost:8000/metrics | grep auth_
+```
+
+**Expected Metrics**:
+```
+auth_requests_total{endpoint="/api/user/me",mode="obo",status="success"} 5.0
+auth_requests_total{endpoint="/api/health",mode="service_principal",status="success"} 2.0
+auth_retry_total{endpoint="/api/user/me",attempt_number="1"} 1.0
+auth_fallback_total{reason="missing_token"} 2.0
+auth_overhead_seconds_bucket{mode="obo",le="0.01"} 5.0
+```
+
+#### 5.3 Verify Performance Metrics
+
+```bash
+# Check that auth overhead is < 10ms
+curl http://localhost:8000/metrics | grep "auth_overhead_seconds_bucket{mode=\"obo\",le=\"0.01\"}"
+```
+
+**Validation**: Most requests should fall into the `le="0.01"` bucket (< 10ms).
+
+---
+
+### Phase 6: Databricks Apps Deployment Testing
+
+#### 6.1 Deploy to Databricks Apps
+
+```bash
+# Validate bundle configuration
 databricks bundle validate
-databricks bundle deploy --target prod
 
-# 2. Monitor logs for 60 seconds
-./dba_logz.py --duration 60
+# Deploy to dev environment
+databricks bundle deploy -t dev
+```
 
-# Expected logs:
-# - Uvicorn startup messages
-# - No Python exceptions
-# - No "more than one authorization method configured" errors
+**Expected Output**:
+```
+✓ Bundle configuration is valid
+✓ Deploying resources...
+✓ Deployment complete
+```
 
-# 3. Test core endpoints
-./dba_client.py test-user-me
-./dba_client.py test-unity-catalog
-./dba_client.py test-model-serving
+#### 6.2 Monitor Deployment Logs
 
-# Expected: All endpoints return 200 OK
+```bash
+# Monitor logs for 60 seconds after deployment
+python dba_logz.py
+```
 
-# 4. Verify observability metrics
-# Check metrics endpoint or monitoring dashboard
-curl http://localhost:8000/metrics
+**Expected Logs**:
+```json
+{"level": "INFO", "event": "server.start", "port": 8000}
+{"level": "INFO", "event": "auth.token_extraction", "has_token": true}
+{"level": "INFO", "event": "auth.mode", "mode": "obo", "auth_type": "pat"}
+```
 
-# Expected metrics:
-# - auth_success_total (counter)
-# - auth_failure_total (counter)
-# - auth_retry_total (counter)
-# - auth_latency_ms (histogram with P95, P99)
-# - per_user_request_count (counter with user_id label)
+**Validation**:
+- No error logs
+- No "more than one authorization method configured" errors
+- All API calls succeed
+
+#### 6.3 Test Deployed App Endpoints
+
+```bash
+# Get app URL from deployment output
+export APP_URL=$(databricks bundle deploy -t dev 2>&1 | grep "App URL" | awk '{print $NF}')
+
+# Test user info endpoint (token auto-injected by platform)
+curl $APP_URL/api/user/me | jq .
+```
+
+**Expected Response**:
+```json
+{
+  "user_id": "your-email@example.com",
+  "display_name": "Your Name",
+  "active": true,
+  "workspace_url": "https://your-workspace.cloud.databricks.com"
+}
+```
+
+**Validation**: Platform automatically injects `X-Forwarded-Access-Token` header.
+
+#### 6.4 Test Multi-User Isolation in Deployed App
+
+1. **User A**: Open app in browser, save preference
+2. **User B**: Open app in different browser/incognito, check preferences
+3. **Validation**: User B should not see User A's preferences
+
+---
+
+## Success Criteria Checklist
+
+### ✅ Authentication Working
+- [ ] Local dev works with service principal fallback
+- [ ] Local dev works with real user tokens (OBO)
+- [ ] Deployed app uses OBO authentication automatically
+- [ ] No "more than one authorization method configured" errors
+
+### ✅ User Identity Extraction
+- [ ] `/api/user/me` returns authenticated user's info
+- [ ] `user_id` (email) is correctly extracted
+- [ ] Missing token returns appropriate error (401)
+- [ ] Invalid token triggers retry and eventual 401
+
+### ✅ Permission Enforcement
+- [ ] Unity Catalog lists show only user's accessible resources
+- [ ] Model serving lists show only user's accessible endpoints
+- [ ] Different users see different resources (permission isolation)
+
+### ✅ Multi-User Data Isolation
+- [ ] User A's preferences not visible to User B
+- [ ] Database queries include `WHERE user_id = ?`
+- [ ] Missing user_id returns 401 error
+- [ ] Cross-user data access prevented
+
+### ✅ Error Handling
+- [ ] Retry logic triggers on authentication failures
+- [ ] 3 retry attempts with exponential backoff (100/200/400ms)
+- [ ] Total retry time < 5 seconds
+- [ ] Rate limiting (429) fails immediately without retry
+- [ ] Correlation IDs propagated through all logs
+
+### ✅ Observability
+- [ ] Structured logs in JSON format
+- [ ] All authentication events logged
+- [ ] Correlation IDs in all log entries
+- [ ] Metrics endpoint exposes auth metrics
+- [ ] Auth overhead < 10ms (check metrics)
+
+### ✅ Deployment
+- [ ] Bundle validation passes
+- [ ] Deployment succeeds without errors
+- [ ] App logs show no authentication errors
+- [ ] All endpoints return successful responses
+
+---
+
+## Troubleshooting
+
+### Issue: "more than one authorization method configured"
+
+**Cause**: SDK detecting multiple auth methods  
+**Solution**: Verify explicit `auth_type` parameter in all client creations
+
+```python
+# Check server/services/*_service.py for:
+WorkspaceClient(auth_type="pat")  # For OBO
+WorkspaceClient(auth_type="oauth-m2m")  # For service principal
+```
+
+### Issue: User seeing other users' data
+
+**Cause**: Missing `WHERE user_id = ?` in database queries  
+**Solution**: Check all Lakebase queries in `server/services/lakebase_service.py`
+
+```python
+# All user-scoped queries MUST include user_id filter
+query = "SELECT * FROM table WHERE user_id = :user_id"
+```
+
+### Issue: 401 errors even with valid token
+
+**Cause**: Token extraction failing in middleware  
+**Solution**: Check middleware logs for token presence
+
+```bash
+grep "auth.token_extraction" nohup.out | tail -10
+```
+
+### Issue: Slow authentication (> 10ms overhead)
+
+**Cause**: Unnecessary API calls or blocking operations  
+**Solution**: Check metrics and optimize hot paths
+
+```bash
+curl http://localhost:8000/metrics | grep auth_overhead_seconds_bucket
 ```
 
 ---
 
-## Success Validation Summary
+## Next Steps
 
-✅ **Feature is successfully implemented when ALL scenarios pass:**
+After completing this quickstart:
 
-1. ✅ Scenario 1: User information endpoint returns authenticated user (not service principal)
-2. ✅ Scenario 2: Unity Catalog shows different data for different users
-3. ✅ Scenario 3: Model serving endpoints respect user permissions
-4. ✅ Scenario 4: Lakebase uses service principal but filters by user_id
-5. ✅ Scenario 5: Local development works without OBO token
-6. ✅ Scenario 6: Authentication retries with exponential backoff
-7. ✅ Scenario 7: Multi-tab sessions work independently (stateless)
-8. ✅ Scenario 8: Token refresh is transparent
-9. ✅ Scenario 9: Rate limiting compliance (HTTP 429 immediate failure)
-10. ✅ Scenario 10: Concurrent requests retry independently (no coordination)
-
-✅ **All contract tests pass** (after implementation)
-✅ **All integration tests pass** (multi-user isolation verified)
-✅ **All unit tests pass** (auth utilities validated)
-✅ **Deployment validation passes** (no errors in logs, metrics healthy)
-✅ **Zero authentication errors** in Databricks Apps logs
+1. **Run automated tests**: `pytest tests/contract/ tests/integration/`
+2. **Review implementation**: Check code aligns with contracts in `contracts/`
+3. **Update documentation**: Ensure `docs/OBO_AUTHENTICATION.md` reflects implementation
+4. **Monitor production**: Set up alerts for authentication metrics
+5. **Performance tuning**: Optimize if auth overhead > 10ms
 
 ---
 
-**Next Steps**: Proceed to Phase 2 (/tasks command) to generate implementation tasks from this design.
+## Related Documentation
 
+- [Feature Specification](./spec.md)
+- [Research Document](./research.md)
+- [Data Model](./data-model.md)
+- [API Contracts](./contracts/)
+- [Implementation Plan](./plan.md)
+
+---
+
+**Validation Status**: ✅ Ready for implementation  
+**Estimated Implementation Time**: 3-5 days  
+**Risk Level**: Medium (touching authentication layer)

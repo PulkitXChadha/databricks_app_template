@@ -1,0 +1,381 @@
+openapi: 3.1.0
+info:
+  title: Service Layer Contracts
+  description: |
+    Internal service layer contracts for authentication patterns.
+    Defines how services accept user tokens and configure Databricks SDK clients.
+  version: 1.0.0
+  contact:
+    name: Databricks App Template Team
+
+components:
+  schemas:
+    ServiceAuthMode:
+      type: string
+      enum: [obo, service_principal]
+      description: Service authentication mode
+
+    SDKClientConfig:
+      type: object
+      description: Configuration for creating Databricks SDK client
+      required:
+        - host
+        - auth_type
+      properties:
+        host:
+          type: string
+          format: uri
+          description: Databricks workspace URL
+          example: "https://workspace.cloud.databricks.com"
+        token:
+          type: string
+          description: User access token (for OBO mode)
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+        client_id:
+          type: string
+          description: OAuth client ID (for service principal mode)
+          example: "abcd-1234-efgh-5678"
+        client_secret:
+          type: string
+          description: OAuth client secret (for service principal mode)
+          example: "secret-value"
+        auth_type:
+          type: string
+          enum: [pat, oauth-m2m]
+          description: Explicit authentication type (REQUIRED)
+          example: "pat"
+
+    RetryConfig:
+      type: object
+      description: Retry configuration for authentication failures
+      required:
+        - max_attempts
+        - backoff_delays
+        - total_timeout
+      properties:
+        max_attempts:
+          type: integer
+          description: Maximum retry attempts
+          example: 3
+        backoff_delays:
+          type: array
+          description: Delay in milliseconds for each retry attempt
+          items:
+            type: integer
+          example: [100, 200, 400]
+        total_timeout:
+          type: integer
+          description: Total timeout in seconds
+          example: 5
+        retry_on_rate_limit:
+          type: boolean
+          description: Whether to retry on HTTP 429 (MUST be false)
+          example: false
+
+# Service Layer Patterns
+x-service-patterns:
+  description: |
+    All service classes MUST follow these authentication patterns.
+
+  base_service_pattern:
+    description: |
+      Base pattern for all services that interact with Databricks APIs.
+    
+    class_signature: |
+      class BaseService:
+          def __init__(self, user_token: Optional[str] = None):
+              self.user_token = user_token
+              self.workspace_url = os.environ["DATABRICKS_HOST"]
+          
+          def _get_client(self) -> WorkspaceClient:
+              if self.user_token:
+                  # Pattern B: On-Behalf-Of-User Authentication
+                  return WorkspaceClient(
+                      host=self.workspace_url,
+                      token=self.user_token,
+                      auth_type="pat"  # REQUIRED: Explicit auth type
+                  )
+              else:
+                  # Pattern A: Service Principal Authentication
+                  return WorkspaceClient(
+                      host=self.workspace_url,
+                      client_id=os.environ["DATABRICKS_CLIENT_ID"],
+                      client_secret=os.environ["DATABRICKS_CLIENT_SECRET"],
+                      auth_type="oauth-m2m"  # REQUIRED: Explicit auth type
+                  )
+
+  user_service_pattern:
+    description: |
+      UserService MUST accept user_token and use it for API calls.
+    
+    class_signature: |
+      class UserService(BaseService):
+          async def get_user_info(self) -> UserInfo:
+              client = self._get_client()
+              user = await client.current_user.me()
+              return UserInfo(
+                  user_id=user.user_name,  # Email address
+                  display_name=user.display_name,
+                  active=user.active
+              )
+          
+          async def get_user_id(self) -> str:
+              """Extract user_id for database operations."""
+              if not self.user_token:
+                  raise HTTPException(
+                      status_code=401,
+                      detail="User authentication required"
+                  )
+              user_info = await self.get_user_info()
+              return user_info.user_id
+          
+          async def get_workspace_info(self) -> WorkspaceInfo:
+              """
+              Get workspace information for the authenticated user.
+              
+              Public method that encapsulates client creation and API calls.
+              MUST NOT expose internal _get_client() method to endpoint handlers.
+              
+              Returns:
+                  WorkspaceInfo: Workspace details (workspace_id, workspace_url, workspace_name)
+              
+              Raises:
+                  HTTPException: 401 if authentication fails
+              """
+              client = self._get_client()
+              workspace = await client.workspace.get_workspace()
+              return WorkspaceInfo(
+                  workspace_id=workspace.workspace_id,
+                  workspace_url=workspace.workspace_url,
+                  workspace_name=workspace.workspace_name
+              )
+
+  unity_catalog_service_pattern:
+    description: |
+      UnityCatalogService MUST use OBO to respect user permissions.
+    
+    class_signature: |
+      class UnityCatalogService(BaseService):
+          async def list_catalogs(self) -> List[Catalog]:
+              """List catalogs user has access to (OBO enforces permissions)."""
+              client = self._get_client()
+              catalogs = await client.catalogs.list()
+              return catalogs
+
+  model_serving_service_pattern:
+    description: |
+      ModelServingService MUST use OBO to respect endpoint permissions.
+    
+    class_signature: |
+      class ModelServingService(BaseService):
+          async def list_endpoints(self) -> List[Endpoint]:
+              """List model serving endpoints user can access."""
+              client = self._get_client()
+              endpoints = await client.serving_endpoints.list()
+              return endpoints
+
+  lakebase_service_pattern:
+    description: |
+      LakebaseService MUST NOT accept user_token.
+      Always uses service principal for database connections.
+      Implements application-level filtering by user_id.
+    
+    class_signature: |
+      class LakebaseService:
+          # NO user_token parameter - service principal only
+          def __init__(self):
+              self.connection_params = {
+                  "host": os.environ["PGHOST"],
+                  "database": os.environ["PGDATABASE"],
+                  "user": os.environ["PGUSER"],  # Service principal role
+                  "port": os.environ["PGPORT"],
+                  "sslmode": os.environ["PGSSLMODE"]
+              }
+          
+          async def get_user_preferences(self, user_id: str) -> List[Preference]:
+              """Get preferences for specific user."""
+              if not user_id:
+                  raise HTTPException(status_code=401, detail="User identity required")
+              
+              # CRITICAL: Filter by user_id
+              query = "SELECT * FROM user_preferences WHERE user_id = :user_id"
+              return await self.db.execute(query, {"user_id": user_id})
+
+# Contract Testing Requirements
+x-contract-tests:
+  description: |
+    Service layer contract tests MUST validate:
+    
+    1. UserService with user_token creates client with auth_type="pat"
+    2. UserService without user_token creates client with auth_type="oauth-m2m"
+    3. UserService.get_user_id() returns email address
+    4. UserService.get_user_id() raises 401 when user_token missing
+    5. UserService.get_workspace_info() returns WorkspaceInfo with required fields
+    6. UserService.get_workspace_info() does not expose _get_client() to callers
+    7. UnityCatalogService with user_token uses OBO (respects permissions)
+    8. UnityCatalogService without user_token uses service principal
+    9. ModelServingService with user_token uses OBO
+    10. ModelServingService without user_token uses service principal
+    11. LakebaseService NEVER accepts user_token
+    12. LakebaseService queries include WHERE user_id = ?
+    13. LakebaseService validates user_id presence before queries
+    14. All services implement retry logic with exponential backoff
+    15. All services respect 5-second total timeout
+    16. All services fail immediately on HTTP 429
+
+  test_files:
+    - tests/contract/test_user_service_contract.py
+    - tests/contract/test_unity_catalog_service_contract.py
+    - tests/contract/test_model_serving_service_contract.py
+    - tests/contract/test_lakebase_service_contract.py
+    - tests/unit/test_auth_unit.py
+
+# Authentication Behavior Matrix
+x-auth-behavior-matrix:
+  description: |
+    Expected authentication behavior for each service under different conditions.
+  
+  matrix:
+    - service: UserService
+      user_token_present: true
+      expected_auth_mode: obo
+      expected_auth_type: pat
+      expected_behavior: Uses user credentials, returns user's info
+    
+    - service: UserService
+      user_token_present: false
+      expected_auth_mode: service_principal
+      expected_auth_type: oauth-m2m
+      expected_behavior: Uses service principal credentials
+    
+    - service: UnityCatalogService
+      user_token_present: true
+      expected_auth_mode: obo
+      expected_auth_type: pat
+      expected_behavior: Lists catalogs user can access (Unity Catalog enforces permissions)
+    
+    - service: UnityCatalogService
+      user_token_present: false
+      expected_auth_mode: service_principal
+      expected_auth_type: oauth-m2m
+      expected_behavior: Lists catalogs service principal can access
+    
+    - service: ModelServingService
+      user_token_present: true
+      expected_auth_mode: obo
+      expected_auth_type: pat
+      expected_behavior: Lists endpoints user can access
+    
+    - service: ModelServingService
+      user_token_present: false
+      expected_auth_mode: service_principal
+      expected_auth_type: oauth-m2m
+      expected_behavior: Lists endpoints service principal can access
+    
+    - service: LakebaseService
+      user_token_present: true
+      expected_auth_mode: service_principal
+      expected_auth_type: N/A (database connection)
+      expected_behavior: Uses service principal DB connection, filters by user_id
+    
+    - service: LakebaseService
+      user_token_present: false
+      expected_auth_mode: service_principal
+      expected_auth_type: N/A (database connection)
+      expected_behavior: Uses service principal DB connection, requires user_id parameter
+
+# Error Handling Matrix
+x-error-handling-matrix:
+  description: |
+    Expected error handling for each service under failure conditions.
+  
+  scenarios:
+    - error_type: Token expired
+      retry_behavior: Exponential backoff (3 attempts)
+      max_timeout: 5 seconds
+      final_response: HTTP 401
+    
+    - error_type: Token invalid/malformed
+      retry_behavior: Exponential backoff (3 attempts)
+      max_timeout: 5 seconds
+      final_response: HTTP 401
+    
+    - error_type: Rate limit (HTTP 429)
+      retry_behavior: No retry (immediate failure)
+      max_timeout: N/A
+      final_response: HTTP 429
+    
+    - error_type: User identity extraction failed
+      retry_behavior: No retry
+      max_timeout: N/A
+      final_response: HTTP 401
+    
+    - error_type: Missing user_id for database query
+      retry_behavior: No retry
+      max_timeout: N/A
+      final_response: HTTP 401
+    
+    - error_type: Upstream service unavailable
+      retry_behavior: Wait transparently (loading state)
+      max_timeout: 30 seconds
+      final_response: HTTP 503 or success if recovers
+
+# Logging Requirements
+x-logging-requirements:
+  description: |
+    All services MUST implement structured logging for authentication events.
+  
+  required_log_events:
+    - event: service.client_created
+      level: INFO
+      fields: [service_name, auth_mode, auth_type, correlation_id]
+    
+    - event: service.api_call_start
+      level: INFO
+      fields: [service_name, operation, auth_mode, correlation_id]
+    
+    - event: service.api_call_success
+      level: INFO
+      fields: [service_name, operation, duration_ms, correlation_id]
+    
+    - event: service.api_call_retry
+      level: WARNING
+      fields: [service_name, operation, attempt, error_type, correlation_id]
+    
+    - event: service.api_call_failed
+      level: ERROR
+      fields: [service_name, operation, error_type, error_message, retry_count, correlation_id]
+    
+    - event: service.user_id_extraction
+      level: INFO
+      fields: [service_name, user_id, correlation_id]
+    
+    - event: service.database_query
+      level: INFO
+      fields: [service_name, query_type, user_id, correlation_id]
+
+# Requirement Traceability
+x-requirements:
+  functional:
+    - FR-002: Services accept user_token parameter
+    - FR-003: OBO clients use auth_type="pat"
+    - FR-004: Service principal clients use auth_type="oauth-m2m"
+    - FR-005: /api/user/me endpoint uses user token via UserService
+    - FR-006a: UserService provides public get_workspace_info() method
+    - FR-007: User endpoints do not bypass authentication
+    - FR-010: Extract user_id via UserService.get_user_info()
+    - FR-011: LakebaseService uses service principal only
+    - FR-013: All user-scoped queries filter by user_id
+    - FR-014: Validate user_id presence before queries
+    - FR-016: Automatic fallback when token missing
+    - FR-017: Detailed authentication logging
+    - FR-018: Exponential backoff retry logic
+    - FR-019: Immediate failure on HTTP 429
+    - FR-023: Transparent loading for upstream unavailability
+    - FR-025: Independent retry per request
+  
+  non_functional:
+    - NFR-001: Auth overhead <10ms
+    - NFR-006: Retry timeout <5 seconds
+    - NFR-010: Upstream timeout 30 seconds
+
