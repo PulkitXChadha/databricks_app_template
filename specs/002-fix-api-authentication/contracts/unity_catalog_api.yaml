@@ -1,0 +1,520 @@
+openapi: 3.0.3
+info:
+  title: Unity Catalog API - OBO Authentication Contract
+  description: |
+    Contract for Unity Catalog endpoints with On-Behalf-Of (OBO) authentication.
+    These endpoints MUST use user's credentials to enforce table/schema/catalog permissions.
+  version: 1.0.0
+  contact:
+    name: Databricks App Template Team
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: https://databricks-app.cloud.databricks.com
+    description: Production deployment
+
+paths:
+  /api/unity-catalog/catalogs:
+    get:
+      operationId: listCatalogs
+      summary: List Unity Catalog catalogs
+      description: |
+        Returns catalogs that the authenticated user has access to.
+        MUST use OBO token to respect user's catalog-level permissions.
+        User will only see catalogs they have USE or higher permissions on.
+      tags:
+        - Unity Catalog
+      security:
+        - oboToken: []
+      parameters:
+        - name: X-Forwarded-Access-Token
+          in: header
+          description: User access token for OBO authentication
+          required: false
+          schema:
+            type: string
+            format: jwt
+        - name: X-Correlation-ID
+          in: header
+          description: Optional client-provided correlation ID
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          description: Maximum number of catalogs to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Number of catalogs to skip (pagination)
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Successfully retrieved catalogs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogList'
+              example:
+                catalogs:
+                  - name: "main"
+                    comment: "Main catalog"
+                    owner: "admin@example.com"
+                    created_at: "2025-01-01T00:00:00Z"
+                  - name: "dev"
+                    comment: "Development catalog"
+                    owner: "user@example.com"
+                    created_at: "2025-09-01T10:00:00Z"
+                total_count: 2
+                limit: 50
+                offset: 0
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: User does not have permission to list catalogs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/unity-catalog/catalogs/{catalog_name}/schemas:
+    get:
+      operationId: listSchemas
+      summary: List schemas in a catalog
+      description: |
+        Returns schemas in the specified catalog that the user has access to.
+        MUST use OBO token to respect user's schema-level permissions.
+      tags:
+        - Unity Catalog
+      security:
+        - oboToken: []
+      parameters:
+        - name: catalog_name
+          in: path
+          description: Name of the catalog
+          required: true
+          schema:
+            type: string
+          example: "main"
+        - name: X-Forwarded-Access-Token
+          in: header
+          description: User access token for OBO authentication
+          required: false
+          schema:
+            type: string
+            format: jwt
+        - name: X-Correlation-ID
+          in: header
+          description: Optional client-provided correlation ID
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          description: Maximum number of schemas to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Number of schemas to skip (pagination)
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Successfully retrieved schemas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaList'
+              example:
+                schemas:
+                  - name: "default"
+                    catalog_name: "main"
+                    comment: "Default schema"
+                    owner: "admin@example.com"
+                    created_at: "2025-01-01T00:00:00Z"
+                  - name: "analytics"
+                    catalog_name: "main"
+                    comment: "Analytics tables"
+                    owner: "user@example.com"
+                    created_at: "2025-08-15T10:00:00Z"
+                total_count: 2
+                limit: 50
+                offset: 0
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: User does not have permission to access this catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Catalog not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/unity-catalog/catalogs/{catalog_name}/schemas/{schema_name}/tables:
+    get:
+      operationId: listTables
+      summary: List tables in a schema
+      description: |
+        Returns tables in the specified schema that the user has access to.
+        MUST use OBO token to respect user's table-level permissions.
+      tags:
+        - Unity Catalog
+      security:
+        - oboToken: []
+      parameters:
+        - name: catalog_name
+          in: path
+          description: Name of the catalog
+          required: true
+          schema:
+            type: string
+          example: "main"
+        - name: schema_name
+          in: path
+          description: Name of the schema
+          required: true
+          schema:
+            type: string
+          example: "default"
+        - name: X-Forwarded-Access-Token
+          in: header
+          description: User access token for OBO authentication
+          required: false
+          schema:
+            type: string
+            format: jwt
+        - name: X-Correlation-ID
+          in: header
+          description: Optional client-provided correlation ID
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          description: Maximum number of tables to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Number of tables to skip (pagination)
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Successfully retrieved tables
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableList'
+              example:
+                tables:
+                  - name: "customers"
+                    catalog_name: "main"
+                    schema_name: "default"
+                    table_type: "MANAGED"
+                    owner: "user@example.com"
+                    created_at: "2025-09-01T10:00:00Z"
+                  - name: "orders"
+                    catalog_name: "main"
+                    schema_name: "default"
+                    table_type: "MANAGED"
+                    owner: "user@example.com"
+                    created_at: "2025-09-10T12:00:00Z"
+                total_count: 2
+                limit: 50
+                offset: 0
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: User does not have permission to access this schema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Catalog or schema not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    CatalogList:
+      type: object
+      required:
+        - catalogs
+        - total_count
+        - limit
+        - offset
+      properties:
+        catalogs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Catalog'
+          description: List of catalogs the user has access to
+        total_count:
+          type: integer
+          description: Total number of accessible catalogs
+        limit:
+          type: integer
+          description: Maximum number of catalogs returned
+        offset:
+          type: integer
+          description: Number of catalogs skipped
+
+    Catalog:
+      type: object
+      required:
+        - name
+        - owner
+      properties:
+        name:
+          type: string
+          description: Catalog name
+          example: "main"
+        comment:
+          type: string
+          nullable: true
+          description: Catalog description
+          example: "Main catalog"
+        owner:
+          type: string
+          description: Catalog owner
+          example: "admin@example.com"
+        created_at:
+          type: string
+          format: date-time
+          description: When the catalog was created
+          example: "2025-01-01T00:00:00Z"
+
+    SchemaList:
+      type: object
+      required:
+        - schemas
+        - total_count
+        - limit
+        - offset
+      properties:
+        schemas:
+          type: array
+          items:
+            $ref: '#/components/schemas/Schema'
+          description: List of schemas the user has access to
+        total_count:
+          type: integer
+          description: Total number of accessible schemas
+        limit:
+          type: integer
+          description: Maximum number of schemas returned
+        offset:
+          type: integer
+          description: Number of schemas skipped
+
+    Schema:
+      type: object
+      required:
+        - name
+        - catalog_name
+        - owner
+      properties:
+        name:
+          type: string
+          description: Schema name
+          example: "default"
+        catalog_name:
+          type: string
+          description: Parent catalog name
+          example: "main"
+        comment:
+          type: string
+          nullable: true
+          description: Schema description
+          example: "Default schema"
+        owner:
+          type: string
+          description: Schema owner
+          example: "admin@example.com"
+        created_at:
+          type: string
+          format: date-time
+          description: When the schema was created
+          example: "2025-01-01T00:00:00Z"
+
+    TableList:
+      type: object
+      required:
+        - tables
+        - total_count
+        - limit
+        - offset
+      properties:
+        tables:
+          type: array
+          items:
+            $ref: '#/components/schemas/Table'
+          description: List of tables the user has access to
+        total_count:
+          type: integer
+          description: Total number of accessible tables
+        limit:
+          type: integer
+          description: Maximum number of tables returned
+        offset:
+          type: integer
+          description: Number of tables skipped
+
+    Table:
+      type: object
+      required:
+        - name
+        - catalog_name
+        - schema_name
+        - table_type
+        - owner
+      properties:
+        name:
+          type: string
+          description: Table name
+          example: "customers"
+        catalog_name:
+          type: string
+          description: Parent catalog name
+          example: "main"
+        schema_name:
+          type: string
+          description: Parent schema name
+          example: "default"
+        table_type:
+          type: string
+          enum: ["MANAGED", "EXTERNAL", "VIEW"]
+          description: Type of table
+          example: "MANAGED"
+        owner:
+          type: string
+          description: Table owner
+          example: "user@example.com"
+        created_at:
+          type: string
+          format: date-time
+          description: When the table was created
+          example: "2025-09-01T10:00:00Z"
+        comment:
+          type: string
+          nullable: true
+          description: Table description
+
+    Error:
+      type: object
+      required:
+        - error
+        - status_code
+      properties:
+        error:
+          type: string
+          description: Error message
+        detail:
+          type: string
+          nullable: true
+          description: Detailed error information
+        status_code:
+          type: integer
+          description: HTTP status code
+        correlation_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Request correlation ID for tracing
+
+  securitySchemes:
+    oboToken:
+      type: apiKey
+      in: header
+      name: X-Forwarded-Access-Token
+      description: User access token provided by Databricks Apps platform
+
+tags:
+  - name: Unity Catalog
+    description: Unity Catalog endpoints with user permission enforcement
+

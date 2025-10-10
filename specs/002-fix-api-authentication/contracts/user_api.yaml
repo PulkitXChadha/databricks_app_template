@@ -1,0 +1,259 @@
+openapi: 3.0.3
+info:
+  title: User API - OBO Authentication Contract
+  description: |
+    Contract for user information endpoints with On-Behalf-Of (OBO) authentication.
+    These endpoints MUST accept user access tokens and return information for the authenticated user.
+  version: 1.0.0
+  contact:
+    name: Databricks App Template Team
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: https://databricks-app.cloud.databricks.com
+    description: Production deployment
+
+paths:
+  /api/user/me:
+    get:
+      operationId: getCurrentUser
+      summary: Get current authenticated user information
+      description: |
+        Returns information about the currently authenticated user based on the OBO token.
+        MUST extract user token from X-Forwarded-Access-Token header.
+        MUST NOT use service principal credentials for this endpoint.
+      tags:
+        - User
+      security:
+        - oboToken: []
+      parameters:
+        - name: X-Forwarded-Access-Token
+          in: header
+          description: User access token provided by Databricks Apps platform (OBO token)
+          required: false
+          schema:
+            type: string
+            format: jwt
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+        - name: X-Correlation-ID
+          in: header
+          description: Optional client-provided correlation ID for request tracing
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successfully retrieved user information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfo'
+              example:
+                user_id: "1234567890abcdef"
+                email: "user@example.com"
+                username: "user@example.com"
+                display_name: "Example User"
+                is_authenticated: true
+                auth_method: "obo"
+        '401':
+          description: Authentication failed - invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Authentication failed"
+                detail: "Invalid or expired access token"
+                status_code: 401
+        '429':
+          description: Rate limit exceeded - too many authentication attempts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Rate limit exceeded"
+                detail: "Too many authentication attempts, please retry later"
+                status_code: 429
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Internal server error"
+                detail: "Failed to retrieve user information"
+                status_code: 500
+
+  /api/user/me/workspace:
+    get:
+      operationId: getCurrentUserWorkspace
+      summary: Get current user's workspace information
+      description: |
+        Returns workspace information for the currently authenticated user.
+        MUST use user's OBO token to retrieve workspace details.
+      tags:
+        - User
+      security:
+        - oboToken: []
+      parameters:
+        - name: X-Forwarded-Access-Token
+          in: header
+          description: User access token provided by Databricks Apps platform
+          required: false
+          schema:
+            type: string
+            format: jwt
+        - name: X-Correlation-ID
+          in: header
+          description: Optional client-provided correlation ID for request tracing
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successfully retrieved workspace information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceInfo'
+              example:
+                workspace_id: "1234567890123456"
+                workspace_name: "Production Workspace"
+                workspace_url: "https://my-workspace.cloud.databricks.com"
+                cloud_provider: "AWS"
+                region: "us-west-2"
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    UserInfo:
+      type: object
+      required:
+        - user_id
+        - username
+        - is_authenticated
+        - auth_method
+      properties:
+        user_id:
+          type: string
+          description: Unique Databricks user identifier
+          example: "1234567890abcdef"
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: User's email address
+          example: "user@example.com"
+        username:
+          type: string
+          description: Databricks username
+          example: "user@example.com"
+        display_name:
+          type: string
+          nullable: true
+          description: User's display name
+          example: "Example User"
+        is_authenticated:
+          type: boolean
+          description: Whether user is authenticated via OBO token
+          example: true
+        auth_method:
+          type: string
+          enum: ["obo", "service_principal"]
+          description: Authentication method used
+          example: "obo"
+
+    WorkspaceInfo:
+      type: object
+      required:
+        - workspace_id
+        - workspace_name
+        - workspace_url
+      properties:
+        workspace_id:
+          type: string
+          description: Unique workspace identifier
+          example: "1234567890123456"
+        workspace_name:
+          type: string
+          description: Workspace display name
+          example: "Production Workspace"
+        workspace_url:
+          type: string
+          format: uri
+          description: Workspace URL
+          example: "https://my-workspace.cloud.databricks.com"
+        cloud_provider:
+          type: string
+          enum: ["AWS", "Azure", "GCP"]
+          nullable: true
+          description: Cloud provider hosting the workspace
+          example: "AWS"
+        region:
+          type: string
+          nullable: true
+          description: Cloud region
+          example: "us-west-2"
+
+    Error:
+      type: object
+      required:
+        - error
+        - status_code
+      properties:
+        error:
+          type: string
+          description: Error message
+          example: "Authentication failed"
+        detail:
+          type: string
+          nullable: true
+          description: Detailed error information
+          example: "Invalid or expired access token"
+        status_code:
+          type: integer
+          description: HTTP status code
+          example: 401
+        correlation_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Request correlation ID for tracing
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+  securitySchemes:
+    oboToken:
+      type: apiKey
+      in: header
+      name: X-Forwarded-Access-Token
+      description: |
+        User access token provided by Databricks Apps platform.
+        The platform automatically includes this header for authenticated requests.
+        In local development, this header may be absent (fallback to service principal).
+
+tags:
+  - name: User
+    description: User information and workspace endpoints with OBO authentication
+

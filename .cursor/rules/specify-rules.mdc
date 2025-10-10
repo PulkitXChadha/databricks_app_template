@@ -7,6 +7,10 @@ Auto-generated from all feature plans. Last updated: 2025-10-04
 - Python 3.11+ (modern type hints), Node.js 18.0+ (TypeScript 5.2+, Vite 5.0) (001-databricks-integrations)
 - Python 3.11+ (backend), TypeScript 5.2+ (frontend) + FastAPI 0.104+, Databricks SDK 0.59.0, SQLAlchemy 2.0+, React 18, Vite 5.0, designbricks 0.2.2 (001-databricks-integrations)
 - Lakebase (Databricks-hosted Postgres) for transactional data, Unity Catalog for lakehouse data (001-databricks-integrations)
+- Python 3.11+ (backend), TypeScript 5.2+ (frontend) + FastAPI 0.104+, Databricks SDK 0.59.0, React 18.3, SQLAlchemy 2.0+, Psycopg 3.1+ (002-fix-api-authentication)
+- Lakebase (PostgreSQL in Databricks) with service principal authentication (002-fix-api-authentication)
+- Python 3.11+ (confirmed in pyproject.toml) + FastAPI 0.104+, Databricks SDK 0.59.0, SQLAlchemy 2.0+, Psycopg 3.1+ (002-fix-api-authentication)
+- Lakebase (PostgreSQL in Databricks) via service principal authentication (002-fix-api-authentication)
 
 ## Project Structure
 ```
@@ -22,9 +26,9 @@ cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLO
 Python 3.11+ (backend), TypeScript 5.2+ (frontend): Follow standard conventions
 
 ## Recent Changes
+- 002-fix-api-authentication: Added Python 3.11+ (confirmed in pyproject.toml) + FastAPI 0.104+, Databricks SDK 0.59.0, SQLAlchemy 2.0+, Psycopg 3.1+
+- 002-fix-api-authentication: Added Python 3.11+ (backend), TypeScript 5.2+ (frontend) + FastAPI 0.104+, Databricks SDK 0.59.0, React 18.3, SQLAlchemy 2.0+, Psycopg 3.1+
 - 001-databricks-integrations: Added Python 3.11+ (backend), TypeScript 5.2+ (frontend) + FastAPI 0.104+, Databricks SDK 0.59.0, SQLAlchemy 2.0+, React 18, Vite 5.0, designbricks 0.2.2
-- 001-databricks-integrations: Added Python 3.11+ (modern type hints), Node.js 18.0+ (TypeScript 5.2+, Vite 5.0)
-- 001-databricks-integrations: Added Python 3.11+ (backend), TypeScript 5.2+ (frontend) + FastAPI 0.104+, Databricks SDK 0.59, React 18.3, Vite 5.0, Unity Catalog, Lakebase, MLflow 3.1+
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

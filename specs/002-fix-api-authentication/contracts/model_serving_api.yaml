@@ -1,0 +1,329 @@
+openapi: 3.0.3
+info:
+  title: Model Serving API - OBO Authentication Contract
+  description: |
+    Contract for model serving endpoints with On-Behalf-Of (OBO) authentication.
+    These endpoints MUST use user's permissions to access model serving endpoints.
+  version: 1.0.0
+  contact:
+    name: Databricks App Template Team
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: https://databricks-app.cloud.databricks.com
+    description: Production deployment
+
+paths:
+  /api/model-serving/endpoints:
+    get:
+      operationId: listModelEndpoints
+      summary: List model serving endpoints
+      description: |
+        Returns model serving endpoints that the authenticated user has access to.
+        MUST use OBO token to respect user's endpoint-level permissions.
+        MUST NOT use service principal credentials.
+      tags:
+        - Model Serving
+      security:
+        - oboToken: []
+      parameters:
+        - name: X-Forwarded-Access-Token
+          in: header
+          description: User access token for OBO authentication
+          required: false
+          schema:
+            type: string
+            format: jwt
+        - name: X-Correlation-ID
+          in: header
+          description: Optional client-provided correlation ID
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          description: Maximum number of endpoints to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Number of endpoints to skip (pagination)
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Successfully retrieved model endpoints
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelEndpointList'
+              example:
+                endpoints:
+                  - name: "llama-2-70b-chat"
+                    state: "READY"
+                    creator: "user@example.com"
+                    creation_timestamp: "2025-10-01T10:00:00Z"
+                    last_updated_timestamp: "2025-10-05T15:30:00Z"
+                  - name: "custom-classifier"
+                    state: "READY"
+                    creator: "user@example.com"
+                    creation_timestamp: "2025-09-15T08:00:00Z"
+                    last_updated_timestamp: "2025-09-20T12:00:00Z"
+                total_count: 2
+                limit: 50
+                offset: 0
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: User does not have permission to list model endpoints
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Forbidden"
+                detail: "User does not have permission to list model serving endpoints"
+                status_code: 403
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/model-serving/endpoints/{endpoint_name}:
+    get:
+      operationId: getModelEndpoint
+      summary: Get model endpoint details
+      description: |
+        Returns details for a specific model serving endpoint.
+        MUST use OBO token to check user's permissions on the endpoint.
+      tags:
+        - Model Serving
+      security:
+        - oboToken: []
+      parameters:
+        - name: endpoint_name
+          in: path
+          description: Name of the model serving endpoint
+          required: true
+          schema:
+            type: string
+          example: "llama-2-70b-chat"
+        - name: X-Forwarded-Access-Token
+          in: header
+          description: User access token for OBO authentication
+          required: false
+          schema:
+            type: string
+            format: jwt
+        - name: X-Correlation-ID
+          in: header
+          description: Optional client-provided correlation ID
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successfully retrieved endpoint details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelEndpoint'
+              example:
+                name: "llama-2-70b-chat"
+                state: "READY"
+                creator: "user@example.com"
+                creation_timestamp: "2025-10-01T10:00:00Z"
+                last_updated_timestamp: "2025-10-05T15:30:00Z"
+                config:
+                  served_models:
+                    - name: "llama-2-70b-chat-v1"
+                      model_name: "llama-2-70b-chat"
+                      model_version: "1"
+                      workload_size: "Small"
+                      scale_to_zero_enabled: true
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: User does not have permission to access this endpoint
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Endpoint not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Not found"
+                detail: "Model endpoint 'llama-2-70b-chat' not found"
+                status_code: 404
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    ModelEndpointList:
+      type: object
+      required:
+        - endpoints
+        - total_count
+        - limit
+        - offset
+      properties:
+        endpoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelEndpointSummary'
+          description: List of model serving endpoints
+        total_count:
+          type: integer
+          description: Total number of endpoints the user has access to
+          example: 2
+        limit:
+          type: integer
+          description: Maximum number of endpoints returned
+          example: 50
+        offset:
+          type: integer
+          description: Number of endpoints skipped
+          example: 0
+
+    ModelEndpointSummary:
+      type: object
+      required:
+        - name
+        - state
+        - creator
+        - creation_timestamp
+      properties:
+        name:
+          type: string
+          description: Endpoint name
+          example: "llama-2-70b-chat"
+        state:
+          type: string
+          enum: ["READY", "NOT_READY", "STOPPED", "FAILED"]
+          description: Current endpoint state
+          example: "READY"
+        creator:
+          type: string
+          description: User who created the endpoint
+          example: "user@example.com"
+        creation_timestamp:
+          type: string
+          format: date-time
+          description: When the endpoint was created
+          example: "2025-10-01T10:00:00Z"
+        last_updated_timestamp:
+          type: string
+          format: date-time
+          description: When the endpoint was last updated
+          example: "2025-10-05T15:30:00Z"
+
+    ModelEndpoint:
+      type: object
+      required:
+        - name
+        - state
+        - creator
+        - creation_timestamp
+      properties:
+        name:
+          type: string
+          description: Endpoint name
+          example: "llama-2-70b-chat"
+        state:
+          type: string
+          enum: ["READY", "NOT_READY", "STOPPED", "FAILED"]
+          description: Current endpoint state
+          example: "READY"
+        creator:
+          type: string
+          description: User who created the endpoint
+          example: "user@example.com"
+        creation_timestamp:
+          type: string
+          format: date-time
+          description: When the endpoint was created
+          example: "2025-10-01T10:00:00Z"
+        last_updated_timestamp:
+          type: string
+          format: date-time
+          description: When the endpoint was last updated
+          example: "2025-10-05T15:30:00Z"
+        config:
+          type: object
+          description: Endpoint configuration details
+          nullable: true
+
+    Error:
+      type: object
+      required:
+        - error
+        - status_code
+      properties:
+        error:
+          type: string
+          description: Error message
+        detail:
+          type: string
+          nullable: true
+          description: Detailed error information
+        status_code:
+          type: integer
+          description: HTTP status code
+        correlation_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Request correlation ID for tracing
+
+  securitySchemes:
+    oboToken:
+      type: apiKey
+      in: header
+      name: X-Forwarded-Access-Token
+      description: User access token provided by Databricks Apps platform
+
+tags:
+  - name: Model Serving
+    description: Model serving endpoints with user permission enforcement
+

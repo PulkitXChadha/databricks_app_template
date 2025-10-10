@@ -81,6 +81,14 @@ Based on error logs, the following endpoints are failing:
 - Q: If Databricks platform itself rate-limits authentication attempts during the 3-retry exponential backoff period, should the system: → A: Fail immediately and return HTTP 429 to user (respect platform limits)
 - Q: When the same user has multiple browser tabs/sessions open simultaneously and one session's token gets refreshed by the platform, should: → A: All tabs automatically work with no special handling (each request is independent)
 - Q: During deployment of this authentication fix to production Databricks Apps, should the rollout strategy be: → A: Deploy in-place with zero downtime (rolling update, users may see brief errors during cutover)
+- Q: What is the expected scale of concurrent users and API request volume for this application in production? → A: Small scale: <50 concurrent users, <1000 requests/min
+- Q: When upstream Databricks services (Unity Catalog, Model Serving) are temporarily unavailable or slow (beyond authentication issues), what should the user experience be? → A: Transparent: Show loading state indefinitely until service recovers (with timeout)
+- Q: Beyond detailed logging, what operational metrics should be exposed for monitoring authentication health and system performance? → A: Comprehensive: All above plus per-user metrics, P95/P99 latencies, circuit breaker states
+- Q: When a user access token is present in the X-Forwarded-Access-Token header but is malformed or invalid (not expired, but structurally broken or cryptographically invalid), what should the system do? → A: Retry with exponential backoff (same as expiration handling) but also provide detailed logger messages
+- Q: For local development testing of OBO authentication (FR-022 mentions "provide a way" but lacks specifics), which approach should be supported? → A: CLI command to fetch real tokens from Databricks workspace (Databricks CLI auth commands to get real user OAuth)
+- Q: This authentication fix changes how API requests are handled. Are there existing deployed instances or users who would be affected by this change? → A: No, this is the first production deployment (greenfield)
+- Q: The solution depends on Databricks SDK behavior for authentication configuration. Should specific SDK version constraints be documented? → A: Yes, specify minimum SDK version with required auth_type parameter support AND pin exact SDK version to prevent breaking changes
+- Q: When the same user makes multiple concurrent API requests and some fail with authentication errors triggering retries, how should the retry logic coordinate across these parallel requests? → A: Each request retries independently (no coordination, potentially N×3 retries to backend)
 
 ---
 
@@ -107,10 +115,17 @@ As a **Databricks App user**, when I open the deployed application and interact 
 ### Edge Cases
 
 - **What happens when the user's access token expires?** The system must implement automatic retry with exponential backoff (e.g., 100ms, 200ms, 400ms delays) before returning authentication errors to the client
+- **What happens when the user's access token is malformed or invalid?** The system must retry with exponential backoff (treating it as potentially transient) and log detailed messages about the token validation failure to aid debugging while respecting the 5-second total retry timeout
+- **Token Error Type Definitions**:
+  - **Malformed**: Structurally broken JWT (invalid format, missing segments, unparseable)
+  - **Invalid**: Valid JWT structure but cryptographically invalid (wrong signature, wrong issuer, tampered)
+  - **Expired**: Valid and authentic JWT but time-expired (exp claim in past)
+  - **Note**: All three error types handled identically per FR-018 (retry with exponential backoff)
 - **How does the system handle API calls in background jobs?** Background tasks should use service principal credentials since no user context exists
 - **What if Databricks SDK environment variables conflict?** The system must explicitly specify authentication type to prevent SDK auto-detection conflicts
 - **How are database queries authenticated?** Lakebase connections use service principal authentication (platform limitation - PostgreSQL roles are service principal-only). Application-level `user_id` filtering must enforce data isolation
 - **What happens when a user has multiple browser tabs open?** Each tab operates independently with stateless authentication - tokens are extracted fresh from headers on every request, so token refreshes automatically work across all tabs without coordination
+- **How do concurrent API requests from the same user handle authentication retries?** Each request implements retry logic independently without coordination, meaning if 5 parallel requests all fail authentication, each will perform its own 3 retry attempts (potentially 15 total retry calls to the backend) following the stateless pattern
 - **How does the system prevent cross-user data access in Lakebase?** All user-scoped queries must include `WHERE user_id = ?` clauses; missing user_id validation should cause query rejection
 
 ---
@@ -124,10 +139,11 @@ As a **Databricks App user**, when I open the deployed application and interact 
 - **FR-002**: System MUST pass user access tokens to Databricks API service layer components (UserService, UnityCatalogService, ModelServingService) but NOT to LakebaseService
 - **FR-003**: System MUST explicitly specify `auth_type="pat"` when initializing Databricks SDK clients with user tokens to prevent authentication method conflicts
 - **FR-004**: System MUST explicitly specify `auth_type="oauth-m2m"` when initializing Databricks SDK clients with service principal credentials
+- **FR-024**: System MUST use a pinned exact version of the Databricks SDK that meets the minimum version requirement for explicit auth_type parameter support, with version constraints documented in dependency files to prevent breaking changes
 
 #### User Information Endpoints
-- **FR-005**: The `/api/user/me` endpoint MUST accept and use user access tokens to retrieve the actual authenticated user's information
-- **FR-006**: The `/api/user/me/workspace` endpoint MUST accept and use user access tokens to retrieve workspace information for the authenticated user
+- **FR-005**: The `/api/user/me` endpoint MUST retrieve the actual authenticated user's information (not service principal) using the user access token passed per FR-002
+- **FR-006**: The `/api/user/me/workspace` endpoint MUST retrieve workspace information for the authenticated user (not service principal) using the user access token passed per FR-002
 - **FR-007**: User information endpoints MUST NOT create service-only clients that bypass user authentication
 
 #### Permission Enforcement (Databricks APIs)
@@ -144,14 +160,16 @@ As a **Databricks App user**, when I open the deployed application and interact 
 #### Error Handling
 - **FR-015**: System MUST return clear error messages when authentication fails (not internal SDK validation errors)
 - **FR-016**: System MUST gracefully fall back to service principal mode when user tokens are unavailable (local development)
-- **FR-017**: System MUST log detailed authentication activity including: token presence (yes/no), SDK config auth_type, retry attempt numbers, and fallback trigger events for debugging and audit purposes
-- **FR-018**: System MUST implement exponential backoff retry logic (minimum 3 attempts with delays: 100ms, 200ms, 400ms) for authentication failures with a maximum total timeout of 5 seconds before returning errors to clients
+- **FR-017**: System MUST log detailed authentication activity including: token presence (yes/no), SDK config auth_type, retry attempt numbers, fallback trigger events, and token validation failure details (for malformed/invalid tokens) for debugging and audit purposes
+- **FR-018**: System MUST implement exponential backoff retry logic (minimum 3 attempts with delays: 100ms, 200ms, 400ms) for all authentication failures including malformed, invalid, and expired tokens (as defined in Edge Cases: Token Error Type Definitions, lines 119-123) with a maximum total timeout of 5 seconds before returning errors to clients
 - **FR-019**: System MUST detect Databricks platform rate limit responses (HTTP 429) during retry attempts and immediately fail the request by returning HTTP 429 to the user without further retries to respect platform limits
+- **FR-023**: When upstream Databricks services (Unity Catalog, Model Serving) are temporarily unavailable or degraded, system MUST maintain loading state transparently (backend continues waiting without error response, allowing frontend to display loading indicator/skeleton UI) until the service recovers or a timeout is reached (see NFR-010 for upstream timeout configuration, minimum 30s), rather than immediately failing the request
+- **FR-025**: System MUST implement retry logic independently per request without coordination across concurrent requests from the same user, allowing multiple parallel requests to each perform their own retry attempts (stateless retry pattern)
 
 #### Local Development Support
 - **FR-020**: System MUST work in local development environments where `X-Forwarded-Access-Token` is not present
 - **FR-021**: Local development mode MUST clearly indicate when using service principal instead of user credentials
-- **FR-022**: System MUST provide a way to test OBO authentication locally using environment variables
+- **FR-022**: System MUST support testing OBO authentication locally by accepting user OAuth tokens obtained via Databricks CLI command `databricks auth token`, allowing developers to test with real authentication credentials in their development environment (Usage: `export DATABRICKS_USER_TOKEN=$(databricks auth token)`)
 
 ### Non-Functional Requirements
 
@@ -161,18 +179,34 @@ As a **Databricks App user**, when I open the deployed application and interact 
 - **NFR-004**: No user tokens or credentials should be logged (security requirement)
 - **NFR-005**: User access tokens MUST NOT be cached, stored in memory between requests, or persisted to disk to minimize security exposure and ensure token revocation takes immediate effect
 - **NFR-006**: Authentication retry operations MUST complete within 5 seconds total (including all retry attempts and network overhead) to prevent request timeouts and degraded user experience
-- **NFR-007**: Deployment to production MUST support in-place rolling updates with zero planned downtime, accepting brief transient errors during cutover as acceptable degradation
+- **NFR-007**: Deployment to production MUST support in-place rolling updates with zero planned downtime, accepting brief transient errors during cutover as acceptable degradation (Note: This is the first production deployment/greenfield, but design must support future updates)
 - **NFR-008**: Lakebase database connection pooling must efficiently handle concurrent user requests under a single service principal authentication without performance degradation
+- **NFR-009**: System MUST support up to 50 concurrent users and handle up to 1000 API requests per minute without degradation in authentication response times or error rates
+- **NFR-010**: Upstream service timeout for Databricks API calls (Unity Catalog, Model Serving) MUST be configured to a minimum of 30 seconds to allow sufficient time for service recovery and enable transparent loading state behavior
+- **NFR-011**: System MUST expose comprehensive operational metrics including: authentication success/failure counts per endpoint, authentication retry rates, token extraction time, average and P95/P99 request latencies, per-user request counts, and upstream service availability indicators for monitoring dashboards and alerting
+- **NFR-012**: Metrics MUST be collected and exposed in a format compatible with standard observability platforms (Prometheus, Datadog, CloudWatch) without requiring custom instrumentation at deployment time
+- **NFR-013**: Databricks SDK version MUST be pinned to an exact version (not version range) in dependency management files (requirements.txt) that supports explicit auth_type parameter, with minimum version clearly documented to prevent breaking changes and ensure authentication behavior consistency
 
 ### Key Entities *(included - feature involves authentication data)*
 
 - **User Access Token**: JWT token provided by Databricks Apps in `X-Forwarded-Access-Token` header, represents authenticated user's identity and permissions, expires and is refreshed by platform, used ONLY for Databricks APIs (not Lakebase)
 - **User Identity (user_id)**: Unique identifier extracted from user access token, stored with all user-specific database records (preferences, saved queries, inference logs) to enforce data isolation and enable per-user queries
-- **Service Principal Credentials**: OAuth client credentials (`DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`) for app-level operations, used for Lakebase connections and when user context is unavailable
+- **Service principal credentials**: OAuth client credentials (`DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`) for app-level operations, used for Lakebase connections and when user context is unavailable
 - **Databricks SDK Config**: Configuration object that specifies authentication method, must include explicit `auth_type` to prevent multi-method detection errors
 - **Request Context**: FastAPI request state that carries user token from middleware through to service layer dependencies
 - **Lakebase Database Connection**: PostgreSQL connection authenticated with service principal role (matching service principal's client ID), shared across all user sessions
 - **Database Role**: PostgreSQL role created by Databricks platform with name matching service principal's client ID, granted CONNECT and CREATE privileges
+
+---
+
+## Terminology Glossary
+
+- **User Access Token** (formal): JWT token provided by Databricks Apps platform in `X-Forwarded-Access-Token` header representing authenticated user's identity and permissions
+- **OBO Token** (shorthand): Abbreviation for "On-Behalf-Of token", synonymous with user access token, commonly used in implementation code
+- **User Token** (informal): Generic reference to user access token, used in variable names and casual documentation
+- **Service Principal Credentials**: OAuth M2M client credentials (`DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`) for app-level operations
+
+**Usage Guideline**: Use "user access token" in formal requirements and specifications; "OBO token" and "user token" are acceptable in implementation code and internal documentation.
 
 ---
 
@@ -199,9 +233,9 @@ As a **Databricks App user**, when I open the deployed application and interact 
 
 - [x] User description parsed (authentication error identified, Lakebase clarification added)
 - [x] Key concepts extracted (OBO for APIs, service principal for Lakebase, SDK configuration, token passing)
-- [x] Ambiguities clarified (8 questions answered covering rate limiting, multi-tab behavior, deployment strategy)
+- [x] Ambiguities clarified (16 questions answered covering rate limiting, multi-tab behavior, deployment strategy, scale targets, service degradation handling, comprehensive metrics, malformed token handling, local OBO testing, greenfield deployment context, SDK version constraints, concurrent request retry coordination)
 - [x] User scenarios defined (authenticated API access with proper permissions, Lakebase service principal usage)
-- [x] Requirements generated (22 functional, 8 non-functional)
+- [x] Requirements generated (25 functional, 13 non-functional)
 - [x] Entities identified (tokens, user identity, credentials, SDK config, request context, database connections, database role)
 - [x] Review checklist passed
 
@@ -219,10 +253,13 @@ The feature is considered successfully implemented when:
    - Lakebase database operations are logged under service principal (platform limitation)
    - Application logs capture actual user_id for all operations for audit trail
 5. **Local development works**: Application runs successfully in local mode with appropriate fallback behavior
-6. **Observability validated**: Logs contain detailed authentication information (token presence, SDK auth_type, retry attempts, fallback triggers) for all requests
+6. **Observability validated**: 
+   - Logs contain detailed authentication information (token presence, SDK auth_type, retry attempts, fallback triggers) for all requests
+   - Comprehensive metrics exposed including authentication success/failure rates, retry rates, P95/P99 latencies per endpoint, per-user request counts, and circuit breaker states
+   - Metrics are queryable in standard observability platform (Prometheus/Datadog/CloudWatch compatible)
 7. **Data isolation verified**: User-specific database records (preferences, saved queries, inference logs) contain user_id and queries filter results by authenticated user
 8. **Lakebase security validated**: No user OBO tokens are passed to Lakebase connections; all database queries properly filter by user_id
-9. **Deployment resilience confirmed**: Rolling update deployment completes successfully with stateless authentication enabling zero-downtime cutover (brief transient errors during deployment are acceptable)
+9. **Deployment resilience confirmed**: Initial production deployment completes successfully (this is a greenfield deployment), and system design supports future rolling updates with stateless authentication enabling zero-downtime cutover
 
 ---
 
