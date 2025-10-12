@@ -2,9 +2,9 @@
 
 **Input**: Design documents from `/Users/pulkit.chadha/Documents/Projects/databricks-app-template/specs/002-fix-api-authentication/`  
 **Prerequisites**: plan.md, research.md, data-model.md, contracts/, quickstart.md  
-**Branch**: `002-fix-api-authentication`  
-**Estimated Total Time**: 3-5 days  
-**Total Tasks**: 50
+**Branch**: `002-fix-api-authentication`
+**Estimated Total Time**: 3-5 days
+**Total Tasks**: 51
 
 ## Execution Flow (main)
 ```
@@ -122,6 +122,28 @@ alembic upgrade head
 - [ ] Existing data backfilled with placeholder
 
 **Related Requirements**: FR-010, FR-013
+
+---
+
+### T003a: Clean Up Migration Placeholder Emails
+**Type**: Database Cleanup | **Priority**: Low | **Dependencies**: T050 | **Estimated**: 15 min
+
+Remove placeholder emails used during migration after production deployment confirms no legacy data exists.
+
+**Commands**:
+```sql
+-- Only run after confirming production deployment successful
+UPDATE user_preferences SET user_id = NULL WHERE user_id = 'migration-placeholder@example.com';
+UPDATE model_inference_logs SET user_id = NULL WHERE user_id = 'migration-placeholder@example.com';
+```
+
+**Acceptance Criteria**:
+- [ ] Production deployment confirmed successful
+- [ ] No actual user data uses placeholder email
+- [ ] Placeholder emails removed or nullified
+- [ ] Database integrity maintained
+
+**Related Requirements**: FR-010, Data Migration Best Practices
 
 ---
 
@@ -2319,6 +2341,48 @@ python dba_logz.py  # Monitor logs for 60 seconds
 
 ---
 
+### T051: Validate Zero-Downtime Rolling Updates
+**Type**: Validation | **Priority**: High | **Dependencies**: T050 | **Estimated**: 45 min
+
+Validate zero-downtime rolling update deployment strategy per NFR-009.
+
+**Commands**:
+```bash
+# Start monitoring existing deployment
+curl -s https://<app-url>/api/health > /tmp/health-before.json
+
+# Deploy update with rolling strategy
+databricks bundle deploy -t prod --strategy rolling
+
+# Monitor deployment progress
+while databricks apps get <app-name> | grep -q "UPDATING"; do
+  echo "Deployment in progress..."
+  curl -s https://<app-url>/api/health
+  sleep 5
+done
+
+# Verify no downtime occurred
+curl -s https://<app-url>/api/health > /tmp/health-after.json
+```
+
+**Validation Steps**:
+1. Start health check monitoring before deployment
+2. Deploy update using rolling strategy
+3. Continuously verify health endpoint remains available
+4. Confirm no request failures during deployment
+5. Verify new version is running
+
+**Acceptance Criteria**:
+- [ ] Health endpoint remains available throughout deployment
+- [ ] No 5xx errors logged during update
+- [ ] User sessions remain active during deployment
+- [ ] New version deployed successfully
+- [ ] Rollback tested if deployment fails
+
+**Related Requirements**: NFR-009, FR-023
+
+---
+
 ## Dependencies
 
 **Layer 1 (Foundation)**: T001-T003, T004-T013  
@@ -2460,6 +2524,6 @@ Task: "Create local dev docs in docs/LOCAL_DEVELOPMENT.md"
 
 ---
 
-*Based on Constitution v1.1.1 - See `.specify/memory/constitution.md`*  
-*Generated from plan.md, research.md, data-model.md, contracts/, quickstart.md*  
-*Total Estimated Time: 38.5-45.5 hours over 3-5 days (49 tasks)*
+*Based on Constitution v1.1.1 - See `.specify/memory/constitution.md`*
+*Generated from plan.md, research.md, data-model.md, contracts/, quickstart.md*
+*Total Estimated Time: 39.25-46.25 hours over 3-5 days (51 tasks)*

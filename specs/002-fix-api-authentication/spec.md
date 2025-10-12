@@ -164,11 +164,17 @@ As a **Databricks App user**, when I open the deployed application and interact 
 ### Functional Requirements
 
 #### Core Authentication (Databricks APIs)
-- **FR-001**: System MUST extract user access tokens from the `X-Forwarded-Access-Token` header fresh on every request without caching or persistence between requests (see also NFR-005 for security rationale). If X-Forwarded-Access-Token header is present but contains empty string or malformed value (e.g., truncated base64, invalid JWT structure), system MUST treat as missing token: log WARNING event 'auth.malformed_token_header' with details, fall back to service principal mode per FR-016. Rationale: Platform should never send malformed tokens; presence indicates deployment/configuration issue requiring investigation but should not block request
+- **FR-001a**: System MUST extract user access tokens from the `X-Forwarded-Access-Token` header fresh on every request without caching or persistence between requests (see also NFR-005 for security rationale)
+- **FR-001b**: When X-Forwarded-Access-Token header is present but contains empty string or malformed value (e.g., truncated base64, invalid JWT structure), system MUST treat as missing token and fall back to service principal mode per FR-016
+- **FR-001c**: System MUST log WARNING event 'auth.malformed_token_header' with details when malformed tokens are detected (Rationale: Platform should never send malformed tokens; presence indicates deployment/configuration issue requiring investigation but should not block request)
 - **FR-002**: System MUST pass user access tokens to Databricks API service layer components (UserService, UnityCatalogService, ModelServingService) but NOT to LakebaseService
 - **FR-003**: System MUST explicitly specify `auth_type="pat"` when initializing Databricks SDK clients with user tokens to prevent authentication method conflicts
 - **FR-004**: System MUST explicitly specify `auth_type="oauth-m2m"` when initializing Databricks SDK clients with service principal credentials
 - **FR-024**: System MUST use Databricks SDK version 0.67.0 (pinned exactly in dependency files) which supports explicit auth_type parameter configuration to prevent breaking changes
+
+#### Model Inference Integration
+- **FR-025**: System MUST log all model inference requests to Lakebase model_inference_logs table per Constitution Principle V, capturing user_id, endpoint_name, request_payload, response_payload, status, latency_ms, error_message (if failed), and requested_at timestamp. Logging occurs regardless of inference success/failure to ensure complete auditability. Implementation in ModelServingService.invoke_model() method with corresponding LakebaseService.save_inference_log() method
+- **FR-026**: System SHOULD provide user-facing history view for model inference requests with pagination and filtering capabilities per Constitution V recommendation. History endpoint at /api/model-serving/history returns paginated list of user's inference logs filtered by user_id with optional date range and status filters
 
 #### User Information Endpoints
 - **FR-005**: The `/api/user/me` endpoint MUST retrieve the actual authenticated user's information (not service principal) using the user access token passed per FR-002
@@ -210,7 +216,7 @@ As a **Databricks App user**, when I open the deployed application and interact 
 - **NFR-002**: All authentication configuration must be documented in code comments and external documentation
 - **NFR-003**: The solution must be compatible with existing Databricks Apps deployment patterns
 - **NFR-004**: No user tokens or credentials should be logged (security requirement)
-- **NFR-005**: User access tokens MUST NOT be cached, stored in memory between requests, or persisted to disk to minimize security exposure and ensure token revocation takes immediate effect (implementation: FR-001)
+- **NFR-005**: User access tokens MUST NOT be cached, stored in memory between requests, or persisted to disk to minimize security exposure and ensure token revocation takes immediate effect (implementation: FR-001a)
 - **NFR-006**: Authentication retry operations MUST complete within 5 seconds total (including all retry attempts and network overhead) to prevent request timeouts and degraded user experience
 - **NFR-007**: Deployment to production MUST support in-place rolling updates with zero planned downtime, accepting brief transient errors during cutover as acceptable degradation (Note: This is the first production deployment/greenfield, but design must support future updates)
 - **NFR-008**: Lakebase database connection pooling must efficiently handle concurrent user requests under a single service principal authentication without performance degradation
@@ -264,11 +270,11 @@ User access tokens MUST NEVER be:
 - Persisted to disk or database
 - Included in error messages or stack traces
 
-**Implementation**: Extract fresh from `X-Forwarded-Access-Token` header on every request per FR-001. Only log token **presence** (boolean), never the token **value** per FR-017 and NFR-004.
+**Implementation**: Extract fresh from `X-Forwarded-Access-Token` header on every request per FR-001a. Only log token **presence** (boolean), never the token **value** per FR-017 and NFR-004.
 
 **Rationale**: Immediate token revocation and minimal security exposure per NFR-005.
 
-**References**: FR-001, FR-017, NFR-004, NFR-005, data-model.md section 1
+**References**: FR-001a, FR-017, NFR-004, NFR-005, data-model.md section 1
 
 ### SC-002: User Identity Trust (Critical)
 User identity (`user_id`) MUST ALWAYS be:
@@ -354,6 +360,7 @@ The feature is considered successfully implemented when:
     - Circuit breaker opens after 10 consecutive auth failures and closes after 30 seconds
     - UI displays minimal but clear error messages based on structured error responses
 11. **Scope boundaries respected**: Implementation includes only authentication layer fixes, necessary database schema migrations for user_id, and minimal UI error message display improvements - no unrelated business logic or UI/UX changes
+12. **Model inference auditability**: All model serving requests logged to model_inference_logs table with complete request/response details, enabling debugging and usage tracking per Constitution V
 
 ---
 

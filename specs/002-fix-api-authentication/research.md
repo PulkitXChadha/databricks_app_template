@@ -457,6 +457,122 @@ class LakebaseService:
 
 ---
 
+## 6a. Lakebase Connection Pooling Configuration
+
+### Decision: SQLAlchemy QueuePool with 5-10 Connections
+
+**Chosen Approach**: Configure SQLAlchemy with QueuePool for efficient connection management, pool size 5-10 connections with overflow capacity.
+
+**Rationale**:
+- Connection pooling reduces overhead of creating new database connections
+- QueuePool provides thread-safe connection management
+- Pool size of 5-10 balances resource usage vs concurrent request handling
+- Overflow allows temporary expansion under load
+- Aligns with NFR-009 requirement for <50 concurrent users
+
+**Implementation Pattern**:
+```python
+# In LakebaseService (server/services/lakebase_service.py)
+from sqlalchemy import create_engine
+from sqlalchemy.pool import QueuePool
+import os
+
+class LakebaseService:
+    def __init__(self):
+        """Initialize Lakebase service with connection pooling."""
+        # Build connection string from environment
+        connection_string = self._build_connection_string()
+
+        # Create engine with QueuePool
+        self.engine = create_engine(
+            connection_string,
+            poolclass=QueuePool,
+            pool_size=5,           # Number of persistent connections
+            max_overflow=5,        # Additional connections under load
+            pool_timeout=30,       # Timeout waiting for connection
+            pool_recycle=3600,     # Recycle connections after 1 hour
+            pool_pre_ping=True,    # Test connections before use
+            echo_pool=False        # Set to True for debugging
+        )
+
+        logger.info("lakebase.pool_initialized", {
+            "pool_size": 5,
+            "max_overflow": 5,
+            "total_capacity": 10
+        })
+
+    def _build_connection_string(self) -> str:
+        """Build PostgreSQL connection string from environment variables."""
+        # Use service principal token for authentication
+        token = self._get_service_principal_token()
+
+        return (
+            f"postgresql+psycopg2://token:{token}@"
+            f"{os.environ['PGHOST']}:{os.environ['PGPORT']}/"
+            f"{os.environ['PGDATABASE']}?"
+            f"sslmode={os.environ['PGSSLMODE']}"
+        )
+
+    def _get_service_principal_token(self) -> str:
+        """Get service principal token for Lakebase authentication."""
+        # Service principal OAuth token generation
+        # Implementation depends on Databricks platform specifics
+        pass
+
+    async def get_connection(self):
+        """Get a connection from the pool."""
+        return self.engine.connect()
+```
+
+**Pool Configuration Parameters**:
+- **pool_size=5**: Base number of connections maintained in pool
+- **max_overflow=5**: Additional connections created under load (total capacity: 10)
+- **pool_timeout=30**: Maximum seconds to wait for available connection
+- **pool_recycle=3600**: Recycle connections after 1 hour to handle token refresh
+- **pool_pre_ping=True**: Verify connection validity before use (handles stale connections)
+
+**Connection Lifecycle**:
+1. Application startup: Initialize pool with 0 connections (lazy loading)
+2. First request: Create connection up to pool_size
+3. Under load: Create overflow connections up to max_overflow
+4. Idle period: Return to pool_size connections
+5. Connection errors: Automatic retry with pool_pre_ping
+
+**Monitoring**:
+```python
+# Expose pool metrics
+@property
+def pool_status(self) -> dict:
+    """Get current pool status for monitoring."""
+    pool = self.engine.pool
+    return {
+        "size": pool.size(),
+        "checked_in": pool.checkedin(),
+        "checked_out": pool.checkedout(),
+        "overflow": pool.overflow(),
+        "total": pool.checkedin() + pool.checkedout()
+    }
+```
+
+**Alternatives Considered**:
+- **No pooling**: Rejected - high connection overhead per request
+- **Larger pool (20+)**: Rejected - excessive resource usage for expected load
+- **StaticPool**: Rejected - no overflow capacity for load spikes
+- **NullPool**: Rejected - no connection reuse, defeats purpose
+
+**Performance Impact**:
+- Connection reuse saves ~50-100ms per request
+- Pool overhead negligible (<1ms)
+- Supports NFR-009 requirement for <50 concurrent users
+- Each connection uses ~10MB memory (total: 100MB max)
+
+**References**:
+- SQLAlchemy connection pooling: https://docs.sqlalchemy.org/en/20/core/pooling.html
+- Feature spec NFR-009 (concurrent users)
+- PostgreSQL connection best practices
+
+---
+
 ## 7. Observability and Structured Logging
 
 ### Decision: JSON Structured Logs with Correlation IDs
