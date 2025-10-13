@@ -316,3 +316,153 @@ If you're migrating existing code from service principal to OBO:
    - Test with users having different permission levels
    - Monitor logs for authentication errors
 
+## Implementation Details
+
+### Dual Authentication Pattern
+
+The application implements a dual authentication pattern (Constitution v1.2.0) that supports both OBO and service principal authentication:
+
+1. **Pattern A: Service Principal** - Used for system operations and when user token is unavailable
+   ```python
+   client = WorkspaceClient(
+       host=workspace_url,
+       client_id=os.environ["DATABRICKS_CLIENT_ID"],
+       client_secret=os.environ["DATABRICKS_CLIENT_SECRET"],
+       auth_type="oauth-m2m"  # Explicit authentication type
+   )
+   ```
+
+2. **Pattern B: On-Behalf-Of-User** - Used for user operations with user token
+   ```python
+   client = WorkspaceClient(
+       host=workspace_url,
+       token=user_token,
+       auth_type="pat"  # Explicit authentication type
+   )
+   ```
+
+3. **Pattern C: Lakebase** - Always uses service principal with user_id filtering
+   ```python
+   # Database connection uses service principal
+   # User-scoped queries filter by user_id
+   query = "SELECT * FROM table WHERE user_id = :user_id"
+   ```
+
+### Retry Logic and Error Handling
+
+Authentication failures are automatically retried with exponential backoff:
+
+- **Retry Attempts**: Up to 3 attempts (initial + 2 retries)
+- **Backoff Delays**: 100ms, 200ms, 400ms (exponential)
+- **Total Timeout**: Maximum 5 seconds
+- **Rate Limiting**: HTTP 429 errors fail immediately without retry
+- **Circuit Breaker**: Per-instance protection against retry storms
+
+```python
+from server.lib.auth import with_auth_retry
+
+@with_auth_retry
+async def fetch_data():
+    client = self._get_client()
+    return await client.some_api_call()
+```
+
+### Multi-User Data Isolation
+
+User-specific data in Lakebase is isolated using `user_id` filtering:
+
+```python
+# All user-scoped queries include WHERE user_id = ?
+async def get_user_preferences(self, user_id: str):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User identity required")
+    
+    query = "SELECT * FROM user_preferences WHERE user_id = :user_id"
+    return await self.db.execute(query, {"user_id": user_id})
+```
+
+### Observability and Metrics
+
+Authentication operations are fully observable:
+
+1. **Structured Logging**: All auth events logged with correlation IDs
+   ```json
+   {
+     "event": "auth.mode",
+     "mode": "obo",
+     "auth_type": "pat",
+     "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
+   }
+   ```
+
+2. **Prometheus Metrics**: Exposed at `/metrics` endpoint
+   - `auth_requests_total`: Total authentication attempts
+   - `auth_retry_total`: Retry attempt counts
+   - `auth_fallback_total`: Service principal fallback events
+   - `auth_overhead_seconds`: Authentication overhead (target: <10ms)
+   - `upstream_api_duration_seconds`: Upstream API call latencies
+
+3. **Performance Targets**:
+   - Authentication overhead: <10ms (P95)
+   - Request timeout: 30 seconds
+   - Retry timeout: 5 seconds total
+
+### Local Development Testing
+
+For local OBO testing without Databricks Apps:
+
+1. **Fetch User Token**:
+   ```bash
+   # Install and authenticate Databricks CLI
+   databricks auth login --host https://your-workspace.cloud.databricks.com
+   
+   # Get user access token
+   export DATABRICKS_USER_TOKEN=$(python scripts/get_user_token.py)
+   ```
+
+2. **Test Endpoints**:
+   ```bash
+   # Test with user token (OBO mode)
+   curl -H "X-Forwarded-Access-Token: $DATABRICKS_USER_TOKEN" \
+        http://localhost:8000/api/user/me
+   
+   # Test without token (service principal fallback)
+   curl http://localhost:8000/api/health
+   ```
+
+3. **Verify Multi-User Isolation**:
+   ```bash
+   # Save preference as User A
+   curl -X POST \
+        -H "X-Forwarded-Access-Token: $USER_A_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"preference_key": "theme", "preference_value": "dark"}' \
+        http://localhost:8000/api/preferences
+   
+   # Verify User B cannot see User A's preferences
+   curl -H "X-Forwarded-Access-Token: $USER_B_TOKEN" \
+        http://localhost:8000/api/preferences
+   ```
+
+See [quickstart.md](../specs/002-fix-api-authentication/quickstart.md) for comprehensive testing scenarios.
+
+### Error Codes
+
+Structured authentication errors use standardized error codes:
+
+- `AUTH_EXPIRED`: User access token has expired
+- `AUTH_INVALID`: Token validation failed
+- `AUTH_MISSING`: Token required but not provided
+- `AUTH_USER_IDENTITY_FAILED`: Unable to extract user identity
+- `AUTH_RATE_LIMITED`: Platform rate limit exceeded
+- `AUTH_MALFORMED`: Token format is invalid
+
+Example error response:
+```json
+{
+  "detail": "User access token has expired",
+  "error_code": "AUTH_EXPIRED",
+  "retry_after": null
+}
+```
+

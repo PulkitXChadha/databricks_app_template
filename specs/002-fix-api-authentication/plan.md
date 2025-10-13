@@ -29,13 +29,29 @@
 - Phase 2: /tasks command creates tasks.md
 - Phase 3-4: Implementation execution (manual or via tools)
 
+## Recent Updates (2025-10-13)
+
+**Documentation Alignment**: The specification and plan have been updated to accurately reflect the current implementation state of Lakebase local connectivity:
+
+- ✅ **spec.md FR-011** now correctly describes OAuth JWT token generation via `generate_database_credential()` API
+- ✅ **spec.md FR-012** updated with correct environment variables: PGHOST/LAKEBASE_HOST, LAKEBASE_DATABASE, LAKEBASE_PORT, LAKEBASE_INSTANCE_NAME
+- ✅ **Connection string format** corrected to `postgresql+psycopg://<username>:<jwt_token>@...?sslmode=require`
+- ✅ **Username extraction** from JWT token's 'sub' field (email) is documented and implemented
+- ✅ **Local development** fully functional with automated configuration via `scripts/configure_lakebase.py`
+- ✅ **Token auto-refresh** behavior (1-hour expiration) is documented
+- ✅ **Documentation references** added: `LAKEBASE_LOCAL_SETUP.md`, `LAKEBASE_FIX_SUMMARY.md`
+
+These changes ensure the specification accurately represents what has been implemented and verified, reducing confusion for future developers and maintainers.
+
 ## Summary
 Fix the authentication error "more than one authorization method configured: oauth and pat" by implementing proper On-Behalf-Of (OBO) user authentication for Databricks API calls while maintaining service principal authentication for Lakebase database connections. The solution extracts user access tokens from the X-Forwarded-Access-Token header, passes them to Databricks SDK clients with explicit auth_type configuration, and implements comprehensive retry logic, observability, and multi-user data isolation patterns.
+
+**Lakebase Implementation Status**: Local Lakebase connectivity has been successfully implemented and verified. The system uses OAuth JWT tokens generated via `generate_database_credential()` API with service principal credentials. PostgreSQL username is dynamically extracted from the JWT token's 'sub' field using base64 decoding. Tokens expire after 1 hour and are automatically refreshed by the SDK. See `docs/LAKEBASE_LOCAL_SETUP.md` and `LAKEBASE_FIX_SUMMARY.md` for complete implementation details.
 
 ## Technical Context
 **Language/Version**: Python 3.11+  
 **Primary Dependencies**: FastAPI, Databricks SDK 0.67.0 (pinned), SQLAlchemy, Pydantic  
-**Storage**: Lakebase (PostgreSQL in Databricks) with service principal authentication  
+**Storage**: Lakebase (PostgreSQL in Databricks) with service principal OAuth JWT token authentication. Username extracted from token's 'sub' field, connection string format: postgresql+psycopg://<username>:<jwt_token>@host:port/db?sslmode=require  
 **Testing**: pytest with contract tests, integration tests  
 **Target Platform**: Databricks Apps (Linux containers in Databricks platform)
 **Project Type**: Web application (React frontend + FastAPI backend)  
@@ -53,7 +69,8 @@ Fix the authentication error "more than one authorization method configured: oau
 
 ### Lakebase Integration
 - [x] Persistent data operations use Lakebase (Postgres in Databricks) *(Already implemented; maintaining service principal auth)*
-- [x] Token-based authentication for database access *(Service principal OAuth tokens continue to be used)*
+- [x] Token-based authentication for database access *(Service principal OAuth JWT tokens with username extraction from 'sub' field)*
+- [x] Local development configured via environment variables *(PGHOST, LAKEBASE_DATABASE, LAKEBASE_PORT, LAKEBASE_INSTANCE_NAME documented in LAKEBASE_LOCAL_SETUP.md)*
 - [x] No external OLTP systems introduced *(No new storage systems)*
 
 ### Asset Bundle Deployment
@@ -153,8 +170,12 @@ tests/
 
 docs/
 ├── OBO_AUTHENTICATION.md  # Existing OBO documentation (UPDATE)
+├── LAKEBASE_LOCAL_SETUP.md  # Lakebase local setup guide (EXISTING - JWT token extraction documented)
+├── LOCAL_DEVELOPMENT.md  # General local development guide (EXISTING)
 └── databricks_apis/
     └── authentication_patterns.md  # NEW doc for dual auth patterns
+
+LAKEBASE_FIX_SUMMARY.md  # Historical record of Lakebase local connectivity fix (EXISTING)
 ```
 
 **Structure Decision**: This is a web application (React frontend + FastAPI backend). Authentication changes are primarily backend-focused in the `server/` directory, specifically in the `lib/auth.py` middleware, service layer components, and router endpoints. Frontend changes are minimal (regenerated API client only). Tests are organized by type: contract tests for API validation, integration tests for multi-user scenarios, and unit tests for authentication logic.
@@ -168,7 +189,7 @@ After completing Phase 1 design (data-model.md, contracts/, quickstart.md), re-e
 ### Verification Results
 
 1. **Design Bricks First**: ✅ No UI changes required
-2. **Lakebase Integration**: ✅ Maintained service principal auth, enhanced with user_id filtering
+2. **Lakebase Integration**: ✅ Service principal OAuth JWT token auth implemented and verified. Username extraction from token's 'sub' field working. Local development configuration documented in LAKEBASE_LOCAL_SETUP.md. Enhanced with user_id filtering for data isolation
 3. **Asset Bundle Deployment**: ✅ Using existing `databricks.yml`, no changes needed
 4. **Type Safety Throughout**: ✅ All models use Pydantic, type hints planned for all functions
 5. **Model Serving Integration**: ✅ Enhanced ModelServingService with OBO auth and retry logic
@@ -444,7 +465,8 @@ Phase 2 is complete when:
 - [x] Complexity deviations documented: N/A (No deviations required)
 
 **Artifacts Generated**:
-- [x] `/specs/002-fix-api-authentication/plan.md` (this file)
+- [x] `/specs/002-fix-api-authentication/plan.md` (this file - updated with Lakebase implementation status)
+- [x] `/specs/002-fix-api-authentication/spec.md` (updated with JWT username extraction details)
 - [x] `/specs/002-fix-api-authentication/research.md` (10 technical decisions)
 - [x] `/specs/002-fix-api-authentication/data-model.md` (10 data models)
 - [x] `/specs/002-fix-api-authentication/contracts/auth_models.yaml`
@@ -452,6 +474,9 @@ Phase 2 is complete when:
 - [x] `/specs/002-fix-api-authentication/contracts/service_layers.yaml`
 - [x] `/specs/002-fix-api-authentication/quickstart.md` (6-phase test guide)
 - [x] `.cursor/rules/specify-rules.mdc` (updated with feature context)
+- [x] `docs/LAKEBASE_LOCAL_SETUP.md` (Lakebase local setup guide with JWT token extraction)
+- [x] `LAKEBASE_FIX_SUMMARY.md` (Historical record of Lakebase connectivity fix)
+- [x] `server/lib/database.py` (OAuth JWT token authentication with username extraction implemented)
 
 **Ready for Phase 3**: Yes - Run `/tasks` command to generate implementation tasks
 

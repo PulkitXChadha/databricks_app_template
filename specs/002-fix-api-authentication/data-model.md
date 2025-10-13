@@ -248,11 +248,17 @@ Request completes → Context discarded
 **Storage**: None (created per request)
 **Source**: Constructed from AuthenticationContext
 
+**Implementation Status**:
+- ✅ Lakebase connection with JWT username extraction: IMPLEMENTED (see `server/lib/database.py`)
+- ⏳ Databricks API services (UserService, UnityCatalogService, ModelServingService): PENDING
+
 ### Pattern Overview
 
 Services use inline client creation with explicit `auth_type` parameter and SDK's built-in `Config` class for timeout configuration.
 
 **IMPORTANT**: Do NOT create a custom configuration class. The SDK provides all necessary configuration options through its built-in `databricks.sdk.config.Config` class.
+
+**NOTE ON LAKEBASE**: The Lakebase database connection in `server/lib/database.py` already implements OAuth JWT token authentication with username extraction from the token's 'sub' field. This implementation satisfies FR-011 and FR-012 requirements. See `docs/LAKEBASE_LOCAL_SETUP.md` for complete details.
 
 ### Standard Implementation Pattern
 
@@ -364,6 +370,15 @@ class UserService:
 ---
 
 ## 5. Database Models (Enhanced for User Isolation)
+
+**Implementation Note**: The Lakebase database connection logic in `server/lib/database.py` is fully implemented with:
+- OAuth JWT token generation via `generate_database_credential()` API
+- Username extraction from JWT token's 'sub' field
+- Connection pooling with SQLAlchemy QueuePool
+- 1-hour token expiration with automatic refresh
+- Environment variable configuration (PGHOST, LAKEBASE_DATABASE, LAKEBASE_PORT, LAKEBASE_INSTANCE_NAME)
+
+See `docs/LAKEBASE_LOCAL_SETUP.md` for complete setup instructions and `LAKEBASE_FIX_SUMMARY.md` for implementation history.
 
 ### 5.1 User Preferences (Enhanced)
 

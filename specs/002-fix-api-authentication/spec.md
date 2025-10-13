@@ -56,16 +56,23 @@ Based on error logs, the following endpoints are failing:
 - `/api/unity-catalog/catalogs` - Unity Catalog browsing
 - `/api/preferences` - User preferences access
 
-### Lakebase Authentication Exception
+### Lakebase Authentication Implementation
 
-**Important Platform Constraint**: According to [Databricks Lakebase documentation](https://docs.databricks.com/aws/en/dev-tools/databricks-apps/lakebase), Lakebase database connections do NOT support OBO authentication and MUST continue using service principal credentials because:
+**Implementation Details**: Lakebase database connections use OAuth JWT tokens generated via the Databricks SDK's `generate_database_credential()` API with service principal credentials. The implementation works as follows:
 
-1. Lakebase creates PostgreSQL roles based on the **service principal's client ID** only
-2. The platform grants the **service principal** CONNECT and CREATE privileges
-3. The `PGUSER` environment variable contains the **service principal's client ID and role name**
-4. No mechanism exists for per-user database authentication at the PostgreSQL level
+1. The service principal authenticates to Databricks using OAuth M2M credentials (`DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`)
+2. The SDK calls `workspace_client.database.generate_database_credential()` to obtain a short-lived OAuth JWT token (valid for 1 hour)
+3. The PostgreSQL username is dynamically extracted from the JWT token's 'sub' field (user email) using base64 decoding
+4. The connection uses format: `postgresql+psycopg://<extracted_username>:<jwt_token>@<host>:<port>/<database>?sslmode=require`
+5. Tokens are automatically refreshed by the SDK when they expire
 
-**Implication**: While OBO tokens will be used for Databricks API calls (Unity Catalog, Model Serving, User endpoints), Lakebase connections must continue using service principal authentication. Application-level `user_id` filtering must enforce data isolation since database-level user authentication is not possible.
+**Local Development Support**: This implementation enables local development by allowing developers to:
+- Configure Lakebase connection via environment variables (`PGHOST`/`LAKEBASE_HOST`, `LAKEBASE_DATABASE`, `LAKEBASE_PORT`, `LAKEBASE_INSTANCE_NAME`)
+- Use the automated configuration script (`scripts/configure_lakebase.py`) to retrieve instance details
+- Authenticate using their personal Databricks credentials (via `databricks auth login`)
+- Connect successfully without manual token management
+
+**Implication**: While OBO tokens will be used for Databricks API calls (Unity Catalog, Model Serving, User endpoints), Lakebase connections use service principal credentials to generate database tokens. Application-level `user_id` filtering must enforce data isolation since all database operations use the same service principal-generated tokens.
 
 ### Scope Boundaries
 
@@ -107,6 +114,7 @@ Based on error logs, the following endpoints are failing:
 ### Session 2025-10-10
 
 - Q: What is the minimum Databricks SDK version that introduced support for the explicit `auth_type` parameter? → A: Pin to version 0.67.0 (current stable version)
+- NOTE: Local Lakebase connectivity has been successfully implemented and verified. The system now extracts PostgreSQL username from JWT token's 'sub' field, enabling developers to connect to Lakebase in local environments using their personal Databricks credentials. See `docs/LAKEBASE_LOCAL_SETUP.md` and `LAKEBASE_FIX_SUMMARY.md` for complete implementation details
 - Q: When the Databricks SDK version 0.67.0 (currently pinned) releases a security patch version (e.g., 0.67.1), how should the system handle version updates? → A: Auto-accept patch versions (0.67.x) - security fixes only
 - Q: For the 90-day orphaned data retention policy mentioned in FR-010a, what should trigger the detection of an "inactive" user account? → A: User hasn't authenticated for 90+ days
 - Q: When multiple application instances are deployed (for scaling), should the circuit breaker state be shared across instances? → A: Per-instance (each maintains own state) - simpler but less coordinated
@@ -149,7 +157,7 @@ As a **Databricks App user**, when I open the deployed application and interact 
 - **What happens when the user's access token expires, is malformed, or is invalid?** See FR-018 for complete retry behavior specification (exponential backoff with 100ms/200ms/400ms delays, circuit breaker logic, stateless pattern)
 - **How does the system handle API calls in background jobs?** Background tasks should use service principal credentials since no user context exists
 - **What if Databricks SDK environment variables conflict?** The system must explicitly specify authentication type to prevent SDK auto-detection conflicts
-- **How are database queries authenticated?** Lakebase connections use service principal authentication (platform limitation - PostgreSQL roles are service principal-only). Application-level `user_id` filtering must enforce data isolation, with user_id extracted from email addresses (userName field) accepting the risk of orphaned data if emails change
+- **How are database queries authenticated?** Lakebase connections use OAuth JWT tokens generated via generate_database_credential() API with service principal credentials. The PostgreSQL username is extracted from the JWT token's 'sub' field (email address) during connection establishment. Tokens expire after 1 hour and are automatically refreshed. Application-level `user_id` filtering must enforce data isolation, with user_id extracted from email addresses (userName field) accepting the risk of orphaned data if emails change
 - **What happens when a user has multiple browser tabs open?** Each tab operates independently with stateless authentication - tokens are extracted fresh from headers on every request, so token refreshes automatically work across all tabs without coordination
 - **How do concurrent API requests from the same user handle authentication retries?** Each request implements retry logic independently without coordination, meaning if 5 parallel requests all fail authentication, each will perform its own 3 retry attempts (potentially 15 total retry calls to the backend) following the stateless pattern, unless the circuit breaker opens to prevent excessive backend load
 - **How does the system prevent cross-user data access in Lakebase?** All user-scoped queries must include `WHERE user_id = ?` clauses; missing user_id validation should cause query rejection with structured error responses
@@ -189,8 +197,8 @@ As a **Databricks App user**, when I open the deployed application and interact 
 - **FR-010a**: System MUST provide orphaned data management via admin endpoint `/api/admin/orphaned-records` that lists preferences, saved queries, and inference logs associated with inactive user accounts. Inactivity definition: User hasn't authenticated for 90+ consecutive days (tracked via last_authenticated timestamp in user_preferences table). Orphaned data retention policy: Records remain queryable by old email for 90 days after inactivity threshold reached, then automatically purged via scheduled cleanup job. Admin endpoint requires elevated permissions (admin users defined in `ADMIN_USERS` environment variable as comma-separated email list) and logs all access for audit compliance. Admin authentication mechanism: Environment variable-based whitelist approach chosen for simplicity over role-based access control (RBAC) given small user scale (<50 users per NFR-009).
 
 #### Lakebase Authentication (Service Principal)
-- **FR-011**: LakebaseService MUST use service principal credentials exclusively (NOT user OBO tokens) for all database connections. Connection tokens obtained via Databricks SDK WorkspaceClient.generate_database_credential() API call (using service principal authentication per Constitution Principle II line 45). Generated tokens are short-lived with platform-managed expiration. Connection string format: postgresql+psycopg2://token:<generated_token>@<PGHOST>:<PGPORT>/<PGDATABASE> where <generated_token> is result of generate_database_credential() call
-- **FR-012**: System MUST read Lakebase connection parameters from platform-provided environment variables (`PGHOST`, `PGDATABASE`, `PGUSER`, `PGPORT`, `PGSSLMODE`)
+- **FR-011**: LakebaseService MUST use service principal credentials exclusively (NOT user OBO tokens) for all database connections. Connection tokens obtained via Databricks SDK WorkspaceClient.database.generate_database_credential() API call (using service principal authentication per Constitution Principle II line 45). Generated tokens are short-lived OAuth JWT tokens with platform-managed expiration (1 hour). The PostgreSQL username is extracted from the JWT token's 'sub' field (user email) using base64 decoding of the token payload. Connection string format: postgresql+psycopg://<username>:<generated_token>@<PGHOST>:<PGPORT>/<PGDATABASE>?sslmode=require where <username> is extracted from token.sub field and <generated_token> is the JWT token from generate_database_credential() call
+- **FR-012**: System MUST read Lakebase connection parameters from platform-provided environment variables (`PGHOST` or `LAKEBASE_HOST`, `LAKEBASE_DATABASE`, `LAKEBASE_PORT` defaulting to 5432, `LAKEBASE_INSTANCE_NAME` for token generation). The system uses hardcoded `sslmode=require` for security. The PostgreSQL username is dynamically extracted from the JWT token (not from environment variables)
 - **FR-013**: System MUST filter all user-scoped database queries by `user_id` to enforce application-level data isolation
 - **FR-014**: System MUST validate `user_id` before executing user-scoped database operations using the following validation rules: (1) user_id MUST be non-empty string, (2) user_id MUST match valid email format (EmailStr validation via Pydantic), (3) user_id MUST be extracted from UserService.get_user_info() API call result (NEVER trust client-provided values in headers/query params/request body), (4) user_id extraction MUST succeed (return HTTP 401 Unauthorized if UserService.get_user_info() fails or returns malformed response). Optional validation: Check active=True status (business requirement dependent). Validation function signature: `async def validate_user_id(user_id: Optional[str]) -> str` raising HTTPException(401) on validation failure
 
@@ -235,8 +243,8 @@ As a **Databricks App user**, when I open the deployed application and interact 
 - **Service principal credentials**: OAuth client credentials (`DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`) for app-level operations, used for Lakebase connections and when user context is unavailable
 - **Databricks SDK Config**: Configuration object that specifies authentication method, must include explicit `auth_type` to prevent multi-method detection errors
 - **Request Context**: FastAPI request state that carries user token from middleware through to service layer dependencies
-- **Lakebase Database Connection**: PostgreSQL connection authenticated with service principal role (matching service principal's client ID), shared across all user sessions
-- **Database Role**: PostgreSQL role created by Databricks platform with name matching service principal's client ID, granted CONNECT and CREATE privileges
+- **Lakebase Database Connection**: PostgreSQL connection authenticated with OAuth JWT tokens generated via generate_database_credential() API. Each connection extracts the username from the JWT token's 'sub' field and uses the token as password. Tokens expire after 1 hour and are automatically refreshed by the SDK
+- **Database Role**: PostgreSQL role created by Databricks platform based on the authenticated user from the JWT token, granted CONNECT and CREATE privileges
 - **Circuit Breaker State**: System-wide authentication health tracking entity that counts consecutive authentication failures (threshold: 10) and manages open/closed states with 30-second cooldown periods to prevent retry storms
 - **Authentication Error Response**: Structured JSON error format with error_code field (e.g., "AUTH_EXPIRED", "AUTH_INVALID", "AUTH_MISSING") and human-readable message field for consistent client-side error handling and UI display
 - **Operational Metrics**: Time-series data tracking authentication events, retained as raw metrics (7 days) and aggregated rollups (90 days) for observability and compliance
@@ -346,7 +354,7 @@ The feature is considered successfully implemented when:
    - Lakebase database operations are logged under service principal (platform limitation)
    - Application logs capture actual user_id for all operations for audit trail
    - Circuit breaker state transitions are logged for operational visibility
-5. **Local development works**: Application runs successfully in local mode with appropriate fallback behavior
+5. **Local development works**: Application runs successfully in local mode with Lakebase connectivity enabled. Developers can configure environment variables (PGHOST, LAKEBASE_DATABASE, LAKEBASE_PORT, LAKEBASE_INSTANCE_NAME) and connect using their personal Databricks credentials. PostgreSQL username is automatically extracted from JWT token's 'sub' field. OAuth tokens are auto-refreshed every hour without manual intervention
 6. **Observability validated**: 
    - Logs contain detailed authentication information (token presence, SDK auth_type, retry attempts, fallback triggers, circuit breaker states) for all requests
    - Comprehensive metrics exposed including authentication success/failure rates, retry rates, P95/P99 latencies per endpoint, per-user request counts, and circuit breaker state changes
@@ -368,7 +376,10 @@ The feature is considered successfully implemented when:
 
 - Databricks Apps Cookbook - OBO Authentication: https://apps-cookbook.dev/docs/streamlit/authentication/users_obo
 - Databricks Lakebase Documentation: https://docs.databricks.com/aws/en/dev-tools/databricks-apps/lakebase
-- Existing codebase documentation: `docs/OBO_AUTHENTICATION.md`
+- Existing codebase documentation: 
+  - `docs/OBO_AUTHENTICATION.md` - On-behalf-of-user authentication overview
+  - `docs/LAKEBASE_LOCAL_SETUP.md` - Local Lakebase setup guide with JWT token extraction details
+  - `LAKEBASE_FIX_SUMMARY.md` - Historical record of Lakebase local connectivity fix
 - Databricks SDK Python documentation for authentication configuration
 
 ---

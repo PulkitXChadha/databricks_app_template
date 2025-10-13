@@ -179,17 +179,29 @@ x-service-patterns:
       LakebaseService MUST NOT accept user_token.
       Always uses service principal for database connections.
       Implements application-level filtering by user_id.
+      
+      IMPLEMENTATION STATUS (2025-10-13): ✅ IMPLEMENTED
+      - OAuth JWT token authentication via generate_database_credential() API
+      - Username extraction from JWT token's 'sub' field
+      - Connection string: postgresql+psycopg://<username>:<jwt_token>@host:port/db?sslmode=require
+      - 1-hour token expiration with automatic SDK-managed refresh
+      - Environment variables: PGHOST/LAKEBASE_HOST, LAKEBASE_DATABASE, LAKEBASE_PORT, LAKEBASE_INSTANCE_NAME
+      - See server/lib/database.py for complete implementation
+      - See docs/LAKEBASE_LOCAL_SETUP.md for setup instructions
     
     class_signature: |
       class LakebaseService:
           # NO user_token parameter - service principal only
           def __init__(self):
+              # Actual implementation uses OAuth JWT tokens
+              # See server/lib/database.py for token generation and username extraction
               self.connection_params = {
-                  "host": os.environ["PGHOST"],
-                  "database": os.environ["PGDATABASE"],
-                  "user": os.environ["PGUSER"],  # Service principal role
-                  "port": os.environ["PGPORT"],
-                  "sslmode": os.environ["PGSSLMODE"]
+                  "host": os.environ["PGHOST"] or os.environ["LAKEBASE_HOST"],
+                  "database": os.environ["LAKEBASE_DATABASE"],
+                  "port": os.environ.get("LAKEBASE_PORT", "5432"),
+                  "instance_name": os.environ.get("LAKEBASE_INSTANCE_NAME")
+                  # Username extracted from JWT token's 'sub' field dynamically
+                  # Token generated via workspace_client.database.generate_database_credential()
               }
           
           async def get_user_preferences(self, user_id: str) -> List[Preference]:

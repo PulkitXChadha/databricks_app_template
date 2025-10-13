@@ -384,10 +384,17 @@ async def get_preferences(user_token: Optional[str] = Depends(get_user_token)):
 
 **Chosen Approach**: All user-scoped Lakebase queries include `WHERE user_id = ?` clauses; validate user_id presence before query execution.
 
+**Implementation Status**: ✅ IMPLEMENTED (2025-10-13)
+- OAuth JWT token authentication working in `server/lib/database.py`
+- Username extraction from token's 'sub' field functional
+- Connection string format: `postgresql+psycopg://<username>:<jwt_token>@host:port/db?sslmode=require`
+- Local development fully supported with documented setup process
+
 **Rationale**:
-- Lakebase PostgreSQL roles are service principal-only (platform limitation per FR-011)
-- Database-level row-level security not available
-- Application-level filtering is only option for multi-user isolation
+- Lakebase PostgreSQL connections use OAuth JWT tokens generated via `generate_database_credential()` API
+- Username dynamically extracted from JWT token's 'sub' field (email address)
+- Tokens expire after 1 hour with automatic SDK-managed refresh
+- Database-level row-level security not needed - application-level filtering provides isolation
 - Aligns with Constitution Principle IX: Multi-User Data Isolation
 
 **Implementation Pattern**:
@@ -454,6 +461,59 @@ class LakebaseService:
 - Feature spec FR-010, FR-011, FR-013, FR-014
 - Constitution Principle IX: Multi-User Data Isolation
 - Databricks Lakebase documentation: https://docs.databricks.com/aws/en/dev-tools/databricks-apps/lakebase
+
+### JWT Token Authentication Implementation (Implemented 2025-10-13)
+
+The Lakebase connection logic in `server/lib/database.py` implements OAuth JWT token authentication:
+
+**Token Generation**:
+```python
+# Generate database credential using service principal
+cred = workspace_client.database.generate_database_credential(
+    request_id=str(uuid.uuid4()),
+    instance_names=[instance_name]
+)
+# Returns JWT token valid for 1 hour
+```
+
+**Username Extraction**:
+```python
+def _extract_username_from_token(token: str) -> str:
+    """Extract username from JWT token's 'sub' field."""
+    parts = token.split('.')
+    if len(parts) < 2:
+        raise ValueError("Invalid JWT format")
+    
+    # Decode payload (add padding if needed)
+    payload = parts[1]
+    payload += '=' * (4 - len(payload) % 4)
+    decoded = base64.urlsafe_b64decode(payload)
+    payload_data = json.loads(decoded)
+    
+    # Extract subject (username/email)
+    username = payload_data.get('sub')
+    if not username:
+        raise ValueError("No 'sub' field in JWT token")
+    
+    return username
+```
+
+**Connection String Format**:
+```python
+# Actual format used in implementation
+postgresql+psycopg://<extracted_username>:<jwt_token>@<host>:<port>/<db>?sslmode=require
+```
+
+**Environment Variables**:
+- `PGHOST` or `LAKEBASE_HOST`: Database host (instance-{uid}.database.cloud.databricks.com)
+- `LAKEBASE_DATABASE`: Database name (typically "app_database")
+- `LAKEBASE_PORT`: Port number (default: 5432)
+- `LAKEBASE_INSTANCE_NAME`: Logical instance name from databricks.yml
+
+**References**:
+- Implementation: `server/lib/database.py`
+- Setup guide: `docs/LAKEBASE_LOCAL_SETUP.md`
+- Fix summary: `LAKEBASE_FIX_SUMMARY.md`
 
 ---
 
@@ -965,17 +1025,18 @@ uv add databricks-sdk==0.67.0
 
 ## Summary of Technical Decisions
 
-| Decision Area | Chosen Approach | Key Rationale |
-|---------------|----------------|---------------|
-| SDK Authentication | Explicit `auth_type` parameter | Prevents multi-method detection error |
-| Token Extraction | Per-request middleware | Security, immediate revocation, simplicity |
-| User Identity | API call to `current_user.me()` | Platform authoritative, no key management |
-| Retry Logic | Exponential backoff, 5s timeout | Balance reliability and performance |
-| Auth Pattern | Dual mode (OBO + service principal) | Constitutional requirement, clear separation |
-| Lakebase Isolation | Application-level user_id filtering | Platform limitation, only viable option |
-| Observability | JSON structured logs + Prometheus metrics | Constitutional requirement, industry standard |
-| Local Development | Auto-fallback + CLI token fetching | Developer experience, testing capability |
-| SDK Version | Pin to 0.67.0 | Stability, prevent breaking changes |
+| Decision Area | Chosen Approach | Key Rationale | Status |
+|---------------|----------------|---------------|--------|
+| SDK Authentication | Explicit `auth_type` parameter | Prevents multi-method detection error | Specified |
+| Token Extraction | Per-request middleware | Security, immediate revocation, simplicity | Specified |
+| User Identity | API call to `current_user.me()` | Platform authoritative, no key management | Specified |
+| Retry Logic | Exponential backoff, 5s timeout | Balance reliability and performance | Specified |
+| Auth Pattern | Dual mode (OBO + service principal) | Constitutional requirement, clear separation | Specified |
+| Lakebase Auth | OAuth JWT token with username extraction | SDK generates tokens, username from 'sub' field | ✅ Implemented |
+| Lakebase Isolation | Application-level user_id filtering | Enforce data isolation via WHERE clauses | Specified |
+| Observability | JSON structured logs + Prometheus metrics | Constitutional requirement, industry standard | Specified |
+| Local Development | Auto-fallback + CLI token fetching + Lakebase config | Developer experience, testing capability | ✅ Implemented |
+| SDK Version | Pin to 0.67.0 | Stability, prevent breaking changes | Specified |
 
 All decisions align with Constitutional principles and feature requirements. No complexity deviations required.
 
