@@ -354,11 +354,11 @@ async def query_table_get(
         )
         
         logger.info(
-            f"Query completed: {result.get('row_count', 0)} rows returned",
+            f"Query completed: {result.row_count} rows returned",
             user_id=user_id,
             table=f"{catalog}.{schema}.{table}",
-            row_count=result.get('row_count', 0),
-            execution_time_ms=result.get('execution_time_ms', 0)
+            row_count=result.row_count,
+            execution_time_ms=result.execution_time_ms
         )
         
         return result
@@ -469,11 +469,11 @@ async def query_table_post(
         )
         
         logger.info(
-            f"Query completed: {result.get('row_count', 0)} rows returned",
+            f"Query completed: {result.row_count} rows returned",
             user_id=user_id,
             table=f"{request.catalog}.{request.schema_name}.{request.table}",
-            row_count=result.get('row_count', 0),
-            execution_time_ms=result.get('execution_time_ms', 0)
+            row_count=result.row_count,
+            execution_time_ms=result.execution_time_ms
         )
         
         return result

@@ -1,3 +1,5 @@
+import base64
+import json
 import os
 import uuid
 from logging.config import fileConfig
@@ -144,16 +146,34 @@ def run_migrations_online() -> None:
             # If lookup fails, fallback to using env var if available
             instance_name = os.getenv("LAKEBASE_INSTANCE_NAME")
     
+    def _extract_username_from_token(token: str) -> str:
+        """Extract username from JWT token's 'sub' field."""
+        try:
+            parts = token.split('.')
+            if len(parts) < 2:
+                raise ValueError("Invalid JWT format")
+            payload = parts[1]
+            payload += '=' * (4 - len(payload) % 4)
+            decoded = base64.urlsafe_b64decode(payload)
+            payload_data = json.loads(decoded)
+            username = payload_data.get('sub')
+            if not username:
+                raise ValueError("No 'sub' field in JWT token")
+            return username
+        except Exception as e:
+            raise Exception(f"Failed to extract username from token: {e}")
+    
     @event.listens_for(connectable, "do_connect")
     def provide_token(dialect, conn_rec, cargs, cparams):
-        """Provide authentication token for Lakebase using OAuth"""
+        """Provide authentication token and username for Lakebase using OAuth"""
         # For Lakebase, generate OAuth token using Databricks SDK
         # If LAKEBASE_TOKEN is already an OAuth token, use it directly
         lakebase_token = os.getenv("LAKEBASE_TOKEN")
+        token_to_use = None
         
         if lakebase_token and not lakebase_token.startswith("dapi"):
             # Already an OAuth token
-            cparams["password"] = lakebase_token
+            token_to_use = lakebase_token
         elif instance_name:
             # Generate OAuth token for Lakebase instance
             try:
@@ -161,18 +181,27 @@ def run_migrations_online() -> None:
                     request_id=str(uuid.uuid4()),
                     instance_names=[instance_name]
                 )
-                cparams["password"] = cred.token
+                token_to_use = cred.token
             except Exception as e:
                 # Fallback to LAKEBASE_TOKEN if generation fails
                 if lakebase_token:
-                    cparams["password"] = lakebase_token
+                    token_to_use = lakebase_token
                 else:
                     raise Exception(f"Failed to generate Lakebase OAuth token: {e}")
         elif lakebase_token:
             # Use provided token as fallback
-            cparams["password"] = lakebase_token
+            token_to_use = lakebase_token
         else:
             raise Exception("No valid Lakebase authentication method available")
+        
+        # Extract username from token and set credentials
+        if token_to_use:
+            try:
+                username = _extract_username_from_token(token_to_use)
+                cparams["user"] = username
+                cparams["password"] = token_to_use
+            except Exception as e:
+                raise Exception(f"Failed to extract username from token: {e}")
 
     with connectable.connect() as connection:
         context.configure(

@@ -625,6 +625,17 @@ class ModelServingService:
             Tuple of (logs list, total count)
         """
         try:
+            # Import here to avoid circular dependency
+            from server.lib.database import is_lakebase_configured
+            
+            # Return empty logs if Lakebase is not configured (local development)
+            if not is_lakebase_configured():
+                logger.debug(
+                    "Skipping inference log retrieval - Lakebase not configured",
+                    user_id=user_id
+                )
+                return [], 0
+            
             engine = get_engine()
             
             with engine.connect() as conn:

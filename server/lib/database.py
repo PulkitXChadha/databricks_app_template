@@ -5,6 +5,8 @@ Uses Databricks SDK for secure, token-based authentication with automatic token 
 Supports on-behalf-of-user (OBO) authentication for per-user database access.
 """
 
+import base64
+import json
 import os
 import uuid
 from typing import Generator
@@ -72,6 +74,40 @@ def _create_workspace_client(user_token: str | None = None) -> WorkspaceClient:
     return WorkspaceClient()
 
 
+def _extract_username_from_token(token: str) -> str:
+    """Extract username from JWT token's 'sub' field.
+    
+    Args:
+        token: JWT token string
+        
+    Returns:
+        Username (email) from token's subject claim
+        
+    Raises:
+        Exception: If token cannot be decoded
+    """
+    try:
+        # JWT format: header.payload.signature
+        parts = token.split('.')
+        if len(parts) < 2:
+            raise ValueError("Invalid JWT format")
+        
+        # Decode payload (add padding if needed)
+        payload = parts[1]
+        payload += '=' * (4 - len(payload) % 4)
+        decoded = base64.urlsafe_b64decode(payload)
+        payload_data = json.loads(decoded)
+        
+        # Extract subject (username/email)
+        username = payload_data.get('sub')
+        if not username:
+            raise ValueError("No 'sub' field in JWT token")
+        
+        return username
+    except Exception as e:
+        raise Exception(f"Failed to extract username from token: {e}")
+
+
 def get_lakebase_connection_string() -> str:
     """Build Lakebase connection string using Databricks SDK.
     
@@ -85,11 +121,15 @@ def get_lakebase_connection_string() -> str:
         
     Raises:
         ValueError: If required environment variables are missing
+    
+    Note:
+        The username is extracted from the OAuth token's 'sub' field.
+        The connection string uses a placeholder username that will be
+        replaced when the actual connection is made with the token.
     """
-    # For Lakebase OAuth token authentication, use "token" as username
-    # The OAuth token (provided as password via event listener) contains the actual authentication principal
-    # Using client_id or other identifiers as username will fail with "role does not exist" error
-    postgres_username = "token"
+    # Use a placeholder username - will be replaced with actual username from token
+    # The event listener will extract the real username from the JWT token
+    postgres_username = "placeholder"
     postgres_host = os.getenv('PGHOST') or os.getenv('LAKEBASE_HOST')
     postgres_port = os.getenv('LAKEBASE_PORT', '5432')
     postgres_database = os.getenv('LAKEBASE_DATABASE')
@@ -103,7 +143,7 @@ def get_lakebase_connection_string() -> str:
         raise ValueError(f"Missing required configuration: {', '.join(missing)}")
     
     # Connection string format: postgresql+psycopg://<username>:@<host>:<port>/<database>?sslmode=require
-    # Password is provided dynamically via event listener
+    # Username and password are provided dynamically via event listener
     # SSL is required for Lakebase connections
     return f"postgresql+psycopg://{postgres_username}:@{postgres_host}:{postgres_port}/{postgres_database}?sslmode=require"
 
@@ -167,18 +207,21 @@ def create_lakebase_engine(
     
     @event.listens_for(engine, "do_connect")
     def provide_token(dialect, conn_rec, cargs, cparams):
-        """Provide authentication token for Lakebase.
+        """Provide authentication token and username for Lakebase.
         
         For OBO: Uses user's token to generate database credentials
         For service principal: Uses app credentials to generate database credentials
+        
+        The username is extracted from the JWT token's 'sub' field.
         """
         # For Lakebase, generate database credential using SDK
         # If LAKEBASE_TOKEN is already a valid token, use it directly
         lakebase_token = os.getenv("LAKEBASE_TOKEN")
+        token_to_use = None
         
         if lakebase_token and not lakebase_token.startswith("dapi"):
             # Already a valid OAuth token
-            cparams["password"] = lakebase_token
+            token_to_use = lakebase_token
         elif instance_name:
             # Generate database credential for Lakebase instance
             try:
@@ -186,18 +229,29 @@ def create_lakebase_engine(
                     request_id=str(uuid.uuid4()),
                     instance_names=[instance_name]
                 )
-                cparams["password"] = cred.token
+                token_to_use = cred.token
             except Exception as e:
                 # Fallback to LAKEBASE_TOKEN if generation fails
                 if lakebase_token:
-                    cparams["password"] = lakebase_token
+                    token_to_use = lakebase_token
                 else:
                     raise Exception(f"Failed to generate Lakebase database credential: {e}")
         elif lakebase_token:
             # Use provided token as fallback
-            cparams["password"] = lakebase_token
+            token_to_use = lakebase_token
         else:
             raise Exception("No valid Lakebase authentication method available. Set LAKEBASE_INSTANCE_NAME or LAKEBASE_TOKEN.")
+        
+        # Extract username from token and set credentials
+        if token_to_use:
+            try:
+                username = _extract_username_from_token(token_to_use)
+                cparams["user"] = username
+                cparams["password"] = token_to_use
+            except Exception as e:
+                # If username extraction fails, try with the token as-is
+                # (for backwards compatibility or different token formats)
+                raise Exception(f"Failed to extract username from token: {e}")
     
     return engine
 
