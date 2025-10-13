@@ -58,8 +58,10 @@ async def get_auth_context(request: Request) -> AuthenticationContext:
 async def get_current_user_id(request: Request) -> str:
     """Extract user ID (email) from authentication context.
     
-    In Databricks Apps, extracts the actual user's email from the user token.
-    In local development, returns a development user identifier.
+    Works in multiple scenarios:
+    1. Databricks Apps (deployed): Uses user token from X-Forwarded-Access-Token header
+    2. Local with OAuth: Uses service principal OAuth credentials via UserService
+    3. Local without auth: Falls back to "dev-user@example.com"
     
     Args:
         request: FastAPI request object
@@ -70,35 +72,40 @@ async def get_current_user_id(request: Request) -> str:
     user_token = await get_user_token(request)
     databricks_host = os.getenv('DATABRICKS_HOST')
     
-    # Only try to get user info if we have token (Databricks Apps environment)
-    if user_token:
-        try:
-            # Use UserService with user token to get actual user info
-            service = UserService(user_token=user_token)
-            user_info = service.get_user_info()
-            user_email = user_info.get('userName', 'authenticated-user@databricks.com')
-            
-            logger.info(
-                "Retrieved user information from token",
-                user_id=user_email,
-                display_name=user_info.get('displayName'),
-                has_databricks_host=bool(databricks_host)
-            )
-            
-            return user_email
-            
-        except Exception as e:
-            logger.warning(
-                f"Failed to get user info from token: {str(e)}",
-                exc_info=True,
-                has_token=bool(user_token),
-                has_databricks_host=bool(databricks_host)
-            )
-            # Fall back to generic identifier - this ensures app continues working
-            return "authenticated-user@databricks.com"
-    else:
-        # Local development mode - return development user identifier
-        logger.info("No user token found, using local development mode")
+    # Try to get user info using UserService (works with or without user_token)
+    # When user_token is provided (Databricks Apps), it uses OBO authentication
+    # When user_token is None (local dev), it uses service principal OAuth if available
+    try:
+        service = UserService(user_token=user_token)
+        user_identity = await service.get_user_info()
+        user_email = user_identity.user_id
+        
+        auth_method = "user_token" if user_token else "service_principal"
+        logger.info(
+            "Retrieved user information",
+            user_id=user_email,
+            display_name=user_identity.display_name,
+            auth_method=auth_method,
+            has_databricks_host=bool(databricks_host),
+            path=request.url.path
+        )
+        
+        return user_email
+        
+    except Exception as e:
+        # If we can't get user info, fall back to dev user
+        # This happens when:
+        # - No Databricks authentication is configured
+        # - Network/API errors
+        # - Invalid credentials
+        logger.warning(
+            f"Failed to get user info, falling back to dev user: {str(e)}",
+            exc_info=True,
+            has_token=bool(user_token),
+            has_databricks_host=bool(databricks_host),
+            path=request.url.path,
+            error_type=type(e).__name__
+        )
         return "dev-user@example.com"
 
 

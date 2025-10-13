@@ -86,7 +86,25 @@ async def add_correlation_id(request: Request, call_next):
 
   # Extract user access token from Databricks Apps header
   # This enables On-Behalf-Of (OBO) authentication
-  user_token = request.headers.get('X-Forwarded-Access-Token')
+  # Try multiple header variations for robustness
+  user_token = (
+    request.headers.get('X-Forwarded-Access-Token') or 
+    request.headers.get('x-forwarded-access-token')
+  )
+
+  # DEBUG: Log all request headers for diagnosis (only for /api/ paths)
+  if request.url.path.startswith('/api/') and not request.url.path.startswith('/api/health'):
+    from server.lib.structured_logger import StructuredLogger
+    debug_logger = StructuredLogger(__name__)
+    header_keys = list(request.headers.keys())
+    has_token = user_token is not None
+    debug_logger.info(
+      "Token extraction debug",
+      path=request.url.path,
+      has_token=has_token,
+      header_count=len(header_keys),
+      header_keys=header_keys[:10] if len(header_keys) > 10 else header_keys
+    )
 
   # Set authentication context in request state
   request.state.user_token = user_token

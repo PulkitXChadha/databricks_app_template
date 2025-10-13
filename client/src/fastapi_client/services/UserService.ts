@@ -60,4 +60,22 @@ export class UserService {
             url: '/api/user/me/workspace',
         });
     }
+    /**
+     * Debug Headers
+     * Debug endpoint to diagnose authentication header issues.
+     *
+     * Returns all request headers and authentication state to help diagnose
+     * why user tokens might not be extracted correctly.
+     *
+     * Returns:
+     * dict with headers, auth state, and token information
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static debugHeadersApiUserDebugHeadersGet(): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/user/debug/headers',
+        });
+    }
 }

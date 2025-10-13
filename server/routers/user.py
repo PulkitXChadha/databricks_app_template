@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from server.services.user_service import UserService
-from server.lib.auth import get_auth_context, get_user_token
+from server.lib.auth import get_auth_context, get_user_token, get_current_user_id
 from server.models.user_session import (
     AuthenticationStatusResponse,
     AuthenticationContext,
@@ -87,3 +87,34 @@ async def get_user_workspace(user_token: Optional[str] = Depends(get_user_token)
     workspace_url=workspace_info.workspace_url,
     workspace_name=workspace_info.workspace_name
   )
+
+
+@router.get('/debug/headers')
+async def debug_headers(
+  request: Request,
+  user_token: Optional[str] = Depends(get_user_token),
+  user_id: str = Depends(get_current_user_id)
+):
+  """Debug endpoint to diagnose authentication header issues.
+  
+  Returns all request headers and authentication state to help diagnose
+  why user tokens might not be extracted correctly.
+  
+  Returns:
+      dict with headers, auth state, and token information
+  """
+  return {
+    "headers": dict(request.headers),
+    "auth_state": {
+      "has_user_token": bool(user_token),
+      "token_length": len(user_token) if user_token else 0,
+      "token_preview": user_token[:30] + "..." if user_token and len(user_token) > 30 else user_token,
+      "user_id": user_id,
+      "auth_mode": getattr(request.state, 'auth_mode', 'unknown'),
+      "has_user_token_state": getattr(request.state, 'has_user_token', False)
+    },
+    "environment": {
+      "databricks_host": os.getenv('DATABRICKS_HOST', 'not set'),
+      "has_databricks_env": bool(os.getenv('DATABRICKS_HOST'))
+    }
+  }
