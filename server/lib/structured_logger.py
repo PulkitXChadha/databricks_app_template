@@ -7,7 +7,7 @@ import logging
 import json
 import os
 from datetime import datetime
-from typing import Any
+from typing import Any, Dict, Optional
 
 from server.lib.distributed_tracing import get_correlation_id
 
@@ -123,6 +123,38 @@ class StructuredLogger:
             **extra: Additional context
         """
         self.logger.debug(message, extra=extra)
+    
+    def log_event(self, event: str, level: str = "INFO", context: Optional[Dict[str, Any]] = None) -> None:
+        """Log structured event with authentication context.
+        
+        This method supports event-based logging for authentication and observability.
+        Automatically filters sensitive data (tokens, passwords) from logs.
+        
+        Args:
+            event: Event name (e.g., "auth.token_extraction", "auth.mode")
+            level: Log level (INFO, WARNING, ERROR, DEBUG)
+            context: Additional context dictionary (filtered for sensitive data)
+        
+        Example:
+            logger.log_event("auth.token_extraction", context={"has_token": True, "endpoint": "/api/user/me"})
+            logger.log_event("auth.retry_attempt", level="WARNING", context={"attempt": 2, "error_type": "AuthenticationError"})
+        """
+        log_entry = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "level": level.upper(),
+            "event": event,
+            "correlation_id": get_correlation_id(),
+            **(context or {})
+        }
+        
+        # Never log sensitive data (per NFR-004)
+        sensitive_keys = ["token", "password", "user_token", "client_secret", "access_token"]
+        for key in sensitive_keys:
+            if key in log_entry:
+                del log_entry[key]
+        
+        # Output as JSON
+        print(json.dumps(log_entry))
 
 
 # Convenience functions for logging without creating logger instance
@@ -191,3 +223,34 @@ def log_request(endpoint: str, method: str, status_code: int, duration_ms: float
         log_data['user_id'] = user_id
     
     print(json.dumps(log_data))
+
+
+def log_event(event: str, level: str = "INFO", context: Optional[Dict[str, Any]] = None) -> None:
+    """Convenience function for event-based logging without creating logger instance.
+    
+    Automatically filters sensitive data (tokens, passwords) and includes correlation ID.
+    
+    Args:
+        event: Event name (e.g., "auth.token_extraction", "auth.mode")
+        level: Log level (INFO, WARNING, ERROR, DEBUG)
+        context: Additional context dictionary
+        
+    Example:
+        log_event("auth.token_extraction", context={"has_token": True, "endpoint": "/api/user/me"})
+        log_event("auth.mode", context={"mode": "obo", "auth_type": "pat"})
+    """
+    log_entry = {
+        'timestamp': datetime.utcnow().isoformat() + "Z",
+        'level': level.upper(),
+        'event': event,
+        'correlation_id': get_correlation_id(),
+        **(context or {})
+    }
+    
+    # Never log sensitive data (per NFR-004)
+    sensitive_keys = ["token", "password", "user_token", "client_secret", "access_token"]
+    for key in sensitive_keys:
+        if key in log_entry:
+            del log_entry[key]
+    
+    print(json.dumps(log_entry))

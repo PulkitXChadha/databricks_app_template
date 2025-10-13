@@ -54,13 +54,17 @@ class UnityCatalogService:
                 cfg = Config(
                     host=databricks_host,
                     token=user_token,
-                    auth_type="pat"  # Forces token-only auth, ignores OAuth env vars
+                    auth_type="pat",  # Forces token-only auth, ignores OAuth env vars
+                    timeout=30,  # 30-second timeout per NFR-010
+                    retry_timeout=30  # Allow full timeout window
                 )
             else:
                 # In Databricks Apps, host is auto-detected
                 cfg = Config(
                     token=user_token,
-                    auth_type="pat"  # Forces token-only auth, ignores OAuth env vars
+                    auth_type="pat",  # Forces token-only auth, ignores OAuth env vars
+                    timeout=30,  # 30-second timeout per NFR-010
+                    retry_timeout=30  # Allow full timeout window
                 )
             self.client = WorkspaceClient(config=cfg)
             self.auth_mode = "user"
@@ -100,7 +104,9 @@ class UnityCatalogService:
                 host=databricks_host,
                 client_id=client_id,
                 client_secret=client_secret,
-                auth_type="oauth-m2m"
+                auth_type="oauth-m2m",
+                timeout=30,  # 30-second timeout per NFR-010
+                retry_timeout=30  # Allow full timeout window
             )
         
         # Fallback for local development (let SDK auto-detect)
@@ -109,8 +115,8 @@ class UnityCatalogService:
             "For Databricks Apps, set DATABRICKS_HOST, DATABRICKS_CLIENT_ID, and DATABRICKS_CLIENT_SECRET."
         )
         if databricks_host:
-            return Config(host=databricks_host)
-        return Config()
+            return Config(host=databricks_host, timeout=30, retry_timeout=30)
+        return Config(timeout=30, retry_timeout=30)
     
     async def list_catalogs(
         self,

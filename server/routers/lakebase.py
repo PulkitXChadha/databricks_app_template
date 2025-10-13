@@ -10,7 +10,7 @@ from enum import Enum
 
 from server.services.lakebase_service import LakebaseService
 from server.lib.structured_logger import StructuredLogger
-from server.lib.auth import get_current_user_id, get_user_token
+from server.lib.auth import get_current_user_id
 
 router = APIRouter()
 logger = StructuredLogger(__name__)
@@ -45,10 +45,12 @@ class UserPreferenceResponse(BaseModel):
 async def get_preferences(
     request: Request,
     preference_key: str | None = None,
-    user_id: str = Depends(get_current_user_id),
-    user_token: str | None = Depends(get_user_token)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Get user preferences (user-scoped, data isolated).
+    
+    Extracts user_id from OBO token and filters database queries.
+    Uses service principal for database connection (per FR-011).
     
     Query Parameters:
         preference_key: Specific preference key (optional, returns all if omitted)
@@ -57,6 +59,7 @@ async def get_preferences(
         List of user preferences
         
     Raises:
+        401: User authentication required
         503: Database unavailable (EC-002)
     """
     logger.info(
@@ -66,7 +69,8 @@ async def get_preferences(
     )
     
     try:
-        service = LakebaseService(user_token=user_token)
+        # LakebaseService uses service principal for database connection (FR-011)
+        service = LakebaseService()
         preferences = await service.get_preferences(
             user_id=user_id,
             preference_key=preference_key
@@ -129,10 +133,12 @@ async def get_preferences(
 async def save_preference(
     http_request: Request,
     request: SavePreferenceRequest,
-    user_id: str = Depends(get_current_user_id),
-    user_token: str | None = Depends(get_user_token)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Create or update user preference (user-scoped).
+    
+    Extracts user_id from OBO token and stores with preference.
+    Uses service principal for database connection (per FR-011).
     
     Request Body:
         preference_key: Preference category (dashboard_layout, favorite_tables, theme)
@@ -143,6 +149,7 @@ async def save_preference(
         
     Raises:
         400: Invalid preference data
+        401: User authentication required
         503: Database unavailable (EC-002)
     """
     logger.info(
@@ -152,7 +159,8 @@ async def save_preference(
     )
     
     try:
-        service = LakebaseService(user_token=user_token)
+        # LakebaseService uses service principal for database connection (FR-011)
+        service = LakebaseService()
         preference = await service.save_preference(
             user_id=user_id,
             preference_key=request.preference_key.value,
@@ -220,10 +228,12 @@ async def save_preference(
 async def delete_preference(
     request: Request,
     preference_key: str,
-    user_id: str = Depends(get_current_user_id),
-    user_token: str | None = Depends(get_user_token)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Delete user preference (user-scoped).
+    
+    Extracts user_id from OBO token to verify ownership.
+    Uses service principal for database connection (per FR-011).
     
     Path Parameters:
         preference_key: Preference key to delete
@@ -232,6 +242,7 @@ async def delete_preference(
         204 No Content on success
         
     Raises:
+        401: User authentication required
         404: Preference not found for this user
         503: Database unavailable (EC-002)
     """
@@ -242,7 +253,8 @@ async def delete_preference(
     )
     
     try:
-        service = LakebaseService(user_token=user_token)
+        # LakebaseService uses service principal for database connection (FR-011)
+        service = LakebaseService()
         deleted = await service.delete_preference(
             user_id=user_id,
             preference_key=preference_key

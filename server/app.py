@@ -13,6 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from server.routers import router
 from server.lib.distributed_tracing import set_correlation_id, get_correlation_id
 from server.lib.structured_logger import log_request
+from server.lib.metrics import (
+  record_auth_request,
+  record_auth_fallback,
+  record_request_duration,
+  record_auth_overhead
+)
 
 
 # Load environment variables from .env.local if it exists
@@ -62,37 +68,77 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_correlation_id(request: Request, call_next):
-  """Inject correlation ID into request context and response headers.
-  
-  - Extracts X-Request-ID header or generates new UUID
+  """Inject correlation ID and authentication context into request.
+
+  - Extracts X-Correlation-ID header or generates new UUID
   - Sets correlation ID in context for logging
-  - Adds X-Request-ID to response headers
+  - Adds X-Correlation-ID to response headers
+  - Extracts user access token for OBO authentication
+  - Sets authentication mode and state
   - Logs request with performance metrics
-  - Extracts user access token for user authorization
   """
-  # Extract from header or generate new UUID
-  request_id = request.headers.get('X-Request-ID', str(uuid4()))
-  set_correlation_id(request_id)
-  
+  # Extract correlation ID from X-Correlation-ID header or generate new UUID
+  correlation_id = request.headers.get('X-Correlation-ID', str(uuid4()))
+  set_correlation_id(correlation_id)
+
+  # Store correlation ID in request state for access in endpoints
+  request.state.correlation_id = correlation_id
+
   # Extract user access token from Databricks Apps header
-  # This enables user authorization (on-behalf-of-user)
-  user_token = request.headers.get('x-forwarded-access-token')
-  request.state.user_token = user_token  # Store in request state
+  # This enables On-Behalf-Of (OBO) authentication
+  user_token = request.headers.get('X-Forwarded-Access-Token')
+
+  # Set authentication context in request state
+  request.state.user_token = user_token
+  request.state.has_user_token = user_token is not None
+  request.state.auth_mode = "obo" if user_token else "service_principal"
+  
+  # Record fallback event if no token provided
+  if not user_token and request.url.path.startswith('/api/'):
+    record_auth_fallback(reason="missing_token")
   
   # Track request start time
   start_time = time.time()
+  auth_start_time = time.time()
+  
+  # Authentication overhead is minimal at middleware level (just token extraction)
+  auth_overhead = time.time() - auth_start_time
   
   # Process request
   response = await call_next(request)
   
   # Calculate duration
-  duration_ms = (time.time() - start_time) * 1000
+  duration_seconds = time.time() - start_time
+  duration_ms = duration_seconds * 1000
   
   # Add correlation ID to response headers
-  response.headers['X-Request-ID'] = request_id
+  response.headers['X-Correlation-ID'] = correlation_id
   
-  # Log request with metrics (skip health check to reduce noise)
-  if request.url.path != '/health':
+  # Record metrics (skip health and metrics endpoints to reduce noise)
+  if request.url.path not in ['/health', '/metrics']:
+    # Record authentication metrics
+    auth_status = "success" if 200 <= response.status_code < 400 else "failure"
+    record_auth_request(
+      endpoint=request.url.path,
+      mode=request.state.auth_mode,
+      status=auth_status
+    )
+    
+    # Record auth overhead
+    record_auth_overhead(
+      mode=request.state.auth_mode,
+      overhead_seconds=auth_overhead
+    )
+    
+    # Record overall request duration
+    record_request_duration(
+      endpoint=request.url.path,
+      method=request.method,
+      status=response.status_code,
+      duration_seconds=duration_seconds
+    )
+    
+    # Log request with metrics
     log_request(
       endpoint=request.url.path,
       method=request.method,
@@ -110,6 +156,22 @@ app.include_router(router, prefix='/api', tags=['api'])
 async def health():
   """Health check endpoint."""
   return {'status': 'healthy'}
+
+
+@app.get('/metrics')
+async def metrics():
+  """Prometheus metrics endpoint.
+  
+  Exposes authentication and performance metrics in Prometheus format.
+  Public access for monitoring systems (no authentication required).
+  """
+  from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+  from fastapi.responses import Response
+  
+  return Response(
+    content=generate_latest(),
+    media_type=CONTENT_TYPE_LATEST
+  )
 
 
 # ============================================================================

@@ -18,4 +18,19 @@ export class DefaultService {
             url: '/health',
         });
     }
+    /**
+     * Metrics
+     * Prometheus metrics endpoint.
+     *
+     * Exposes authentication and performance metrics in Prometheus format.
+     * Public access for monitoring systems (no authentication required).
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static metricsMetricsGet(): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/metrics',
+        });
+    }
 }

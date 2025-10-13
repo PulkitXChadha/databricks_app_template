@@ -12,6 +12,9 @@ export class LakebaseService {
      * Get Preferences
      * Get user preferences (user-scoped, data isolated).
      *
+     * Extracts user_id from OBO token and filters database queries.
+     * Uses service principal for database connection (per FR-011).
+     *
      * Query Parameters:
      * preference_key: Specific preference key (optional, returns all if omitted)
      *
@@ -19,6 +22,7 @@ export class LakebaseService {
      * List of user preferences
      *
      * Raises:
+     * 401: User authentication required
      * 503: Database unavailable (EC-002)
      * @param preferenceKey
      * @returns UserPreferenceResponse Successful Response
@@ -42,6 +46,9 @@ export class LakebaseService {
      * Save Preference
      * Create or update user preference (user-scoped).
      *
+     * Extracts user_id from OBO token and stores with preference.
+     * Uses service principal for database connection (per FR-011).
+     *
      * Request Body:
      * preference_key: Preference category (dashboard_layout, favorite_tables, theme)
      * preference_value: Preference data as JSON
@@ -51,6 +58,7 @@ export class LakebaseService {
      *
      * Raises:
      * 400: Invalid preference data
+     * 401: User authentication required
      * 503: Database unavailable (EC-002)
      * @param requestBody
      * @returns UserPreferenceResponse Successful Response
@@ -73,6 +81,9 @@ export class LakebaseService {
      * Delete Preference
      * Delete user preference (user-scoped).
      *
+     * Extracts user_id from OBO token to verify ownership.
+     * Uses service principal for database connection (per FR-011).
+     *
      * Path Parameters:
      * preference_key: Preference key to delete
      *
@@ -80,6 +91,7 @@ export class LakebaseService {
      * 204 No Content on success
      *
      * Raises:
+     * 401: User authentication required
      * 404: Preference not found for this user
      * 503: Database unavailable (EC-002)
      * @param preferenceKey

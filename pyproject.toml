@@ -8,7 +8,7 @@ authors = [
 dependencies = [
     "fastapi>=0.104.1",
     "uvicorn[standard]>=0.24.0",
-    "databricks-sdk==0.59.0",
+    "databricks-sdk==0.67.0",
     "pydantic>=2.5.0",
     "python-multipart>=0.0.6",
     "httpx>=0.25.0",
@@ -20,10 +20,10 @@ dependencies = [
     "mlflow[databricks]>=3.1.1",
     "debugpy>=1.8.15",
     "python-dotenv>=1.1.1",
-    "sqlalchemy>=2.0.0",        # Lakebase ORM
-    "psycopg[binary]>=3.1.0",   # Postgres driver for Lakebase (version 3 for async support)
-    "alembic>=1.13.0",          # Database migrations
-    "email-validator>=2.0.0",   # Email validation for Pydantic
+    "sqlalchemy>=2.0.0", # Lakebase ORM
+    "psycopg[binary]>=3.1.0", # Postgres driver for Lakebase (version 3 for async support)
+    "alembic>=1.13.0", # Database migrations
+    "email-validator>=2.0.0", # Email validation for Pydantic
 ]
 requires-python = ">=3.11"
 
@@ -34,6 +34,9 @@ dev = [
     "watchdog>=3.0.0",
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-xdist>=3.5.0",  # Parallel test execution
+    "pytest-timeout>=2.2.0",  # Prevent hanging tests
+    "pytest-mock>=3.12.0",  # Cleaner mock syntax
     "httpx>=0.25.0",
 ]
 
@@ -117,6 +120,32 @@ classmethod-decorators = ["classmethod", "pydantic.validator"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# Run fast tests first, with parallel execution
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+    "--color=yes",
+    # Parallel execution (uncomment to enable by default)
+    # "-n", "auto",
+    # Default timeout can be enabled with: "--timeout=30"
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "contract: marks tests as contract tests",
+    "unit: marks tests as unit tests",
+    "requires_server: tests that need a running server",
+    "asyncio: marks tests as async",
+]
+# Async mode for pytest-asyncio
+asyncio_mode = "auto"
 
 [dependency-groups]
 dev = [

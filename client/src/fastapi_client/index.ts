@@ -8,6 +8,7 @@ export { OpenAPI } from './core/OpenAPI';
 export type { OpenAPIConfig } from './core/OpenAPI';
 
 export type { AccessLevel } from './models/AccessLevel';
+export type { AuthenticationStatusResponse } from './models/AuthenticationStatusResponse';
 export type { ColumnDefinition } from './models/ColumnDefinition';
 export type { DataSource } from './models/DataSource';
 export type { HTTPValidationError } from './models/HTTPValidationError';
@@ -22,10 +23,10 @@ export type { QueryResult } from './models/QueryResult';
 export type { QueryStatus } from './models/QueryStatus';
 export type { QueryTableRequest } from './models/QueryTableRequest';
 export type { SavePreferenceRequest } from './models/SavePreferenceRequest';
-export type { UserInfo } from './models/UserInfo';
+export type { UserInfoResponse } from './models/UserInfoResponse';
 export type { UserPreferenceResponse } from './models/UserPreferenceResponse';
-export type { UserWorkspaceInfo } from './models/UserWorkspaceInfo';
 export type { ValidationError } from './models/ValidationError';
+export type { WorkspaceInfoResponse } from './models/WorkspaceInfoResponse';
 
 export { ApiService } from './services/ApiService';
 export { DefaultService } from './services/DefaultService';

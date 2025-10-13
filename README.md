@@ -1,6 +1,6 @@
 # 🚀 Claude Code + Databricks App Template
 
-A modern, full-stack application template for building Databricks Apps with Python FastAPI backend and React TypeScript frontend. 
+A modern, full-stack application template for building Databricks Apps with Python FastAPI backend and React TypeScript frontend. **Now with On-Behalf-Of-User (OBO) authentication** for multi-user applications with proper permission enforcement and data isolation.
 
 **[Claude Code](https://claude.ai/code)-centric workflow** - a single `/dba` command transforms your ideas into deployed applications. Claude guides you through product requirements, technical design, implementation, and deployment. It knows the entire Databricks Apps ecosystem and self-heals by automatically diagnosing and fixing issues.
 
@@ -11,6 +11,7 @@ The `/dba` workflow acts as your product strategist and development architect - 
 ![React](https://img.shields.io/badge/React-18+-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5+-blue)
 ![Claude](https://img.shields.io/badge/Claude-Ready-purple)
+![OBO Auth](https://img.shields.io/badge/OBO-Authentication-success)
 
 ## 🚀 Getting Started
 
@@ -104,12 +105,14 @@ The `setup.sh` script will help you install any missing dependencies with intera
 
 - **🔥 Hot Reloading** - Instant updates for both Python backend and React frontend
 - **🔄 Auto-Generated API Client** - TypeScript client automatically generated from FastAPI OpenAPI spec
-- **🔐 Databricks Authentication** - Integrated with Databricks SDK for seamless workspace integration
+- **🔐 On-Behalf-Of (OBO) Authentication** - Dual authentication pattern with automatic user token extraction and service principal fallback
 - **🎨 Modern UI** - Beautiful components using shadcn/ui + Tailwind CSS
 - **📦 Package Management** - uv for Python, bun for frontend
 - **🚀 Databricks Apps Ready** - Pre-configured for deployment to Databricks Apps platform
 - **🤖 Claude Integration** - Natural language development commands documented
 - **🗄️ Databricks Service Integrations** - Unity Catalog, Lakebase, and Model Serving out-of-the-box
+- **📊 Observability First** - Structured logging, Prometheus metrics, and distributed tracing built-in
+- **🛡️ Multi-User Data Isolation** - Row-level security with user_id filtering for all user-scoped data
 
 ## 🔌 Databricks Service Integrations
 
@@ -136,11 +139,22 @@ Invoke ML models deployed to Databricks Model Serving:
 - **Timeout handling** - Configurable request timeouts (1-300s)
 - **Error recovery** - Exponential backoff retry logic
 
+### On-Behalf-Of (OBO) Authentication
+Secure user authentication with automatic permission enforcement:
+- **Dual authentication pattern** - OBO for user operations, service principal for system operations
+- **Automatic token extraction** - User tokens from Databricks Apps platform via X-Forwarded-Access-Token
+- **Multi-user isolation** - Row-level security with user_id filtering in database queries
+- **Retry logic** - Exponential backoff (100ms/200ms/400ms) with 5-second timeout
+- **Performance** - Authentication overhead <10ms (P95)
+- **Observability** - Comprehensive metrics and structured logging for all auth events
+- **Local testing** - CLI-based token fetching for development
+
 ### Observability
 Built-in structured logging and distributed tracing:
 - **Structured JSON logs** - Machine-readable with correlation IDs
-- **Request tracing** - Track requests across services with X-Request-ID
-- **Performance metrics** - Execution time, latency, error rates
+- **Request tracing** - Track requests across services with X-Correlation-ID
+- **Performance metrics** - Execution time, latency, error rates (Prometheus-compatible)
+- **Authentication metrics** - Auth success/failure rates, retry counts, fallback events
 - **No PII logging** - Compliant with data privacy requirements
 
 ### Design Bricks UI Components

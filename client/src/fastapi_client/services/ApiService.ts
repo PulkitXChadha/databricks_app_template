@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AuthenticationStatusResponse } from '../models/AuthenticationStatusResponse';
 import type { DataSource } from '../models/DataSource';
 import type { InferenceLogsListResponse } from '../models/InferenceLogsListResponse';
 import type { InvokeModelRequest } from '../models/InvokeModelRequest';
@@ -10,32 +11,59 @@ import type { ModelInferenceResponse } from '../models/ModelInferenceResponse';
 import type { QueryResult } from '../models/QueryResult';
 import type { QueryTableRequest } from '../models/QueryTableRequest';
 import type { SavePreferenceRequest } from '../models/SavePreferenceRequest';
-import type { UserInfo } from '../models/UserInfo';
+import type { UserInfoResponse } from '../models/UserInfoResponse';
 import type { UserPreferenceResponse } from '../models/UserPreferenceResponse';
-import type { UserWorkspaceInfo } from '../models/UserWorkspaceInfo';
+import type { WorkspaceInfoResponse } from '../models/WorkspaceInfoResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class ApiService {
     /**
-     * Get Current User
-     * Get current user information from Databricks.
-     * @returns UserInfo Successful Response
+     * Get Auth Status
+     * Get authentication status for the current request.
+     *
+     * Returns information about the authentication mode (OBO vs service principal)
+     * and whether a user identity is available.
+     * @returns AuthenticationStatusResponse Successful Response
      * @throws ApiError
      */
-    public static getCurrentUserApiUserMeGet(): CancelablePromise<UserInfo> {
+    public static getAuthStatusApiUserAuthStatusGet(): CancelablePromise<AuthenticationStatusResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/user/auth/status',
+        });
+    }
+    /**
+     * Get Current User
+     * Get current user information from Databricks.
+     *
+     * Uses OBO authentication when X-Forwarded-Access-Token header is present.
+     * Falls back to service principal if header is missing (for testing only).
+     *
+     * Returns:
+     * UserInfoResponse with user_id, display_name, active status, and workspace_url
+     * @returns UserInfoResponse Successful Response
+     * @throws ApiError
+     */
+    public static getCurrentUserApiUserMeGet(): CancelablePromise<UserInfoResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/user/me',
         });
     }
     /**
-     * Get User Workspace Info
-     * Get user information along with workspace details.
-     * @returns UserWorkspaceInfo Successful Response
+     * Get User Workspace
+     * Get workspace information for current user.
+     *
+     * Uses OBO authentication to get user-specific workspace details.
+     * Calls UserService.get_workspace_info() public method per FR-006a.
+     *
+     * Returns:
+     * WorkspaceInfoResponse with workspace_id, workspace_url, workspace_name
+     * @returns WorkspaceInfoResponse Successful Response
      * @throws ApiError
      */
-    public static getUserWorkspaceInfoApiUserMeWorkspaceGet(): CancelablePromise<UserWorkspaceInfo> {
+    public static getUserWorkspaceApiUserMeWorkspaceGet(): CancelablePromise<WorkspaceInfoResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/user/me/workspace',
@@ -255,6 +283,9 @@ export class ApiService {
      * Get Preferences
      * Get user preferences (user-scoped, data isolated).
      *
+     * Extracts user_id from OBO token and filters database queries.
+     * Uses service principal for database connection (per FR-011).
+     *
      * Query Parameters:
      * preference_key: Specific preference key (optional, returns all if omitted)
      *
@@ -262,6 +293,7 @@ export class ApiService {
      * List of user preferences
      *
      * Raises:
+     * 401: User authentication required
      * 503: Database unavailable (EC-002)
      * @param preferenceKey
      * @returns UserPreferenceResponse Successful Response
@@ -285,6 +317,9 @@ export class ApiService {
      * Save Preference
      * Create or update user preference (user-scoped).
      *
+     * Extracts user_id from OBO token and stores with preference.
+     * Uses service principal for database connection (per FR-011).
+     *
      * Request Body:
      * preference_key: Preference category (dashboard_layout, favorite_tables, theme)
      * preference_value: Preference data as JSON
@@ -294,6 +329,7 @@ export class ApiService {
      *
      * Raises:
      * 400: Invalid preference data
+     * 401: User authentication required
      * 503: Database unavailable (EC-002)
      * @param requestBody
      * @returns UserPreferenceResponse Successful Response
@@ -316,6 +352,9 @@ export class ApiService {
      * Delete Preference
      * Delete user preference (user-scoped).
      *
+     * Extracts user_id from OBO token to verify ownership.
+     * Uses service principal for database connection (per FR-011).
+     *
      * Path Parameters:
      * preference_key: Preference key to delete
      *
@@ -323,6 +362,7 @@ export class ApiService {
      * 204 No Content on success
      *
      * Raises:
+     * 401: User authentication required
      * 404: Preference not found for this user
      * 503: Database unavailable (EC-002)
      * @param preferenceKey
