@@ -110,9 +110,10 @@ export const ModelHistoryTable: React.FC<ModelHistoryTableProps> = ({
           justifyContent: "space-between",
           alignItems: "center",
           marginBottom: "16px",
+          gap: "16px",
         }}
       >
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <Typography.Title level={2} withoutMargins>
             Inference History
           </Typography.Title>
@@ -121,15 +122,19 @@ export const ModelHistoryTable: React.FC<ModelHistoryTableProps> = ({
           </Typography.Text>
         </div>
         {onRefresh && (
-          <Button
-            variant="secondary"
-            size="small"
-            onClick={onRefresh}
-            disabled={loading}
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
+          <div style={{ flexShrink: 0 }}>
+            <Button
+              variant="secondary"
+              size="medium"
+              onClick={onRefresh}
+              disabled={loading}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" }}>
+                <RefreshCw className="h-4 w-4" />
+                <span>Refresh</span>
+              </div>
+            </Button>
+          </div>
         )}
       </div>
 
