@@ -20,12 +20,12 @@ import {
   LakebaseService,
   ModelServingService,
   UserService,
-  type UserInfo,
+  type UserInfoResponse,
   type PreferenceKey,
 } from "@/fastapi_client";
 
 export function DatabricksServicesPage() {
-  const [userInfo, setUserInfo] = React.useState<UserInfo | null>(null);
+  const [userInfo, setUserInfo] = React.useState<UserInfoResponse | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState("welcome");
   const [modelServingSubTab, setModelServingSubTab] = useState<"invoke" | "history">("invoke");
@@ -352,8 +352,8 @@ export function DatabricksServicesPage() {
         user={
           userInfo
             ? {
-                email: userInfo.userName || "",
-                name: userInfo.displayName || userInfo.userName || "",
+                email: userInfo.user_id || "",
+                name: userInfo.display_name || userInfo.user_id || "",
                 onClick: () => console.log("User profile clicked"),
               }
             : undefined

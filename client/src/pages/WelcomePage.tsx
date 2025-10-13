@@ -11,10 +11,10 @@ import {
 } from "lucide-react";
 
 interface UserInfo {
-  userName: string;
-  displayName?: string;
-  active: boolean;
-  emails: string[];
+  user_id: string;
+  display_name: string;
+  active?: boolean;
+  workspace_url: string;
 }
 
 async function fetchUserInfo(): Promise<UserInfo> {
@@ -65,10 +65,10 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
               <div className="flex items-center gap-4">
                 <div>
                   <Typography.Text bold>
-                    {userInfo.displayName || userInfo.userName}
+                    {userInfo.display_name || userInfo.user_id}
                   </Typography.Text>
                   <Typography.Text size="sm" color="secondary">
-                    {userInfo.emails[0] || userInfo.userName}
+                    {userInfo.user_id}
                   </Typography.Text>
                 </div>
                 <Badge variant={userInfo.active ? "success" : "warning"}>
