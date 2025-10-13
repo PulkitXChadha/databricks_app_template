@@ -195,6 +195,16 @@ export const ModelHistoryTable: React.FC<ModelHistoryTableProps> = ({
                       borderBottom: "1px solid #e5e7eb",
                     }}
                   >
+                    User ID
+                  </th>
+                  <th
+                    style={{
+                      padding: "12px",
+                      textAlign: "left",
+                      fontWeight: 600,
+                      borderBottom: "1px solid #e5e7eb",
+                    }}
+                  >
                     Status
                   </th>
                   <th
@@ -263,6 +273,16 @@ export const ModelHistoryTable: React.FC<ModelHistoryTableProps> = ({
                           borderBottom: "1px solid #e5e7eb",
                         }}
                       >
+                        <Typography.Text style={{ fontFamily: "monospace", fontSize: "12px" }}>
+                          {log.user_id}
+                        </Typography.Text>
+                      </td>
+                      <td
+                        style={{
+                          padding: "12px",
+                          borderBottom: "1px solid #e5e7eb",
+                        }}
+                      >
                         <span
                           style={{
                             display: "inline-block",
@@ -318,7 +338,7 @@ export const ModelHistoryTable: React.FC<ModelHistoryTableProps> = ({
                     {expandedRow === log.id && (
                       <tr>
                         <td
-                          colSpan={6}
+                          colSpan={7}
                           style={{
                             padding: "16px",
                             backgroundColor: "#f9fafb",
