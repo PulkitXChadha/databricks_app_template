@@ -18,9 +18,9 @@ export type ModelEndpointResponse = {
      */
     endpoint_id?: (string | null);
     /**
-     * Model name
+     * Model name (optional for some endpoint types)
      */
-    model_name: string;
+    model_name?: (string | null);
     /**
      * Model version
      */

@@ -105,7 +105,7 @@ class UserIdentity(BaseModel):
     Represents the authenticated user's identity information
     retrieved from the Databricks workspace.
     """
-    user_id: EmailStr = Field(..., description="User email address")
+    user_id: str = Field(..., description="User identifier (email or UUID)")
     display_name: str = Field(..., description="User's display name")
     active: bool = Field(default=True, description="Whether user is active")
     extracted_at: datetime = Field(

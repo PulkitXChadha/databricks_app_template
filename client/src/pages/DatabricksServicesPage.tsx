@@ -359,10 +359,10 @@ export function DatabricksServicesPage() {
         searchPlaceholder="Search data, notebooks, recents, and more..."
         showMenuButton
         user={
-          userInfo
+          userInfo && userInfo.user_id
             ? {
-                email: userInfo.user_id || "",
-                name: userInfo.display_name || userInfo.user_id || "",
+                email: userInfo.user_id,
+                name: userInfo.display_name || userInfo.user_id,
                 onClick: () => console.log("User profile clicked"),
               }
             : undefined

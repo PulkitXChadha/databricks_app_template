@@ -26,7 +26,7 @@ class ModelEndpointResponse(BaseModel):
     
     endpoint_name: str = Field(..., description="Unique endpoint name")
     endpoint_id: str | None = Field(default=None, description="Databricks endpoint ID")
-    model_name: str = Field(..., description="Model name")
+    model_name: str | None = Field(default=None, description="Model name (optional for some endpoint types)")
     model_version: str | None = Field(default=None, description="Model version")
     state: str = Field(..., description="Endpoint state")
     creation_timestamp: str | None = Field(default=None, description="Creation time (ISO 8601)")
