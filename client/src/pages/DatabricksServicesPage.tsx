@@ -61,6 +61,7 @@ export function DatabricksServicesPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLimit, setHistoryLimit] = useState(50);
   const [historyOffset, setHistoryOffset] = useState(0);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
 
   // Load user info on mount
   React.useEffect(() => {
@@ -291,6 +292,7 @@ export function DatabricksServicesPage() {
       setHistoryTotalCount(data.total_count);
       setHistoryLimit(limit);
       setHistoryOffset(offset);
+      setHistoryLoaded(true);
     } catch (err: any) {
       setHistoryError(err.message || "Failed to load inference history");
       console.error("Failed to load inference history:", err);
@@ -302,6 +304,13 @@ export function DatabricksServicesPage() {
   const handleHistoryPageChange = async (limit: number, offset: number) => {
     await loadInferenceHistory(limit, offset);
   };
+
+  // Load history only once when switching to history tab
+  React.useEffect(() => {
+    if (modelServingSubTab === "history" && !historyLoaded) {
+      loadInferenceHistory();
+    }
+  }, [modelServingSubTab]);
 
   // Sidebar configuration
   const sidebarItems: SidebarItem[] = [
@@ -511,10 +520,7 @@ export function DatabricksServicesPage() {
                         borderBottom: modelServingSubTab === "history" ? "2px solid #1d4ed8" : "none",
                         marginBottom: "-2px",
                       }}
-                      onClick={() => {
-                        setModelServingSubTab("history");
-                        loadInferenceHistory();
-                      }}
+                      onClick={() => setModelServingSubTab("history")}
                     >
                       History
                     </button>
