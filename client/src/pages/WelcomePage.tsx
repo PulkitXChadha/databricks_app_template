@@ -42,7 +42,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
         {/* Header */}
         <div className="text-center mb-12">
           <div className="flex justify-center items-center gap-3 mb-4">
-            <Typography.Title level={1} style={{ fontSize: "2.25rem" }}>
+            <Typography.Title level={1}>
               Welcome to your Databricks Full Stack App
             </Typography.Title>
           </div>
@@ -68,7 +68,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                     {userInfo.display_name || userInfo.user_id}
                   </Typography.Text>
                   <Typography.Text size="sm" color="secondary">
-                    {userInfo.user_id}
+                    ({userInfo.user_id})
                   </Typography.Text>
                 </div>
                 <Badge variant={userInfo.active ? "success" : "warning"}>
@@ -364,7 +364,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
         {/* Features */}
         <Card className="mb-8" padding="medium">
           <div className="flex flex-col space-y-1.5">
-            <Typography.Title level={2} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Typography.Title level={2} withoutMargins style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
               <Wrench className="h-5 w-5" />
               Key Features
             </Typography.Title>
@@ -379,8 +379,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                   <Badge variant="primary" className="mt-1">Auto</Badge>
                   <div>
                     <Typography.Text bold>
-                      TypeScript Client Generation
-                    </Typography.Text>
+                      TypeScript Client Generation </Typography.Text>
                     <Typography.Text size="sm" color="secondary">
                       Automatically generates TypeScript API client from FastAPI
                       OpenAPI spec
@@ -390,7 +389,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                 <div className="flex items-start gap-3">
                   <Badge variant="primary" className="mt-1">Hot</Badge>
                   <div>
-                    <Typography.Text bold>Hot Reloading</Typography.Text>
+                    <Typography.Text bold>Hot Reloading </Typography.Text>
                     <Typography.Text size="sm" color="secondary">
                       Instant updates for both Python backend and React frontend
                       changes
@@ -400,7 +399,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                 <div className="flex items-start gap-3">
                   <Badge variant="primary" className="mt-1">Auth</Badge>
                   <div>
-                    <Typography.Text bold>Databricks Authentication</Typography.Text>
+                    <Typography.Text bold>Databricks Authentication </Typography.Text>
                     <Typography.Text size="sm" color="secondary">
                       Integrated with Databricks SDK for seamless workspace
                       integration
@@ -412,7 +411,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                 <div className="flex items-start gap-3">
                   <Badge variant="primary" className="mt-1">Deploy</Badge>
                   <div>
-                    <Typography.Text bold>Databricks Apps Ready</Typography.Text>
+                    <Typography.Text bold>Databricks Apps Ready </Typography.Text>
                     <Typography.Text size="sm" color="secondary">
                       Pre-configured for deployment to Databricks Apps platform
                     </Typography.Text>
@@ -421,7 +420,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                 <div className="flex items-start gap-3">
                   <Badge variant="primary" className="mt-1">Quality</Badge>
                   <div>
-                    <Typography.Text bold>Code Quality Tools</Typography.Text>
+                    <Typography.Text bold>Code Quality Tools </Typography.Text>
                     <Typography.Text size="sm" color="secondary">
                       Automated formatting with ruff (Python) and prettier
                       (TypeScript)
@@ -431,7 +430,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                 <div className="flex items-start gap-3">
                   <Badge variant="primary" className="mt-1">Logs</Badge>
                   <div>
-                    <Typography.Text bold>Background Development</Typography.Text>
+                    <Typography.Text bold>Background Development </Typography.Text>
                     <Typography.Text size="sm" color="secondary">
                       Development servers run in background with comprehensive
                       logging
