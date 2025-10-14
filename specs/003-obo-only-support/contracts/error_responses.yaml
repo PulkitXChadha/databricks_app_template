@@ -1,0 +1,273 @@
+# Error Response Contracts
+# Feature: 003-obo-only-support
+# Purpose: Define structured error responses for authentication failures
+
+error_codes:
+  AUTH_MISSING:
+    http_status: 401
+    description: "User access token not provided in request"
+    message: "User authentication required. Please provide a valid user access token."
+    causes:
+      - "X-Forwarded-Access-Token header missing"
+      - "X-Forwarded-Access-Token header present but empty"
+      - "Request state user_token is None"
+    
+    retry_strategy: "Provide valid user access token"
+    
+    response_schema:
+      error_code: "AUTH_MISSING"
+      message: "User authentication required. Please provide a valid user access token."
+      detail: null
+      retry_after: null
+    
+    example_scenarios:
+      - trigger: "curl http://localhost:8000/api/user/me"
+        response:
+          status: 401
+          body:
+            error_code: "AUTH_MISSING"
+            message: "User authentication required. Please provide a valid user access token."
+      
+      - trigger: "Request with empty header: X-Forwarded-Access-Token: ''"
+        response:
+          status: 401
+          body:
+            error_code: "AUTH_MISSING"
+            message: "User authentication required. Please provide a valid user access token."
+  
+  AUTH_INVALID:
+    http_status: 401
+    description: "User access token is malformed or invalid"
+    message: "The provided access token is invalid or malformed."
+    causes:
+      - "Token format is incorrect"
+      - "Token signature validation failed"
+      - "Token is not a valid Databricks token"
+    
+    retry_strategy: "Obtain a new valid token from Databricks CLI"
+    
+    response_schema:
+      error_code: "AUTH_INVALID"
+      message: "The provided access token is invalid or malformed."
+      detail: "Token validation failed"
+      retry_after: null
+    
+    example_scenarios:
+      - trigger: "curl -H 'X-Forwarded-Access-Token: invalid-token-12345' http://localhost:8000/api/user/me"
+        response:
+          status: 401
+          body:
+            error_code: "AUTH_INVALID"
+            message: "The provided access token is invalid or malformed."
+            detail: "Token validation failed"
+  
+  AUTH_EXPIRED:
+    http_status: 401
+    description: "User access token has expired"
+    message: "The provided access token has expired."
+    causes:
+      - "Token lifetime exceeded (Databricks tokens typically expire after 1 hour)"
+      - "Token was revoked"
+    
+    retry_strategy: "Obtain a new token (Databricks Apps refresh automatically, CLI needs re-auth)"
+    
+    response_schema:
+      error_code: "AUTH_EXPIRED"
+      message: "The provided access token has expired."
+      detail: "Token lifetime exceeded"
+      retry_after: null
+    
+    example_scenarios:
+      - trigger: "Request with expired token"
+        response:
+          status: 401
+          body:
+            error_code: "AUTH_EXPIRED"
+            message: "The provided access token has expired."
+            detail: "Token lifetime exceeded"
+  
+  AUTH_USER_IDENTITY_FAILED:
+    http_status: 401
+    description: "Unable to extract user identity from token"
+    message: "Failed to extract user identity."
+    causes:
+      - "Databricks API call to current_user.me() failed"
+      - "API response missing userName field"
+      - "Network error communicating with Databricks"
+    
+    retry_strategy: "Retry request (may be transient error)"
+    
+    response_schema:
+      error_code: "AUTH_USER_IDENTITY_FAILED"
+      message: "Failed to extract user identity."
+      detail: "Error details from Databricks SDK"
+      retry_after: null
+  
+  AUTH_RATE_LIMITED:
+    http_status: 429
+    description: "Platform rate limit exceeded"
+    message: "Platform rate limit exceeded. Please retry after indicated delay."
+    causes:
+      - "Too many authentication attempts"
+      - "Databricks API rate limit hit"
+      - "Platform throttling active"
+    
+    retry_strategy: "Wait for retry_after seconds before retrying"
+    
+    response_schema:
+      error_code: "AUTH_RATE_LIMITED"
+      message: "Platform rate limit exceeded. Please retry after indicated delay."
+      detail: "Too many authentication attempts"
+      retry_after: 60
+    
+    example_scenarios:
+      - trigger: "Many rapid authentication requests"
+        response:
+          status: 429
+          body:
+            error_code: "AUTH_RATE_LIMITED"
+            message: "Platform rate limit exceeded. Please retry after indicated delay."
+            detail: "Too many authentication attempts"
+            retry_after: 60
+
+error_response_structure:
+  schema:
+    type: "object"
+    required_fields:
+      - error_code
+      - message
+    optional_fields:
+      - detail
+      - retry_after
+  
+  fields:
+    error_code:
+      type: "string"
+      enum: ["AUTH_MISSING", "AUTH_INVALID", "AUTH_EXPIRED", "AUTH_USER_IDENTITY_FAILED", "AUTH_RATE_LIMITED"]
+      description: "Machine-readable error code for programmatic handling"
+    
+    message:
+      type: "string"
+      description: "Human-readable error message for end users"
+    
+    detail:
+      type: "string | null"
+      description: "Additional technical details (for debugging, not for end users)"
+    
+    retry_after:
+      type: "integer | null"
+      description: "Seconds to wait before retry (only for rate limiting)"
+
+implementation_patterns:
+  dependency_level_errors:
+    location: "server/lib/auth.py"
+    function: "get_user_token(request: Request) -> str"
+    behavior: "Raises HTTPException with structured error on missing token"
+    example: |
+      async def get_user_token(request: Request) -> str:
+          user_token = getattr(request.state, 'user_token', None)
+          
+          if not user_token:
+              raise HTTPException(
+                  status_code=401,
+                  detail={
+                      "error_code": "AUTH_MISSING",
+                      "message": "User authentication required. Please provide a valid user access token."
+                  }
+              )
+          
+          return user_token
+  
+  service_level_errors:
+    location: "server/services/*.py"
+    function: "__init__(self, user_token: str)"
+    behavior: "Raises ValueError on invalid user_token"
+    example: |
+      def __init__(self, user_token: str):
+          if not user_token:
+              raise ValueError("user_token is required for UnityCatalogService")
+          self.user_token = user_token
+  
+  api_level_errors:
+    location: "server/services/*.py"
+    method: "get_user_info()"
+    behavior: "Catches Databricks SDK errors and raises HTTPException"
+    example: |
+      async def get_user_info(self) -> UserInfo:
+          try:
+              user = self.client.current_user.me()
+              return UserInfo(user_id=user.user_name, ...)
+          except DatabricksError as e:
+              if "expired" in str(e).lower():
+                  raise HTTPException(
+                      status_code=401,
+                      detail={"error_code": "AUTH_EXPIRED", "message": "The provided access token has expired."}
+                  )
+              elif e.status_code == 429:
+                  raise HTTPException(
+                      status_code=429,
+                      detail={"error_code": "AUTH_RATE_LIMITED", "message": "Platform rate limit exceeded.", "retry_after": 60}
+                  )
+              else:
+                  raise HTTPException(
+                      status_code=401,
+                      detail={"error_code": "AUTH_INVALID", "message": "The provided access token is invalid or malformed."}
+                  )
+
+testing_scenarios:
+  missing_token:
+    test_name: "test_missing_token_returns_401"
+    request: "GET /api/user/me without X-Forwarded-Access-Token header"
+    expected_status: 401
+    expected_error_code: "AUTH_MISSING"
+    verification:
+      - "Response status code is 401"
+      - "Response body contains error_code field"
+      - "error_code value is AUTH_MISSING"
+      - "message field is present and user-friendly"
+  
+  invalid_token:
+    test_name: "test_invalid_token_returns_401"
+    request: "GET /api/user/me with X-Forwarded-Access-Token: 'invalid-token'"
+    expected_status: 401
+    expected_error_code: "AUTH_INVALID"
+    verification:
+      - "Response status code is 401"
+      - "error_code is AUTH_INVALID"
+      - "detail field contains SDK error info"
+  
+  expired_token:
+    test_name: "test_expired_token_returns_401"
+    request: "GET /api/user/me with expired token"
+    expected_status: 401
+    expected_error_code: "AUTH_EXPIRED"
+    verification:
+      - "Response status code is 401"
+      - "error_code is AUTH_EXPIRED"
+      - "message indicates token expiration"
+
+removed_error_patterns:
+  - description: "Service principal fallback warnings"
+    previous_log: "auth.fallback_triggered: reason=missing_token"
+    after: "Raises AUTH_MISSING HTTP 401 instead"
+  
+  - description: "Mixed authentication mode errors"
+    previous_error: "more than one authorization method configured"
+    after: "Not possible (OBO-only, no dual auth)"
+
+logging_integration:
+  error_logging_pattern: |
+    logger.error("auth.failed", {
+        "error_code": "AUTH_MISSING",
+        "error_message": "User authentication required",
+        "endpoint": request.url.path,
+        "correlation_id": request.state.correlation_id
+    })
+  
+  log_fields:
+    - "error_code: Machine-readable code"
+    - "error_message: Human-readable message"
+    - "endpoint: API endpoint path"
+    - "correlation_id: Request tracing ID"
+    - "has_token: Boolean (for debugging)"
+

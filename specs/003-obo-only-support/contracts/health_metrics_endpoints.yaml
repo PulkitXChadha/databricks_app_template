@@ -1,0 +1,173 @@
+# Health and Metrics Endpoints Contracts
+# Feature: 003-obo-only-support
+# Purpose: Define conditional authentication for monitoring endpoints
+
+endpoints:
+  health_check:
+    path: "/health"
+    method: "GET"
+    description: "Public health check endpoint for monitoring infrastructure"
+    
+    authentication:
+      required: false
+      rationale: "Monitoring systems (Kubernetes probes, uptime monitors) don't have user credentials"
+      pattern: "public_endpoint"
+    
+    request:
+      headers: []
+      query_parameters: []
+      body: null
+    
+    response:
+      status_code: 200
+      content_type: "application/json"
+      schema:
+        type: "object"
+        required_fields:
+          - name: "status"
+            type: "string"
+            enum: ["healthy", "unhealthy", "degraded"]
+            description: "Health status indicator"
+          
+          - name: "timestamp"
+            type: "string"
+            format: "ISO 8601 datetime"
+            description: "Server timestamp (UTC)"
+        
+        optional_fields:
+          - name: "version"
+            type: "string"
+            description: "Application version"
+      
+      example:
+        status: "healthy"
+        timestamp: "2025-10-14T10:30:00.000Z"
+        version: "1.0.0"
+    
+    implementation_notes:
+      - "No dependency injection for user_token"
+      - "No authentication middleware applied"
+      - "Returns 200 OK immediately"
+      - "Does not check database connectivity (fast response)"
+      - "Suitable for Kubernetes liveness/readiness probes"
+    
+    testing:
+      - scenario: "Request without authentication headers"
+        expected: "HTTP 200 with health status"
+        command: "curl http://localhost:8000/health"
+      
+      - scenario: "Request with authentication headers (ignored)"
+        expected: "HTTP 200 with health status (headers not used)"
+        command: "curl -H 'X-Forwarded-Access-Token: token' http://localhost:8000/health"
+  
+  metrics:
+    path: "/metrics"
+    method: "GET"
+    description: "Prometheus metrics endpoint - requires user authentication"
+    
+    authentication:
+      required: true
+      rationale: "Metrics contain sensitive operational data (request rates, error rates, user counts)"
+      pattern: "obo_authenticated"
+      dependency: "user_token = Depends(get_user_token)"
+    
+    request:
+      headers:
+        - name: "X-Forwarded-Access-Token"
+          required: true
+          description: "User access token"
+          validation: "Must be valid Databricks user token"
+      
+      query_parameters: []
+      body: null
+    
+    response:
+      success:
+        status_code: 200
+        content_type: "text/plain; version=0.0.4"
+        description: "Prometheus exposition format"
+        example: |
+          # HELP auth_requests_total Total OBO authentication attempts
+          # TYPE auth_requests_total counter
+          auth_requests_total{endpoint="/api/user/me",status="success"} 150.0
+          auth_requests_total{endpoint="/api/catalogs",status="failure"} 3.0
+          
+          # HELP request_duration_seconds Request duration in seconds
+          # TYPE request_duration_seconds histogram
+          request_duration_seconds_bucket{endpoint="/api/user/me",method="GET",status="200",le="0.01"} 120.0
+          request_duration_seconds_bucket{endpoint="/api/user/me",method="GET",status="200",le="+Inf"} 150.0
+          request_duration_seconds_sum{endpoint="/api/user/me",method="GET",status="200"} 1.2
+          request_duration_seconds_count{endpoint="/api/user/me",method="GET",status="200"} 150.0
+      
+      error:
+        status_code: 401
+        content_type: "application/json"
+        schema:
+          type: "object"
+          fields:
+            error_code: "AUTH_MISSING"
+            message: "Authentication required for metrics"
+        
+        example:
+          error_code: "AUTH_MISSING"
+          message: "User authentication required. Please provide a valid user access token."
+    
+    implementation_notes:
+      - "Requires user_token dependency"
+      - "Raises HTTPException 401 if token missing"
+      - "Uses prometheus_client.generate_latest()"
+      - "Only authenticated users can view metrics"
+    
+    testing:
+      - scenario: "Request without authentication"
+        expected: "HTTP 401 with AUTH_MISSING error"
+        command: "curl http://localhost:8000/metrics"
+      
+      - scenario: "Request with valid user token"
+        expected: "HTTP 200 with Prometheus metrics"
+        command: "curl -H 'X-Forwarded-Access-Token: $TOKEN' http://localhost:8000/metrics"
+
+removed_metrics:
+  - name: "auth_fallback_total"
+    reason: "No fallback behavior in OBO-only architecture"
+    labels: ["reason"]
+  
+  - name: "auth_requests_total{mode='service_principal'}"
+    reason: "No service principal mode for Databricks APIs"
+
+remaining_metrics:
+  - name: "auth_requests_total"
+    description: "Total OBO authentication attempts"
+    type: "counter"
+    labels:
+      - "endpoint: API endpoint path"
+      - "status: success|failure"
+  
+  - name: "auth_overhead_seconds"
+    description: "OBO authentication overhead"
+    type: "histogram"
+    buckets: [0.001, 0.005, 0.01, 0.05, 0.1]
+  
+  - name: "request_duration_seconds"
+    description: "Request duration including authentication"
+    type: "histogram"
+    labels:
+      - "endpoint: API endpoint path"
+      - "method: HTTP method"
+      - "status: HTTP status code"
+
+comparison:
+  before_002:
+    health_endpoint: "Required authentication (inconvenient for monitoring)"
+    metrics_endpoint: "Required authentication (correct)"
+  
+  after_003:
+    health_endpoint: "Public (monitoring-friendly)"
+    metrics_endpoint: "Requires authentication (maintains security)"
+
+migration_notes:
+  - "Update monitoring configurations to use /health (no auth needed)"
+  - "Metrics access requires authenticated sessions"
+  - "Developers can view metrics when authenticated"
+  - "Production monitoring may need service account with user token"
+

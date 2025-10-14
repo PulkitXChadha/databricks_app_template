@@ -1,0 +1,180 @@
+# Service Authentication Contracts
+# Feature: 003-obo-only-support
+# Purpose: Define OBO-only authentication requirements for Databricks API services
+
+service_contracts:
+  unity_catalog_service:
+    description: "Unity Catalog operations with OBO authentication only"
+    class_name: "UnityCatalogService"
+    module: "server.services.unity_catalog_service"
+    
+    initialization:
+      required_parameters:
+        - name: "user_token"
+          type: "str"
+          description: "User access token (required, not Optional)"
+          validation:
+            - "Must be non-empty string"
+            - "Cannot be None"
+      
+      raises:
+        - exception: "ValueError"
+          condition: "user_token is None or empty"
+          message: "user_token is required for UnityCatalogService"
+    
+    authentication:
+      pattern: "obo_only"
+      workspace_client_config:
+        host: "from DATABRICKS_HOST environment variable"
+        token: "from user_token parameter"
+        auth_type: "pat"
+      
+      removed_methods:
+        - "_create_service_principal_config"
+      
+      removed_logic:
+        - "Automatic fallback to service principal"
+        - "Optional user_token handling"
+        - "OAuth M2M client creation"
+    
+    methods:
+      list_catalogs:
+        parameters:
+          user_id:
+            type: "str"
+            required: true
+            description: "User identifier for audit logging"
+        
+        requires_authentication: true
+        uses_obo_client: true
+        
+        validation:
+          - "Raises HTTPException 401 if user_id is empty"
+          - "Client initialized with user_token only"
+    
+  model_serving_service:
+    description: "Model inference with OBO authentication only"
+    class_name: "ModelServingService"
+    module: "server.services.model_serving_service"
+    
+    initialization:
+      required_parameters:
+        - name: "user_token"
+          type: "str"
+          description: "User access token (required)"
+          validation:
+            - "Must be non-empty string"
+            - "Cannot be None"
+      
+      raises:
+        - exception: "ValueError"
+          condition: "user_token is None or empty"
+          message: "user_token is required for ModelServingService"
+    
+    authentication:
+      pattern: "obo_only"
+      workspace_client_config:
+        host: "from DATABRICKS_HOST environment variable"
+        token: "from user_token parameter"
+        auth_type: "pat"
+      
+      removed_methods:
+        - "_create_service_principal_config"
+  
+  user_service:
+    description: "User identity operations with OBO authentication only"
+    class_name: "UserService"
+    module: "server.services.user_service"
+    
+    initialization:
+      required_parameters:
+        - name: "user_token"
+          type: "str"
+          description: "User access token (required)"
+          validation:
+            - "Must be non-empty string"
+            - "Cannot be None"
+      
+      raises:
+        - exception: "ValueError"
+          condition: "user_token is None or empty"
+          message: "user_token is required for UserService"
+    
+    authentication:
+      pattern: "obo_only"
+      workspace_client_config:
+        host: "from DATABRICKS_HOST environment variable"
+        token: "from user_token parameter"
+        auth_type: "pat"
+      
+      removed_methods:
+        - "_create_service_principal_config"
+        - "_get_service_principal_client" 
+    
+    methods:
+      get_user_info:
+        returns:
+          type: "UserInfo"
+          fields:
+            - "user_id: str (email address)"
+            - "display_name: str"
+            - "active: bool"
+        
+        requires_authentication: true
+        uses_obo_client: true
+        
+        error_handling:
+          - exception: "HTTPException"
+            status_code: 401
+            condition: "API call fails or token invalid"
+            detail: "Failed to extract user identity"
+  
+  lakebase_service:
+    description: "Database operations with application-level credentials (NO CHANGES)"
+    class_name: "LakebaseService"
+    module: "server.services.lakebase_service"
+    
+    initialization:
+      required_parameters: []
+      note: "Does NOT require user_token parameter (hybrid approach)"
+    
+    authentication:
+      pattern: "application_level_with_user_id_filtering"
+      database_connection:
+        method: "OAuth JWT token via generate_database_credential()"
+        credentials: "Service principal (application-level)"
+        isolation: "user_id filtering in queries"
+      
+      unchanged_behavior:
+        - "Connection pooling maintained"
+        - "user_id filtering enforced"
+        - "No per-user database credentials"
+
+validation_rules:
+  all_databricks_api_services:
+    - "MUST require user_token as first positional parameter"
+    - "MUST raise ValueError if user_token is None or empty"
+    - "MUST NOT implement _create_service_principal_config"
+    - "MUST NOT have automatic fallback logic"
+    - "MUST configure WorkspaceClient with auth_type='pat'"
+    - "MUST NOT use DATABRICKS_CLIENT_ID or DATABRICKS_CLIENT_SECRET"
+  
+  lakebase_service:
+    - "MUST NOT accept user_token parameter"
+    - "MUST use application-level database credentials"
+    - "MUST enforce user_id filtering in all user-scoped queries"
+    - "MUST validate user_id presence before query execution"
+
+breaking_changes:
+  - description: "Services cannot be initialized without user_token"
+    impact: "All service instantiation requires valid user token"
+    migration: "Pass user_token from dependency injection"
+  
+  - description: "No automatic fallback to service principal"
+    impact: "Requests without X-Forwarded-Access-Token fail (except /health)"
+    migration: "Use Databricks CLI for local development tokens"
+  
+  - description: "Removed _create_service_principal_config methods"
+    impact: "Service principal configuration no longer supported"
+    migration: "Remove references to service principal auth patterns"
+
