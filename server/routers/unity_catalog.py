@@ -36,15 +36,17 @@ class QueryTableRequest(BaseModel):
 async def list_catalogs(
     request: Request,
     user_id: str = Depends(get_current_user_id),
-    user_token: str | None = Depends(get_user_token)
+    user_token: str = Depends(get_user_token)
 ):
-    """List accessible Unity Catalog catalogs.
+    """List accessible Unity Catalog catalogs with OBO authentication.
+    
+    Requires X-Forwarded-Access-Token header with valid user access token.
     
     Returns:
         List of catalog names the user has access to
         
     Raises:
-        401: Authentication required (EC-003)
+        401: Authentication required (missing or invalid token)
         403: Permission denied (EC-004)
         503: Database unavailable (EC-002)
     """
@@ -87,7 +89,7 @@ async def list_schemas(
     request: Request,
     catalog: str,
     user_id: str = Depends(get_current_user_id),
-    user_token: str | None = Depends(get_user_token)
+    user_token: str = Depends(get_user_token)
 ):
     """List schemas in a Unity Catalog catalog.
     
@@ -163,7 +165,7 @@ async def list_table_names(
     catalog: str,
     schema: str,
     user_id: str = Depends(get_current_user_id),
-    user_token: str | None = Depends(get_user_token)
+    user_token: str = Depends(get_user_token)
 ):
     """List table names in a Unity Catalog schema.
     
@@ -245,7 +247,7 @@ async def list_tables(
     catalog: str | None = None,
     schema: str | None = None,
     user_id: str = Depends(get_current_user_id),
-    user_token: str | None = Depends(get_user_token)
+    user_token: str = Depends(get_user_token)
 ):
     """List accessible Unity Catalog tables.
     
@@ -314,7 +316,7 @@ async def query_table_get(
     limit: int = 100,
     offset: int = 0,
     user_id: str = Depends(get_current_user_id),
-    user_token: str | None = Depends(get_user_token)
+    user_token: str = Depends(get_user_token)
 ):
     """Execute SELECT query on Unity Catalog table (GET method).
     
@@ -428,7 +430,7 @@ async def query_table_post(
     http_request: Request,
     request: QueryTableRequest,
     user_id: str = Depends(get_current_user_id),
-    user_token: str | None = Depends(get_user_token)
+    user_token: str = Depends(get_user_token)
 ):
     """Execute SELECT query on Unity Catalog table (POST method).
     

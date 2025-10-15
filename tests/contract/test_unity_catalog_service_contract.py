@@ -1,14 +1,15 @@
-"""Contract tests for UnityCatalogService authentication patterns.
+"""Contract tests for UnityCatalogService OBO-only authentication.
 
-These tests validate that UnityCatalogService correctly implements dual authentication:
-- Pattern A: Service Principal (when user_token is None)
-- Pattern B: On-Behalf-Of-User (when user_token is provided)
+These tests validate that UnityCatalogService correctly implements OBO-only authentication:
+- Service REQUIRES user_token parameter (not Optional)
+- Service raises ValueError if user_token is None or empty
+- Service creates WorkspaceClient with auth_type='pat' only
 
-Test Requirements (from contracts/service_layers.yaml):
-- UnityCatalogService with user_token uses OBO (respects user permissions)
-- UnityCatalogService without user_token uses service principal
+Test Requirements (from contracts/service_authentication.yaml):
+- UnityCatalogService(user_token=None) raises ValueError
+- UnityCatalogService(user_token="mock-token") succeeds with OBO client
 - list_catalogs() returns different results for different users
-- Client creation uses correct auth_type
+- No service principal fallback
 """
 
 import os
@@ -24,19 +25,38 @@ pytestmark = pytest.mark.contract
 
 
 class TestUnityCatalogServiceAuthentication:
-    """Test UnityCatalogService authentication patterns."""
+    """Test UnityCatalogService OBO-only authentication patterns."""
     
     @pytest.fixture
     def mock_env(self, monkeypatch):
         """Set up environment variables for testing."""
         monkeypatch.setenv('DATABRICKS_HOST', 'https://test.cloud.databricks.com')
-        monkeypatch.setenv('DATABRICKS_CLIENT_ID', 'test-client-id')
-        monkeypatch.setenv('DATABRICKS_CLIENT_SECRET', 'test-client-secret')
         monkeypatch.setenv('DATABRICKS_WAREHOUSE_ID', 'test-warehouse-id')
     
-    @pytest.mark.asyncio
-    async def test_with_user_token_uses_obo_auth(self, mock_env):
-        """Test that UnityCatalogService with user_token creates client with auth_type='pat'."""
+    def test_service_requires_user_token_raises_value_error_on_none(self, mock_env):
+        """Test that UnityCatalogService raises ValueError when user_token is None."""
+        with pytest.raises(ValueError, match="user_token is required"):
+            UnityCatalogService(user_token=None)
+    
+    def test_service_requires_user_token_raises_value_error_on_empty_string(self, mock_env):
+        """Test that UnityCatalogService raises ValueError when user_token is empty string."""
+        with pytest.raises(ValueError, match="user_token is required"):
+            UnityCatalogService(user_token="")
+    
+    def test_service_initialization_succeeds_with_valid_token(self, mock_env):
+        """Test that UnityCatalogService initializes successfully with valid token."""
+        with patch('server.services.unity_catalog_service.WorkspaceClient') as mock_client_class:
+            mock_client = Mock(spec=WorkspaceClient)
+            mock_client_class.return_value = mock_client
+            
+            # Should not raise exception
+            service = UnityCatalogService(user_token="mock-token-12345")
+            
+            assert service.user_token == "mock-token-12345"
+            assert service.workspace_url == 'https://test.cloud.databricks.com'
+    
+    def test_service_creates_workspace_client_with_obo_auth(self, mock_env):
+        """Test that UnityCatalogService creates WorkspaceClient with auth_type='pat' only."""
         user_token = "test-user-token-12345"
         
         with patch('server.services.unity_catalog_service.WorkspaceClient') as mock_client_class:
@@ -51,43 +71,17 @@ class TestUnityCatalogServiceAuthentication:
             mock_client_class.assert_called_once()
             call_kwargs = mock_client_class.call_args[1]
             
-            # Extract Config object and verify its properties
-            config = call_kwargs.get('config')
-            assert config is not None, "Config object not passed to WorkspaceClient"
-            assert config.token == user_token, "Config should use user token"
-            assert config.auth_type == "pat", "auth_type should be 'pat' for OBO authentication"
-            assert config.timeout == 30, "timeout should be 30 seconds per NFR-010"
-            assert config.retry_timeout == 30, "retry_timeout should be 30 seconds"
+            # Verify OBO authentication parameters
+            assert 'host' in call_kwargs, "host parameter required"
+            assert call_kwargs['host'] == 'https://test.cloud.databricks.com'
+            assert 'token' in call_kwargs, "token parameter required"
+            assert call_kwargs['token'] == user_token
+            assert 'auth_type' in call_kwargs, "auth_type parameter required"
+            assert call_kwargs['auth_type'] == "pat", "auth_type must be 'pat' for OBO"
             
-            # Verify service uses OBO mode
-            assert service.auth_mode == "user", "Service should be in user (OBO) mode"
-    
-    @pytest.mark.asyncio
-    async def test_without_user_token_uses_service_principal(self, mock_env):
-        """Test that UnityCatalogService without user_token uses service principal with auth_type='oauth-m2m'."""
-        with patch('server.services.unity_catalog_service.WorkspaceClient') as mock_client_class:
-            # Create mock client instance
-            mock_client = Mock(spec=WorkspaceClient)
-            mock_client_class.return_value = mock_client
-            
-            # Initialize service without user token (service principal mode)
-            service = UnityCatalogService(user_token=None)
-            
-            # Verify WorkspaceClient was created with correct parameters
-            mock_client_class.assert_called_once()
-            call_kwargs = mock_client_class.call_args[1]
-            
-            # Extract Config object and verify its properties
-            config = call_kwargs.get('config')
-            assert config is not None, "Config object not passed to WorkspaceClient"
-            assert config.client_id == 'test-client-id', "Config should use service principal client_id"
-            assert config.client_secret == 'test-client-secret', "Config should use service principal client_secret"
-            assert config.auth_type == "oauth-m2m", "auth_type should be 'oauth-m2m' for service principal"
-            assert config.timeout == 30, "timeout should be 30 seconds per NFR-010"
-            assert config.retry_timeout == 30, "retry_timeout should be 30 seconds"
-            
-            # Verify service uses service principal mode
-            assert service.auth_mode == "app", "Service should be in app (service principal) mode"
+            # Verify NO service principal parameters present
+            assert 'client_id' not in call_kwargs, "client_id should not be present (no service principal)"
+            assert 'client_secret' not in call_kwargs, "client_secret should not be present (no service principal)"
     
     @pytest.mark.asyncio
     async def test_list_catalogs_respects_user_permissions(self, mock_env):
@@ -129,69 +123,6 @@ class TestUnityCatalogServiceAuthentication:
             
             # Verify different users get different results
             assert catalogs_a != catalogs_b, "Different users should see different catalog lists"
-    
-    @pytest.mark.asyncio
-    async def test_client_creation_logs_auth_mode(self, mock_env):
-        """Test that client creation logs the correct authentication mode."""
-        with patch('server.services.unity_catalog_service.WorkspaceClient') as mock_client_class, \
-             patch('server.services.unity_catalog_service.logger') as mock_logger:
-            
-            # Create mock client instance
-            mock_client = Mock(spec=WorkspaceClient)
-            mock_client_class.return_value = mock_client
-            
-            # Test OBO mode logging
-            service_obo = UnityCatalogService(user_token="test-token")
-            mock_logger.info.assert_called_with(
-                "Unity Catalog service initialized with OBO user authorization"
-            )
-            
-            # Reset mock
-            mock_logger.reset_mock()
-            
-            # Test service principal mode logging
-            service_sp = UnityCatalogService(user_token=None)
-            mock_logger.info.assert_called_with(
-                "Unity Catalog service initialized with service principal authorization"
-            )
-    
-    @pytest.mark.asyncio
-    async def test_service_requires_warehouse_id(self, monkeypatch):
-        """Test that service raises error if DATABRICKS_WAREHOUSE_ID is not set."""
-        monkeypatch.setenv('DATABRICKS_HOST', 'https://test.cloud.databricks.com')
-        monkeypatch.setenv('DATABRICKS_CLIENT_ID', 'test-client-id')
-        monkeypatch.setenv('DATABRICKS_CLIENT_SECRET', 'test-client-secret')
-        # Do not set DATABRICKS_WAREHOUSE_ID
-        
-        with patch('server.services.unity_catalog_service.WorkspaceClient'):
-            with pytest.raises(ValueError, match="DATABRICKS_WAREHOUSE_ID environment variable is required"):
-                UnityCatalogService(user_token=None)
-    
-    @pytest.mark.asyncio
-    async def test_timeout_configuration_applied(self, mock_env):
-        """Test that 30-second timeout is configured for both OBO and service principal modes."""
-        with patch('server.services.unity_catalog_service.WorkspaceClient') as mock_client_class:
-            mock_client = Mock(spec=WorkspaceClient)
-            mock_client_class.return_value = mock_client
-            
-            # Test OBO mode
-            service_obo = UnityCatalogService(user_token="test-token")
-            call_kwargs_obo = mock_client_class.call_args[1]
-            config_obo = call_kwargs_obo.get('config')
-            
-            assert config_obo.timeout == 30, "OBO mode should have 30-second timeout"
-            assert config_obo.retry_timeout == 30, "OBO mode should have 30-second retry timeout"
-            
-            # Reset mock
-            mock_client_class.reset_mock()
-            
-            # Test service principal mode
-            service_sp = UnityCatalogService(user_token=None)
-            call_kwargs_sp = mock_client_class.call_args[1]
-            config_sp = call_kwargs_sp.get('config')
-            
-            assert config_sp.timeout == 30, "Service principal mode should have 30-second timeout"
-            assert config_sp.retry_timeout == 30, "Service principal mode should have 30-second retry timeout"
 
 
 class TestUnityCatalogServiceQueries:
@@ -201,8 +132,6 @@ class TestUnityCatalogServiceQueries:
     def mock_env(self, monkeypatch):
         """Set up environment variables for testing."""
         monkeypatch.setenv('DATABRICKS_HOST', 'https://test.cloud.databricks.com')
-        monkeypatch.setenv('DATABRICKS_CLIENT_ID', 'test-client-id')
-        monkeypatch.setenv('DATABRICKS_CLIENT_SECRET', 'test-client-secret')
         monkeypatch.setenv('DATABRICKS_WAREHOUSE_ID', 'test-warehouse-id')
     
     @pytest.mark.asyncio

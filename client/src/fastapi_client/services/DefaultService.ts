@@ -23,7 +23,10 @@ export class DefaultService {
      * Prometheus metrics endpoint.
      *
      * Exposes authentication and performance metrics in Prometheus format.
-     * Public access for monitoring systems (no authentication required).
+     * Requires user authentication for security.
+     *
+     * Raises:
+     * 401: Authentication required (missing or invalid token)
      * @returns any Successful Response
      * @throws ApiError
      */

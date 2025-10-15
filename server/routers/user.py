@@ -17,46 +17,31 @@ from server.models.user_session import (
 router = APIRouter()
 
 
-class UserInfo(BaseModel):
-  """Databricks user information."""
-
-  userName: str
-  displayName: str | None = None
-  active: bool
-  emails: list[str] = []
-
-
-class UserWorkspaceInfo(BaseModel):
-  """User and workspace information."""
-
-  user: UserInfo
-  workspace: dict
-
-
 @router.get('/auth/status', response_model=AuthenticationStatusResponse)
 async def get_auth_status(auth_context: AuthenticationContext = Depends(get_auth_context)):
-    """Get authentication status for the current request.
+    """Get authentication status for the current request (OBO-only).
 
-    Returns information about the authentication mode (OBO vs service principal)
-    and whether a user identity is available.
+    Returns information about OBO authentication and user identity.
     """
     return AuthenticationStatusResponse(
         authenticated=True,
-        auth_mode=auth_context.auth_mode,
+        auth_mode="obo",  # OBO-only (hardcoded)
         has_user_identity=auth_context.user_id is not None,
         user_id=auth_context.user_id
     )
 
 
 @router.get('/me', response_model=UserInfoResponse)
-async def get_current_user(user_token: Optional[str] = Depends(get_user_token)):
-  """Get current user information from Databricks.
+async def get_current_user(user_token: str = Depends(get_user_token)):
+  """Get current user information from Databricks using OBO authentication.
   
-  Uses OBO authentication when X-Forwarded-Access-Token header is present.
-  Falls back to service principal if header is missing (for testing only).
+  Requires X-Forwarded-Access-Token header with valid user access token.
   
   Returns:
       UserInfoResponse with user_id, display_name, active status, and workspace_url
+      
+  Raises:
+      401: Authentication required (missing or invalid token)
   """
   service = UserService(user_token=user_token)
   user_identity = await service.get_user_info()
@@ -70,14 +55,16 @@ async def get_current_user(user_token: Optional[str] = Depends(get_user_token)):
 
 
 @router.get('/me/workspace', response_model=WorkspaceInfoResponse)
-async def get_user_workspace(user_token: Optional[str] = Depends(get_user_token)):
-  """Get workspace information for current user.
+async def get_user_workspace(user_token: str = Depends(get_user_token)):
+  """Get workspace information for current user using OBO authentication.
   
-  Uses OBO authentication to get user-specific workspace details.
-  Calls UserService.get_workspace_info() public method per FR-006a.
+  Requires X-Forwarded-Access-Token header with valid user access token.
   
   Returns:
       WorkspaceInfoResponse with workspace_id, workspace_url, workspace_name
+      
+  Raises:
+      401: Authentication required (missing or invalid token)
   """
   service = UserService(user_token=user_token)
   workspace_info = await service.get_workspace_info()
@@ -92,7 +79,7 @@ async def get_user_workspace(user_token: Optional[str] = Depends(get_user_token)
 @router.get('/debug/headers')
 async def debug_headers(
   request: Request,
-  user_token: Optional[str] = Depends(get_user_token),
+  user_token: str = Depends(get_user_token),
   user_id: str = Depends(get_current_user_id)
 ):
   """Debug endpoint to diagnose authentication header issues.

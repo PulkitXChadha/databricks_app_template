@@ -11,10 +11,9 @@ import { request as __request } from '../core/request';
 export class UserService {
     /**
      * Get Auth Status
-     * Get authentication status for the current request.
+     * Get authentication status for the current request (OBO-only).
      *
-     * Returns information about the authentication mode (OBO vs service principal)
-     * and whether a user identity is available.
+     * Returns information about OBO authentication and user identity.
      * @returns AuthenticationStatusResponse Successful Response
      * @throws ApiError
      */
@@ -26,13 +25,15 @@ export class UserService {
     }
     /**
      * Get Current User
-     * Get current user information from Databricks.
+     * Get current user information from Databricks using OBO authentication.
      *
-     * Uses OBO authentication when X-Forwarded-Access-Token header is present.
-     * Falls back to service principal if header is missing (for testing only).
+     * Requires X-Forwarded-Access-Token header with valid user access token.
      *
      * Returns:
      * UserInfoResponse with user_id, display_name, active status, and workspace_url
+     *
+     * Raises:
+     * 401: Authentication required (missing or invalid token)
      * @returns UserInfoResponse Successful Response
      * @throws ApiError
      */
@@ -44,13 +45,15 @@ export class UserService {
     }
     /**
      * Get User Workspace
-     * Get workspace information for current user.
+     * Get workspace information for current user using OBO authentication.
      *
-     * Uses OBO authentication to get user-specific workspace details.
-     * Calls UserService.get_workspace_info() public method per FR-006a.
+     * Requires X-Forwarded-Access-Token header with valid user access token.
      *
      * Returns:
      * WorkspaceInfoResponse with workspace_id, workspace_url, workspace_name
+     *
+     * Raises:
+     * 401: Authentication required (missing or invalid token)
      * @returns WorkspaceInfoResponse Successful Response
      * @throws ApiError
      */

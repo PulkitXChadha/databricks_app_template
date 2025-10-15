@@ -29,7 +29,7 @@ class InvokeModelRequest(BaseModel):
 async def list_endpoints(
     request: Request,
     user_id: str = Depends(get_current_user_id),
-    user_token: str | None = Depends(get_user_token)
+    user_token: str = Depends(get_user_token)
 ):
     """List available Model Serving endpoints.
     
@@ -79,7 +79,7 @@ async def invoke_model(
     http_request: Request,
     request: InvokeModelRequest,
     user_id: str = Depends(get_current_user_id),
-    user_token: str | None = Depends(get_user_token)
+    user_token: str = Depends(get_user_token)
 ):
     """Invoke model for inference.
     

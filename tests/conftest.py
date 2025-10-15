@@ -11,6 +11,8 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from uuid import uuid4
 import time
+import subprocess
+from typing import Optional
 
 
 # ============================================================================
@@ -24,7 +26,7 @@ def create_test_app() -> FastAPI:
     # Add the same middleware as the main app
     @app.middleware("http")
     async def add_correlation_id(request: Request, call_next):
-        """Inject correlation ID and authentication context into request."""
+        """Inject correlation ID and authentication context into request (OBO-only)."""
         # Extract correlation ID from X-Correlation-ID header or generate new UUID
         correlation_id = request.headers.get('X-Correlation-ID', str(uuid4()))
 
@@ -34,10 +36,8 @@ def create_test_app() -> FastAPI:
         # Extract user access token from Databricks Apps header
         user_token = request.headers.get('X-Forwarded-Access-Token')
 
-        # Set authentication context in request state
+        # Set authentication context in request state (OBO-only)
         request.state.user_token = user_token
-        request.state.has_user_token = user_token is not None
-        request.state.auth_mode = "obo" if user_token else "service_principal"
         request.state.user_id = None  # Will be set by endpoints if needed
 
         # Track request start time
@@ -63,8 +63,11 @@ def create_test_app() -> FastAPI:
 
 @pytest.fixture
 def app():
-    """Fixture that provides a configured FastAPI test app."""
-    return create_test_app()
+    """Fixture that provides the real FastAPI app for testing."""
+    # Use the real app instead of create_test_app() to ensure
+    # we're testing the actual application behavior
+    from server.app import app as real_app
+    return real_app
 
 
 @pytest.fixture
@@ -185,6 +188,70 @@ def user_a_token():
 def user_b_token():
     """Mock token for User B."""
     return "user-b-test-token"
+
+
+# ============================================================================
+# Real User Token Utilities (for integration tests)
+# ============================================================================
+
+def get_test_user_token(profile: str = "default") -> str:
+    """Get real user token from Databricks CLI.
+    
+    This utility is used in integration tests to obtain valid user tokens
+    for testing OBO authentication with real Databricks API calls.
+    
+    Args:
+        profile: Databricks CLI profile name (default: "default")
+        
+    Returns:
+        str: Valid user access token from Databricks CLI
+        
+    Raises:
+        RuntimeError: If Databricks CLI is not installed or authentication fails
+        
+    Example:
+        token = get_test_user_token("default")
+        token_b = get_test_user_token("test-user-b")
+    """
+    try:
+        result = subprocess.run(
+            ["databricks", "auth", "token", "--profile", profile],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10
+        )
+        token = result.stdout.strip()
+        if not token:
+            raise RuntimeError(f"Databricks CLI returned empty token for profile '{profile}'")
+        return token
+    except subprocess.CalledProcessError as e:
+        error_msg = e.stderr if e.stderr else str(e)
+        raise RuntimeError(
+            f"Failed to get user token from Databricks CLI for profile '{profile}': {error_msg}"
+        ) from e
+    except FileNotFoundError:
+        raise RuntimeError(
+            "Databricks CLI not found. Install it with: "
+            "curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh"
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"Databricks CLI timed out while getting token for profile '{profile}'"
+        )
+
+
+@pytest.fixture
+def get_test_user_token_fixture():
+    """Pytest fixture that provides the get_test_user_token utility function.
+    
+    Use this fixture when you need to dynamically obtain tokens in tests:
+    
+    Example:
+        def test_something(get_test_user_token_fixture):
+            token = get_test_user_token_fixture("my-profile")
+    """
+    return get_test_user_token
 
 
 # ============================================================================

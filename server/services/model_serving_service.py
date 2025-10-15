@@ -1,7 +1,7 @@
 """Model Serving Service
 
 Service for invoking Databricks Model Serving endpoints for inference.
-Supports both app authorization (service principal) and user authorization.
+OBO-only authentication - requires user access token for all operations.
 """
 
 import os
@@ -28,98 +28,58 @@ logger = StructuredLogger(__name__)
 
 
 class ModelServingService:
-    """Service for Model Serving inference.
+    """Service for Model Serving inference with OBO-only authentication.
     
     Provides methods to:
     - List available serving endpoints
     - Invoke model endpoints for predictions
     - Log inference requests to Lakebase
     
-    Supports two authorization modes:
-    - App authorization: Uses service principal (default)
-    - User authorization: Uses user access token (when provided)
+    Authentication:
+    - OBO-only: Requires user access token (no service principal fallback)
     """
     
-    def __init__(self, user_token: str | None = None):
-        """Initialize Model Serving service.
+    def __init__(self, user_token: str):
+        """Initialize Model Serving service with OBO authentication.
         
         Args:
-            user_token: Optional user access token for OBO authorization.
-                        If None, uses app authorization (service principal).
+            user_token: User access token (required for all operations)
+            
+        Raises:
+            ValueError: If user_token is None or empty
         """
+        if not user_token:
+            raise ValueError("user_token is required for ModelServingService")
+        
         databricks_host = os.getenv('DATABRICKS_HOST')
         
-        # Create WorkspaceClient based on authorization mode
-        if user_token:
-            # On-behalf-of-user (OBO) authorization: Use ONLY the user's access token
-            # MUST set auth_type="pat" to prevent SDK from detecting OAuth env vars
-            if databricks_host:
-                # Ensure host has proper format
-                if not databricks_host.startswith('http'):
-                    databricks_host = f'https://{databricks_host}'
-                cfg = Config(
-                    host=databricks_host,
-                    token=user_token,
-                    auth_type="pat",  # Forces token-only auth, ignores OAuth env vars
-                    timeout=30,  # 30-second timeout per NFR-010
-                    retry_timeout=30  # Allow full timeout window
-                )
-            else:
-                # In Databricks Apps, host is auto-detected
-                cfg = Config(
-                    token=user_token,
-                    auth_type="pat",  # Forces token-only auth, ignores OAuth env vars
-                    timeout=30,  # 30-second timeout per NFR-010
-                    retry_timeout=30  # Allow full timeout window
-                )
-            self.client = WorkspaceClient(config=cfg)
-            self.auth_mode = "user"
-            logger.info("Model Serving service initialized with OBO user authorization")
-        else:
-            # App authorization: Use service principal (OAuth M2M)
-            # This uses the app's service principal permissions
-            cfg = self._create_service_principal_config()
-            self.client = WorkspaceClient(config=cfg)
-            self.auth_mode = "app"
-            logger.info("Model Serving service initialized with service principal authorization")
-        
-        self.default_timeout = int(os.getenv('MODEL_SERVING_TIMEOUT', '30'))
-    
-    def _create_service_principal_config(self) -> Config:
-        """Create Config for service principal authentication (OAuth M2M).
-        
-        For Databricks Apps, uses OAuth service principal credentials.
-        The auth_type="oauth-m2m" setting ensures only OAuth is used,
-        preventing conflicts with PAT tokens in the environment.
-        
-        Returns:
-            Config object with OAuth M2M authentication
-        """
-        databricks_host = os.getenv('DATABRICKS_HOST')
-        client_id = os.getenv('DATABRICKS_CLIENT_ID')
-        client_secret = os.getenv('DATABRICKS_CLIENT_SECRET')
-        
-        # Use OAuth M2M with service principal credentials
-        if databricks_host and client_id and client_secret:
-            # Explicitly set auth_type to use ONLY OAuth M2M
-            # This ignores any PAT tokens in the environment
-            return Config(
+        # On-behalf-of-user (OBO) authorization: Use ONLY the user's access token
+        # MUST set auth_type="pat" to prevent SDK from detecting OAuth env vars
+        if databricks_host:
+            # Ensure host has proper format
+            if not databricks_host.startswith('http'):
+                databricks_host = f'https://{databricks_host}'
+            cfg = Config(
                 host=databricks_host,
-                client_id=client_id,
-                client_secret=client_secret,
-                auth_type="oauth-m2m",
+                token=user_token,
+                auth_type="pat",  # Forces token-only auth, ignores OAuth env vars
+                timeout=30,  # 30-second timeout per NFR-010
+                retry_timeout=30  # Allow full timeout window
+            )
+        else:
+            # In Databricks Apps, host is auto-detected
+            cfg = Config(
+                token=user_token,
+                auth_type="pat",  # Forces token-only auth, ignores OAuth env vars
                 timeout=30,  # 30-second timeout per NFR-010
                 retry_timeout=30  # Allow full timeout window
             )
         
-        # Fallback for local development (let SDK auto-detect)
-        logger.warning(
-            "Service principal credentials not found. Using SDK auto-detection. "
-            "For Databricks Apps, set DATABRICKS_HOST, DATABRICKS_CLIENT_ID, and DATABRICKS_CLIENT_SECRET."
-        )
-        if databricks_host:
-            return Config(host=databricks_host, timeout=30, retry_timeout=30)
-        return Config(timeout=30, retry_timeout=30)
+        self.client = WorkspaceClient(config=cfg)
+        self.user_token = user_token
+        logger.info("Model Serving service initialized with OBO authentication")
+        
+        self.default_timeout = int(os.getenv('MODEL_SERVING_TIMEOUT', '30'))
     
     async def list_endpoints(self) -> list[ModelEndpointResponse]:
         """List available Model Serving endpoints.

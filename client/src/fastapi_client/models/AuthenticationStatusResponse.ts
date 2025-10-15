@@ -11,7 +11,7 @@ export type AuthenticationStatusResponse = {
      */
     authenticated?: boolean;
     /**
-     * Authentication mode (obo or service_principal)
+     * Authentication mode (always 'obo' - OBO-only authentication)
      */
     auth_mode: string;
     /**

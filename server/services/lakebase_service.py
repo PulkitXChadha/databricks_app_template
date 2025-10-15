@@ -42,10 +42,12 @@ class LakebaseService:
         """
         self.db_session = db_session
         
+        # LakebaseService uses application-level credentials (service principal pattern)
+        # combined with user_id filtering for data isolation (hybrid approach)
         log_event("service.initialized", context={
             "service_name": "LakebaseService",
-            "auth_mode": "service_principal",
-            "data_isolation": "user_id_filtering"
+            "auth_mode": "service_principal",  # Application-level credentials
+            "data_isolation": "user_id_filtering"  # User-level isolation
         })
     
     async def get_preferences(

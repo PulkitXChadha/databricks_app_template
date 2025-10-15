@@ -25,7 +25,36 @@ This is a modern full-stack application template for Databricks Apps, featuring 
 - Lakebase (Databricks-hosted Postgres) for transactional data
 - Model Serving endpoints for ML inference
 - Asset Bundles for reproducible deployments
-- Databricks Apps built-in authentication
+- **OBO-Only Authentication**: All Databricks API operations use On-Behalf-Of user authentication
+
+### 🚨 IMPORTANT: OBO-Only Authentication Architecture 🚨
+
+**Authentication Pattern (as of 003-obo-only-support)**:
+- **Databricks APIs**: All operations require user access token (OBO-only pattern)
+- **Lakebase**: Uses application-level credentials with user_id filtering (hybrid approach)
+- **No service principal fallback** for Databricks API operations
+
+**Key Principles**:
+1. All Databricks API services (`UnityCatalogService`, `ModelServingService`, `UserService`) require `user_token` parameter
+2. `/health` endpoint is public (no authentication required)
+3. `/metrics` endpoint requires user authentication
+4. User identity extraction via `get_user_token()` dependency (raises 401 if missing)
+5. LakebaseService uses service principal credentials + user_id filtering
+
+**Error Handling**:
+- Missing token → HTTP 401 with `AUTH_MISSING` error code
+- Invalid token → HTTP 401 with `AUTH_INVALID` error code  
+- Expired token → HTTP 401 with `AUTH_EXPIRED` error code
+- All errors include correlation_id for tracing
+
+**Local Development**:
+- Use Databricks CLI for token generation: `databricks auth token`
+- Set token in request header: `X-Forwarded-Access-Token: $DATABRICKS_USER_TOKEN`
+- Test script: `scripts/get_user_token.py`
+
+**Documentation**:
+- See `docs/OBO_AUTHENTICATION.md` for detailed authentication guide
+- See `specs/003-obo-only-support/` for implementation details
 
 ## Development Workflow
 

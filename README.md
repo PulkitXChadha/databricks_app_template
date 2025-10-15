@@ -183,10 +183,10 @@ Databricks-native frontend components:
 Add to your `.env.local`:
 
 ```bash
-# Databricks Workspace
+# Databricks Workspace (REQUIRED)
 DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
 
-# Unity Catalog
+# Unity Catalog (REQUIRED)
 DATABRICKS_WAREHOUSE_ID=your-warehouse-id
 DATABRICKS_CATALOG=main
 DATABRICKS_SCHEMA=samples
@@ -204,9 +204,21 @@ MODEL_SERVING_TIMEOUT=30
 # Observability
 LOG_LEVEL=INFO
 LOG_FORMAT=json
+
+# Legacy/Not Required (kept for backward compatibility)
+# DATABRICKS_CLIENT_ID=...      # Not used - OBO-only authentication
+# DATABRICKS_CLIENT_SECRET=...  # Not used - OBO-only authentication
 ```
 
-**Note**: Authentication is handled via OAuth through the Databricks CLI. Run `databricks auth login` to authenticate.
+**Authentication**: This application uses **OBO-only authentication** for all Databricks API operations. User tokens are automatically provided by Databricks Apps via the `X-Forwarded-Access-Token` header.
+
+**Local Development**: For local testing, obtain user tokens via Databricks CLI:
+```bash
+export DATABRICKS_USER_TOKEN=$(databricks auth token)
+curl -H "X-Forwarded-Access-Token: $DATABRICKS_USER_TOKEN" http://localhost:8000/api/user/me
+```
+
+See [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) for complete local development setup.
 
 ### Databricks Asset Bundle (DAB) Configuration
 
@@ -441,18 +453,37 @@ DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
 # App Configuration
 DATABRICKS_APP_NAME=your-app-name
 DBA_SOURCE_CODE_PATH=/Workspace/Users/you@company.com/your-app-name
+
+# Legacy/Not Required
+# DATABRICKS_CLIENT_ID and DATABRICKS_CLIENT_SECRET are not required
+# Application uses OBO-only authentication for Databricks APIs
 ```
 
 ### Authentication Method
 
-#### OAuth via Databricks CLI (Recommended)
+#### On-Behalf-Of-User (OBO) Authentication
+- **All Databricks API operations** use OBO-only authentication (no service principal fallback)
+- **User tokens** are automatically provided by Databricks Apps via `X-Forwarded-Access-Token` header
+- **Local development** uses tokens from Databricks CLI
+
+#### OAuth via Databricks CLI (For Deployment & Local Testing)
 - **Pros**: Secure, no token management required, supports SSO
 - **Cons**: Requires CLI authentication
 - **Setup**: Run `databricks auth login --host <workspace-url>`
 
-To authenticate:
+To authenticate for deployment:
 ```bash
 databricks auth login --host https://your-workspace.cloud.databricks.com
+```
+
+To obtain user token for local testing:
+```bash
+# Get your user token
+export DATABRICKS_USER_TOKEN=$(databricks auth token)
+
+# Test API endpoint locally
+curl -H "X-Forwarded-Access-Token: $DATABRICKS_USER_TOKEN" \
+     http://localhost:8000/api/user/me
 ```
 
 To verify authentication:

@@ -6,8 +6,7 @@ This guide covers local development setup and testing for the Databricks App Tem
 
 - Python 3.11+ (managed by uv)
 - Node.js 18+
-- Databricks CLI authenticated (`databricks auth login`)
-- Service principal credentials (for local testing)
+- Databricks CLI installed and authenticated (`databricks auth login`)
 
 ## Environment Setup
 
@@ -19,10 +18,6 @@ Create a `.env.local` file in the repository root:
 # Databricks workspace
 DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
 
-# Service principal (for local dev)
-DATABRICKS_CLIENT_ID=your-service-principal-client-id
-DATABRICKS_CLIENT_SECRET=your-service-principal-client-secret
-
 # SQL Warehouse (for Unity Catalog queries)
 DATABRICKS_WAREHOUSE_ID=your-warehouse-id
 
@@ -31,7 +26,10 @@ DATABRICKS_CATALOG=main
 DATABRICKS_SCHEMA=samples
 ```
 
-**Note**: Lakebase (database) environment variables are automatically set by Databricks Apps platform. For local development without Lakebase, database-dependent features will be skipped.
+**Note**: 
+- This application uses OBO-only authentication. No service principal credentials are required for local development.
+- User authentication is obtained via Databricks CLI: `export DATABRICKS_USER_TOKEN=$(databricks auth token)`
+- Lakebase (database) environment variables are automatically set by Databricks Apps platform. For local development without Lakebase, database-dependent features will be skipped.
 
 ### 2. Install Dependencies
 
@@ -57,28 +55,20 @@ uv run uvicorn server.app:app --reload --port 8000
 cd client && bun run dev
 ```
 
-## Authentication Modes
+## Authentication
 
-The application supports two authentication modes:
+The application uses **OBO-only (On-Behalf-Of-User) authentication** for all Databricks API operations. This ensures that all operations respect user-level permissions.
 
-### Mode 1: Service Principal (Automatic Fallback)
+### How It Works
 
-When no user token is provided, the application automatically falls back to service principal authentication. This is useful for:
-- Health checks
-- System operations
-- Local development without user context
+1. User access token is passed via `X-Forwarded-Access-Token` header
+2. All Databricks API calls use the user's token (no service principal fallback)
+3. Unity Catalog permissions are enforced at the platform level
+4. Database operations use application-level credentials with user_id filtering
 
-**Test it**:
-```bash
-# No authentication header = service principal mode
-curl http://localhost:8000/api/health
-curl http://localhost:8000/api/auth/status | jq .
-# Returns: {"authenticated": true, "auth_mode": "service_principal", ...}
-```
+### Exception: Public Endpoints
 
-### Mode 2: On-Behalf-Of-User (OBO) Authentication
-
-When a user token is provided via `X-Forwarded-Access-Token` header, the application uses OBO authentication to respect user-level permissions.
+The `/health` endpoint is public (no authentication required) for monitoring infrastructure.
 
 ## Testing OBO Authentication Locally
 
@@ -222,9 +212,8 @@ tail -f nohup.out | jq 'select(.event | startswith("auth."))'
 ### Expected Log Events
 
 - `auth.token_extraction` - Token extracted from header
-- `auth.mode` - Authentication mode selected (OBO or service principal)
+- `auth.mode` - Authentication mode (always "obo")
 - `auth.user_id_extracted` - User identity retrieved
-- `auth.fallback_triggered` - Service principal fallback activated
 - `auth.retry_attempt` - Authentication retry triggered
 - `auth.failed` - Authentication failure after retries
 
@@ -233,30 +222,42 @@ tail -f nohup.out | jq 'select(.event | startswith("auth."))'
 ### Invalid Token
 
 ```bash
-# Use invalid token (should return 401 after retries)
+# Use invalid token (should return 401)
 curl -H "X-Forwarded-Access-Token: invalid-token-12345" \
      http://localhost:8000/api/user/me
 ```
 
-**Expected**: HTTP 401 with error message after 3 retry attempts (~700ms total)
+**Expected**: HTTP 401 with structured error response:
+```json
+{
+  "error_code": "AUTH_INVALID",
+  "message": "The provided access token is invalid or malformed."
+}
+```
 
-### Missing Token (Service Principal Fallback)
+### Missing Token
 
 ```bash
-# No token = automatic service principal fallback
+# No token = 401 error (no fallback)
 curl http://localhost:8000/api/user/me
 ```
 
-**Expected**: Returns service principal's user info (fallback mode)
-
-### Missing User Identity for Database Operations
-
-```bash
-# Try to access user preferences without token (should return 401)
-curl http://localhost:8000/api/preferences
+**Expected**: HTTP 401 with AUTH_MISSING error:
+```json
+{
+  "error_code": "AUTH_MISSING",
+  "message": "User authentication required. Please provide a valid user access token."
+}
 ```
 
-**Expected**: HTTP 401 "User authentication required"
+### Public Health Endpoint
+
+```bash
+# Health endpoint doesn't require authentication
+curl http://localhost:8000/health
+```
+
+**Expected**: HTTP 200 with health status (no authentication required)
 
 ## Observability
 

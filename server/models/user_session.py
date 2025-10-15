@@ -77,26 +77,14 @@ class AuthenticationErrorCode(str, Enum):
 
 @dataclass
 class AuthenticationContext:
-    """Authentication context for a single request.
+    """Authentication context for a single request with OBO-only authentication.
 
     Contains all authentication-related information for the current request,
-    including user token, authentication mode, and correlation ID.
+    including user token and correlation ID.
     """
-    user_token: Optional[str]
-    has_user_token: bool
-    auth_mode: str  # "obo" or "service_principal"
+    user_token: str  # Required user access token (OBO-only)
     correlation_id: str
     user_id: Optional[str] = None  # Lazy-loaded from user identity extraction
-
-    @property
-    def is_obo_mode(self) -> bool:
-        """Check if request is using On-Behalf-Of authentication."""
-        return self.auth_mode == "obo"
-
-    @property
-    def is_service_principal_mode(self) -> bool:
-        """Check if request is using service principal authentication."""
-        return self.auth_mode == "service_principal"
 
 
 class UserIdentity(BaseModel):
@@ -164,7 +152,7 @@ class WorkspaceInfoResponse(BaseModel):
 class AuthenticationStatusResponse(BaseModel):
     """Response model for /api/auth/status endpoint."""
     authenticated: bool = Field(default=True, description="Whether request is authenticated")
-    auth_mode: str = Field(..., description="Authentication mode (obo or service_principal)")
+    auth_mode: str = Field(..., description="Authentication mode (always 'obo' - OBO-only authentication)")
     has_user_identity: bool = Field(..., description="Whether user identity is available")
     user_id: Optional[str] = Field(None, description="User email if available")
 

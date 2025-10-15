@@ -19,12 +19,6 @@ auth_retry_total = Counter(
     ['endpoint', 'attempt_number']
 )
 
-auth_fallback_total = Counter(
-    'auth_fallback_total',
-    'Service principal fallback events',
-    ['reason']
-)
-
 # Performance metrics
 request_duration_seconds = Histogram(
     'request_duration_seconds',
@@ -59,7 +53,7 @@ def record_auth_request(endpoint: str, mode: str, status: str):
 
     Args:
         endpoint: API endpoint path
-        mode: Authentication mode ('obo' or 'service_principal')
+        mode: Authentication mode ('obo' only - always OBO authentication)
         status: Request status ('success' or 'failure')
     """
     auth_requests_total.labels(
@@ -82,15 +76,6 @@ def record_auth_retry(endpoint: str, attempt_number: int):
     ).inc()
 
 
-def record_auth_fallback(reason: str):
-    """Record a service principal fallback event.
-
-    Args:
-        reason: Reason for fallback ('missing_token', 'invalid_token', etc.)
-    """
-    auth_fallback_total.labels(reason=reason).inc()
-
-
 def record_request_duration(endpoint: str, method: str, status: int, duration_seconds: float):
     """Record overall request duration.
 
@@ -111,7 +96,7 @@ def record_auth_overhead(mode: str, overhead_seconds: float):
     """Record authentication overhead.
 
     Args:
-        mode: Authentication mode ('obo' or 'service_principal')
+        mode: Authentication mode ('obo' only - always OBO authentication)
         overhead_seconds: Authentication overhead in seconds
     """
     auth_overhead_seconds.labels(mode=mode).observe(overhead_seconds)

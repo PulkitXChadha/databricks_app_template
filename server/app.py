@@ -15,7 +15,6 @@ from server.lib.distributed_tracing import set_correlation_id, get_correlation_i
 from server.lib.structured_logger import log_request
 from server.lib.metrics import (
   record_auth_request,
-  record_auth_fallback,
   record_request_duration,
   record_auth_overhead
 )
@@ -106,14 +105,8 @@ async def add_correlation_id(request: Request, call_next):
       header_keys=header_keys[:10] if len(header_keys) > 10 else header_keys
     )
 
-  # Set authentication context in request state
+  # Set authentication context in request state (OBO-only)
   request.state.user_token = user_token
-  request.state.has_user_token = user_token is not None
-  request.state.auth_mode = "obo" if user_token else "service_principal"
-  
-  # Record fallback event if no token provided
-  if not user_token and request.url.path.startswith('/api/'):
-    record_auth_fallback(reason="missing_token")
   
   # Track request start time
   start_time = time.time()
@@ -134,17 +127,17 @@ async def add_correlation_id(request: Request, call_next):
   
   # Record metrics (skip health and metrics endpoints to reduce noise)
   if request.url.path not in ['/health', '/metrics']:
-    # Record authentication metrics
+    # Record authentication metrics (OBO-only)
     auth_status = "success" if 200 <= response.status_code < 400 else "failure"
     record_auth_request(
       endpoint=request.url.path,
-      mode=request.state.auth_mode,
+      mode="obo",  # OBO-only (hardcoded)
       status=auth_status
     )
     
     # Record auth overhead
     record_auth_overhead(
-      mode=request.state.auth_mode,
+      mode="obo",  # OBO-only (hardcoded)
       overhead_seconds=auth_overhead
     )
     
@@ -177,14 +170,21 @@ async def health():
 
 
 @app.get('/metrics')
-async def metrics():
+async def metrics(request: Request):
   """Prometheus metrics endpoint.
   
   Exposes authentication and performance metrics in Prometheus format.
-  Public access for monitoring systems (no authentication required).
+  Requires user authentication for security.
+  
+  Raises:
+      401: Authentication required (missing or invalid token)
   """
   from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
   from fastapi.responses import Response
+  from server.lib.auth import get_user_token
+  
+  # Require authentication for metrics endpoint
+  user_token = await get_user_token(request)
   
   return Response(
     content=generate_latest(),

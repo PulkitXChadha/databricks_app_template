@@ -20,11 +20,41 @@ logger = StructuredLogger(__name__)
 correlation_id_var = contextvars.ContextVar('correlation_id', default=None)
 
 
-async def get_user_token(request: Request) -> Optional[str]:
-    """Extract user access token from request state.
+async def get_user_token(request: Request) -> str:
+    """Extract required user access token from request state.
 
     The token is set by middleware from the X-Forwarded-Access-Token header.
     This enables On-Behalf-Of (OBO) authentication.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        User access token
+
+    Raises:
+        HTTPException: 401 if token is missing or empty
+    """
+    user_token = getattr(request.state, 'user_token', None)
+    
+    if not user_token:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_MISSING",
+                "message": "User authentication required. Please provide a valid user access token."
+            }
+        )
+    
+    return user_token
+
+
+async def get_user_token_optional(request: Request) -> Optional[str]:
+    """Extract optional user access token from request state.
+
+    This function does NOT raise an exception if the token is missing.
+    Use this ONLY for endpoints that support unauthenticated access,
+    such as /health (public monitoring endpoint).
 
     Args:
         request: FastAPI request object
@@ -36,77 +66,68 @@ async def get_user_token(request: Request) -> Optional[str]:
 
 
 async def get_auth_context(request: Request) -> AuthenticationContext:
-    """Get full authentication context for the request.
+    """Get full authentication context for the request (OBO-only).
 
-    Extracts all authentication-related information from request state
+    Extracts authentication-related information from request state
     that was set by the middleware.
 
     Args:
         request: FastAPI request object
 
     Returns:
-        AuthenticationContext with token, mode, and correlation ID
+        AuthenticationContext with token and correlation ID
+        
+    Raises:
+        HTTPException: 401 if user_token is missing
     """
+    user_token = getattr(request.state, 'user_token', None)
+    
+    if not user_token:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_MISSING",
+                "message": "User authentication required. Please provide a valid user access token."
+            }
+        )
+    
     return AuthenticationContext(
-        user_token=getattr(request.state, 'user_token', None),
-        has_user_token=getattr(request.state, 'has_user_token', False),
-        auth_mode=getattr(request.state, 'auth_mode', 'service_principal'),
+        user_token=user_token,
         correlation_id=getattr(request.state, 'correlation_id', '')
     )
 
 
 async def get_current_user_id(request: Request) -> str:
-    """Extract user ID (email) from authentication context.
+    """Extract user ID (email) from authentication context using OBO-only.
     
-    Works in multiple scenarios:
-    1. Databricks Apps (deployed): Uses user token from X-Forwarded-Access-Token header
-    2. Local with OAuth: Uses service principal OAuth credentials via UserService
-    3. Local without auth: Falls back to "dev-user@example.com"
+    Requires valid user token for authentication. No fallback to service principal.
     
     Args:
         request: FastAPI request object
         
     Returns:
         User email string
+        
+    Raises:
+        HTTPException: 401 if user_token is missing or authentication fails
     """
+    # get_user_token will raise 401 if token is missing
     user_token = await get_user_token(request)
-    databricks_host = os.getenv('DATABRICKS_HOST')
     
-    # Try to get user info using UserService (works with or without user_token)
-    # When user_token is provided (Databricks Apps), it uses OBO authentication
-    # When user_token is None (local dev), it uses service principal OAuth if available
-    try:
-        service = UserService(user_token=user_token)
-        user_identity = await service.get_user_info()
-        user_email = user_identity.user_id
-        
-        auth_method = "user_token" if user_token else "service_principal"
-        logger.info(
-            "Retrieved user information",
-            user_id=user_email,
-            display_name=user_identity.display_name,
-            auth_method=auth_method,
-            has_databricks_host=bool(databricks_host),
-            path=request.url.path
-        )
-        
-        return user_email
-        
-    except Exception as e:
-        # If we can't get user info, fall back to dev user
-        # This happens when:
-        # - No Databricks authentication is configured
-        # - Network/API errors
-        # - Invalid credentials
-        logger.warning(
-            f"Failed to get user info, falling back to dev user: {str(e)}",
-            exc_info=True,
-            has_token=bool(user_token),
-            has_databricks_host=bool(databricks_host),
-            path=request.url.path,
-            error_type=type(e).__name__
-        )
-        return "dev-user@example.com"
+    # Get user info using UserService with OBO authentication
+    service = UserService(user_token=user_token)
+    user_identity = await service.get_user_info()
+    user_email = user_identity.user_id
+    
+    logger.info(
+        "Retrieved user information",
+        user_id=user_email,
+        display_name=user_identity.display_name,
+        auth_method="obo",
+        path=request.url.path
+    )
+    
+    return user_email
 
 
 # Authentication exceptions

@@ -11,13 +11,15 @@ import { request as __request } from '../core/request';
 export class UnityCatalogService {
     /**
      * List Catalogs
-     * List accessible Unity Catalog catalogs.
+     * List accessible Unity Catalog catalogs with OBO authentication.
+     *
+     * Requires X-Forwarded-Access-Token header with valid user access token.
      *
      * Returns:
      * List of catalog names the user has access to
      *
      * Raises:
-     * 401: Authentication required (EC-003)
+     * 401: Authentication required (missing or invalid token)
      * 403: Permission denied (EC-004)
      * 503: Database unavailable (EC-002)
      * @returns string Successful Response

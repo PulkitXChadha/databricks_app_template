@@ -1,14 +1,17 @@
 # On-Behalf-Of-User (OBO) Authentication
 
-This document explains how the Databricks App Template implements on-behalf-of-user (OBO) authentication for API calls and database access.
+This document explains how the Databricks App Template implements **OBO-only authentication** for all Databricks API operations.
+
+> **Note**: This application uses OBO-only authentication for Databricks APIs. Service principal fallback has been removed to enforce proper security boundaries and ensure all operations respect user-level permissions.
 
 ## Overview
 
-On-behalf-of-user (OBO) authentication allows the application to make API calls and database queries using the **actual end user's credentials** instead of the app's service principal credentials. This ensures that:
+On-behalf-of-user (OBO) authentication requires the application to make all Databricks API calls using the **actual end user's credentials**. This ensures that:
 
 1. **Permissions are properly enforced** - Users can only access data they have permissions for in Unity Catalog
-2. **Audit trails are accurate** - Actions are logged under the actual user, not the service principal
+2. **Audit trails are accurate** - Actions are logged under the actual user, not a service principal
 3. **Security is enhanced** - No privilege escalation through the app
+4. **No fallback behavior** - Missing user tokens result in clear authentication errors
 
 ## How It Works
 
@@ -29,55 +32,77 @@ async def add_correlation_id(request: Request, call_next):
 
 ### 2. Token Propagation
 
-The `get_user_token` dependency in `server/lib/auth.py` makes the token available to route handlers:
+The `get_user_token` dependency in `server/lib/auth.py` makes the token available to route handlers and **raises HTTP 401 if missing**:
 
 ```python
-async def get_user_token(request: Request) -> str | None:
-    """Extract user access token from request state."""
-    return getattr(request.state, 'user_token', None)
+async def get_user_token(request: Request) -> str:
+    """Extract required user access token from request state.
+    
+    Raises:
+        HTTPException: 401 if token is missing or empty (no fallback)
+    """
+    user_token = getattr(request.state, 'user_token', None)
+    
+    if not user_token:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_MISSING",
+                "message": "User authentication required. Please provide a valid user access token."
+            }
+        )
+    
+    return user_token
 ```
 
 ### 3. Service Initialization
 
-Services (UnityCatalogService, ModelServingService, etc.) accept an optional `user_token` parameter:
+Services (UnityCatalogService, ModelServingService, UserService) **require** a `user_token` parameter:
 
 ```python
-# With OBO (uses user's permissions)
-service = UnityCatalogService(user_token=user_token)
+# OBO-only - user_token is REQUIRED (not Optional)
+service = UnityCatalogService(user_token=user_token)  # ✅ Works
 
-# Without OBO (uses service principal permissions)
-service = UnityCatalogService()
+# Missing token raises ValueError at initialization
+service = UnityCatalogService(user_token=None)  # ❌ Raises ValueError
+service = UnityCatalogService(user_token="")    # ❌ Raises ValueError
 ```
+
+**No Fallback**: Services validate that `user_token` is provided and non-empty during initialization. There is no automatic fallback to service principal credentials.
 
 ### 4. WorkspaceClient Configuration
 
-When a user token is provided, the service creates a WorkspaceClient using **ONLY** that token with explicit `auth_type="pat"`:
+Services create a WorkspaceClient using **ONLY** the user token with explicit `auth_type="pat"`:
 
 ```python
-if user_token:
-    # OBO: Use ONLY the user's token with explicit auth_type
-    # CRITICAL: auth_type="pat" tells SDK to ignore OAuth env vars
-    cfg = Config(
-        host=databricks_host,
-        token=user_token,
-        auth_type="pat"  # Forces token-only auth, ignores OAuth env vars
+# OBO-only pattern - the ONLY way to initialize services
+def __init__(self, user_token: str):
+    """Initialize service with OBO authentication.
+    
+    Args:
+        user_token: User access token (REQUIRED)
+        
+    Raises:
+        ValueError: If user_token is None or empty
+    """
+    if not user_token:
+        raise ValueError("user_token is required for UnityCatalogService")
+    
+    self.user_token = user_token
+    self.workspace_url = os.getenv('DATABRICKS_HOST')
+    
+    # Create WorkspaceClient with user token ONLY
+    self.client = WorkspaceClient(
+        host=self.workspace_url,
+        token=self.user_token,
+        auth_type="pat"  # Forces token-only auth
     )
-    self.client = WorkspaceClient(config=cfg)
-else:
-    # App authorization: Use service principal OAuth M2M
-    cfg = Config(
-        host=databricks_host,
-        client_id=client_id,
-        client_secret=client_secret,
-        auth_type="oauth-m2m"  # Explicit OAuth, ignores PAT tokens in env
-    )
-    self.client = WorkspaceClient(config=cfg)
 ```
 
 **Critical**: 
-- When using OBO, we MUST set `auth_type="pat"` to tell the SDK to use ONLY the token and ignore OAuth environment variables
-- Databricks Apps automatically sets `DATABRICKS_CLIENT_ID` and `DATABRICKS_CLIENT_SECRET` environment variables
-- Without `auth_type="pat"`, the SDK detects both the token AND OAuth env vars, causing the "more than one authorization method configured" error
+- `auth_type="pat"` tells the SDK to use ONLY the token and ignore any OAuth environment variables
+- Services no longer support initialization without a user token
+- No service principal fallback exists for Databricks API operations
 
 ## Implementation Guide
 
@@ -93,54 +118,82 @@ router = APIRouter()
 @router.get("/catalogs")
 async def list_catalogs(
     user_id: str = Depends(get_current_user_id),
-    user_token: str | None = Depends(get_user_token)
+    user_token: str = Depends(get_user_token)  # REQUIRED (not Optional)
 ):
-    """List catalogs with user's permissions."""
-    # Service uses user token for OBO
+    """List catalogs with user's permissions.
+    
+    Raises:
+        HTTPException: 401 if user_token is missing (automatic via dependency)
+    """
+    # Service requires user token (no fallback)
     service = UnityCatalogService(user_token=user_token)
     catalogs = await service.list_catalogs(user_id=user_id)
     return catalogs
 ```
 
-### Database Access with OBO
+**Key Changes in OBO-Only**:
+- `user_token` parameter type is `str` (not `str | None`)
+- `get_user_token` dependency automatically raises 401 if token is missing
+- No need for manual None checks - dependency handles validation
+- Service initialization requires the token
 
-For Lakebase (PostgreSQL) database access with OBO:
+### Database Access (Lakebase - Hybrid Approach)
+
+LakebaseService uses a **hybrid approach** distinct from Databricks API services:
 
 ```python
-from server.lib.database import get_db_session_obo
 from server.services.lakebase_service import LakebaseService
+from server.services.user_service import UserService
 
-# Option 1: Using the service
-service = LakebaseService(user_token=user_token)
-preferences = await service.get_preferences(user_id=user_id)
+# Step 1: Extract user_id using OBO-authenticated UserService
+user_service = UserService(user_token=user_token)  # Requires token
+user_id = await user_service.get_user_id()
 
-# Option 2: Direct database session
-for session in get_db_session_obo(user_token):
-    result = session.query(UserPreference).filter_by(user_id=user_id).all()
+# Step 2: Use LakebaseService with application-level credentials
+lakebase_service = LakebaseService()  # NO user_token parameter
+preferences = await lakebase_service.get_preferences(user_id=user_id)
 ```
+
+**Important**:
+- **LakebaseService does NOT accept user_token** - it uses application-level database credentials
+- **User isolation enforced via user_id filtering** in SQL queries (`WHERE user_id = :user_id`)
+- **user_id must be obtained from OBO-authenticated UserService** to ensure security
+- All user-scoped queries include explicit user_id filtering
+
+This hybrid approach is necessary because:
+1. Lakebase OAuth JWT tokens use service principal credentials (not per-user tokens)
+2. Database connection pooling is incompatible with per-user credentials
+3. User_id filtering at the application level provides proper data isolation
 
 ## Configuration
 
 ### Environment Variables
 
-The following environment variables are required for OBO to work properly:
+**Required** environment variables for OBO-only operation:
 
 ```bash
-# Databricks workspace (required for OBO)
+# Databricks workspace (REQUIRED)
 DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
 
-# SQL Warehouse (required for Unity Catalog queries)
+# SQL Warehouse (REQUIRED for Unity Catalog queries)
 DATABRICKS_WAREHOUSE_ID=your-warehouse-id
 
-# Service principal (for fallback/admin operations)
-DATABRICKS_CLIENT_ID=your-client-id
-DATABRICKS_CLIENT_SECRET=your-client-secret
-
-# Lakebase configuration (for database OBO)
+# Lakebase configuration (for database access with user_id filtering)
 PGHOST=instance-xyz.database.cloud.databricks.com
 LAKEBASE_DATABASE=your-database-name
 LAKEBASE_INSTANCE_NAME=instance-xyz
 ```
+
+**Legacy/Optional** environment variables (not used for Databricks APIs):
+
+```bash
+# Service principal credentials (OPTIONAL - not used)
+# These variables may remain in your environment but are ignored for Databricks API operations
+DATABRICKS_CLIENT_ID=your-client-id      # Not used (legacy)
+DATABRICKS_CLIENT_SECRET=your-client-secret  # Not used (legacy)
+```
+
+**Note**: `DATABRICKS_CLIENT_ID` and `DATABRICKS_CLIENT_SECRET` are **not required** and **not used** for Databricks API operations in OBO-only mode. They may remain in your environment without affecting functionality. LakebaseService uses its own OAuth JWT credentials via `generate_database_credential()`.
 
 ### app.yaml Configuration
 
@@ -241,23 +294,32 @@ engine = get_engine()  # This uses service principal
 
 **Problem**: `X-Forwarded-Access-Token` header not present in local development.
 
-**Solution**: OBO only works when deployed to Databricks Apps. For local development:
-- The app automatically falls back to service principal authentication
-- Or, manually set a user token for testing:
+**Solution**: OBO-only authentication requires user tokens in local development. Use Databricks CLI to obtain tokens:
 
-```python
-# For local testing only
-import os
-test_token = os.getenv('TEST_USER_TOKEN')
-service = UnityCatalogService(user_token=test_token)
+```bash
+# Install and authenticate with Databricks CLI
+databricks auth login --host https://your-workspace.cloud.databricks.com
+
+# Obtain user access token
+export DATABRICKS_USER_TOKEN=$(databricks auth token)
+
+# Use token in requests
+curl -H "X-Forwarded-Access-Token: $DATABRICKS_USER_TOKEN" \
+     http://localhost:8000/api/user/me
 ```
+
+**No Fallback**: The application no longer falls back to service principal authentication. Missing tokens result in HTTP 401 errors with clear error messages.
+
+See [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) for detailed local development setup.
 
 ## Security Considerations
 
 1. **Token Validation**: The Databricks platform validates all user tokens before forwarding requests
 2. **Token Expiration**: User tokens automatically expire and are refreshed by the platform
 3. **No Token Storage**: Never store user tokens in databases or logs
-4. **Fallback Mode**: Service principal mode is used when user token is not available (e.g., background jobs)
+4. **No Fallback**: Missing tokens result in HTTP 401 errors - no automatic fallback to service principal
+5. **User Isolation**: All operations respect user-level permissions enforced by Unity Catalog
+6. **Audit Trail**: All actions are logged under the actual user's identity
 
 ## Testing OBO
 
@@ -318,35 +380,30 @@ If you're migrating existing code from service principal to OBO:
 
 ## Implementation Details
 
-### Dual Authentication Pattern
+### OBO-Only Authentication Pattern
 
-The application implements a dual authentication pattern (Constitution v1.2.0) that supports both OBO and service principal authentication:
+The application enforces OBO-only authentication for all Databricks API operations:
 
-1. **Pattern A: Service Principal** - Used for system operations and when user token is unavailable
+1. **Databricks API Services (OBO-Only)** - UnityCatalogService, ModelServingService, UserService
    ```python
-   client = WorkspaceClient(
-       host=workspace_url,
-       client_id=os.environ["DATABRICKS_CLIENT_ID"],
-       client_secret=os.environ["DATABRICKS_CLIENT_SECRET"],
-       auth_type="oauth-m2m"  # Explicit authentication type
-   )
-   ```
-
-2. **Pattern B: On-Behalf-Of-User** - Used for user operations with user token
-   ```python
+   # ONLY supported pattern - requires user_token
    client = WorkspaceClient(
        host=workspace_url,
        token=user_token,
-       auth_type="pat"  # Explicit authentication type
+       auth_type="pat"  # Explicit OBO authentication
    )
    ```
+   
+   **No Fallback**: Services raise `ValueError` if `user_token` is None or empty. No automatic fallback to service principal.
 
-3. **Pattern C: Lakebase** - Always uses service principal with user_id filtering
+2. **LakebaseService (Hybrid Approach)** - Uses application-level credentials with user_id filtering
    ```python
-   # Database connection uses service principal
-   # User-scoped queries filter by user_id
+   # Database connection uses application-level credentials
+   # User isolation enforced via user_id filtering in queries
    query = "SELECT * FROM table WHERE user_id = :user_id"
    ```
+   
+   **Rationale**: Database connection pooling requires application-level credentials. User isolation is enforced at the SQL query level rather than the connection level.
 
 ### Retry Logic and Error Handling
 
@@ -394,18 +451,23 @@ Authentication operations are fully observable:
      "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
    }
    ```
+   
+   **Note**: The `mode` field is hardcoded to `"obo"` in log statements since it's the only supported authentication mode.
 
-2. **Prometheus Metrics**: Exposed at `/metrics` endpoint
-   - `auth_requests_total`: Total authentication attempts
-   - `auth_retry_total`: Retry attempt counts
-   - `auth_fallback_total`: Service principal fallback events
+2. **Prometheus Metrics**: Exposed at `/metrics` endpoint (requires authentication)
+   - `auth_requests_total`: Total OBO authentication attempts (success/failure)
    - `auth_overhead_seconds`: Authentication overhead (target: <10ms)
+   - `request_duration_seconds`: Request duration including authentication
    - `upstream_api_duration_seconds`: Upstream API call latencies
+   
+   **Removed Metrics**:
+   - ~~`auth_fallback_total`~~ - No fallback behavior in OBO-only
+   - ~~`auth_requests_total{mode="service_principal"}`~~ - Only OBO mode exists
 
 3. **Performance Targets**:
    - Authentication overhead: <10ms (P95)
    - Request timeout: 30 seconds
-   - Retry timeout: 5 seconds total
+   - No retry logic for missing tokens (fails immediately with 401)
 
 ### Local Development Testing
 
