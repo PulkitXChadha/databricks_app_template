@@ -117,7 +117,9 @@ class TestLakebaseServiceDataIsolation:
             # Mock database session
             mock_session = MagicMock()
             mock_query = MagicMock()
-            mock_query.first.return_value = None  # No existing preference
+            mock_filter_by = MagicMock()
+            mock_filter_by.first.return_value = None  # No existing preference
+            mock_query.filter_by.return_value = mock_filter_by
             mock_session.query.return_value = mock_query
             mock_get_session.return_value = [mock_session]
             

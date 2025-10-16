@@ -206,11 +206,14 @@ class TestModelServingServiceEndpointOperations:
             # Mock endpoint retrieval
             mock_endpoint = Mock()
             mock_endpoint.name = 'test-endpoint'
+            mock_endpoint.id = 'endpoint-123'
             mock_endpoint.state = Mock()
             mock_endpoint.state.config_update = EndpointStateConfigUpdate.NOT_UPDATING
-            mock_endpoint.is_ready_for_inference = Mock(return_value=True)
-            mock_endpoint.workload_url = 'https://test.cloud.databricks.com/serving-endpoints/test-endpoint/invocations'
-            mock_client.serving_endpoints.get = AsyncMock(return_value=mock_endpoint)
+            mock_endpoint.creation_timestamp = int(datetime.now().timestamp() * 1000)
+            mock_endpoint.config = Mock()
+            mock_endpoint.config.served_entities = []
+            mock_endpoint.config.served_models = [Mock(model_name='test-model', model_version='1')]
+            mock_client.serving_endpoints.get = Mock(return_value=mock_endpoint)
             
             # Mock authentication headers
             mock_client.config.authenticate.return_value = {
@@ -285,11 +288,14 @@ class TestModelServingServiceInferenceLogging:
             
             mock_endpoint = Mock()
             mock_endpoint.name = 'test-endpoint'
+            mock_endpoint.id = 'endpoint-123'
             mock_endpoint.state = Mock()
             mock_endpoint.state.config_update = EndpointStateConfigUpdate.NOT_UPDATING
-            mock_endpoint.is_ready_for_inference = Mock(return_value=True)
-            mock_endpoint.workload_url = 'https://test.cloud.databricks.com/serving-endpoints/test-endpoint/invocations'
-            mock_client.serving_endpoints.get = AsyncMock(return_value=mock_endpoint)
+            mock_endpoint.creation_timestamp = int(datetime.now().timestamp() * 1000)
+            mock_endpoint.config = Mock()
+            mock_endpoint.config.served_entities = []
+            mock_endpoint.config.served_models = [Mock(model_name='test-model', model_version='1')]
+            mock_client.serving_endpoints.get = Mock(return_value=mock_endpoint)
             mock_client.config.authenticate.return_value = {'Authorization': 'Bearer test-token'}
             
             mock_http_instance = Mock()
@@ -312,8 +318,10 @@ class TestModelServingServiceInferenceLogging:
             
             # Verify database insert was called with user_id
             assert mock_conn.execute.called, "Database insert should be called"
+            # execute is called as: execute(text(...), {...})
+            # So call_args[0] is a tuple: (text_object, params_dict)
             call_args = mock_conn.execute.call_args[0]
-            params = mock_conn.execute.call_args[1]
+            params = call_args[1]  # Get the params dict from positional args
             
             assert 'user_id' in params, "user_id should be in database insert params"
             assert params['user_id'] == 'user@example.com', "user_id should match the provided value"

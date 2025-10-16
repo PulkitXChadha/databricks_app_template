@@ -37,7 +37,7 @@ class TestUserIdentityExtraction:
             mock_user.display_name = "Test User"
             mock_user.active = True
 
-            mock_client.return_value.current_user.me = AsyncMock(return_value=mock_user)
+            mock_client.return_value.current_user.me = Mock(return_value=mock_user)
 
             # When: get_user_info() is called
             result = await service.get_user_info()
@@ -58,7 +58,7 @@ class TestUserIdentityExtraction:
 
         # Mock the Databricks API to raise authentication error
         with patch.object(service, '_get_client') as mock_client:
-            mock_client.return_value.current_user.me = AsyncMock(
+            mock_client.return_value.current_user.me = Mock(
                 side_effect=Exception("Invalid authentication credentials")
             )
 
@@ -80,7 +80,7 @@ class TestUserIdentityExtraction:
 
         # Mock the Databricks API to raise expired token error
         with patch.object(service, '_get_client') as mock_client:
-            mock_client.return_value.current_user.me = AsyncMock(
+            mock_client.return_value.current_user.me = Mock(
                 side_effect=Exception("Token has expired")
             )
 
@@ -182,7 +182,7 @@ class TestUserIdentityExtraction:
             mock_sp_user.display_name = "Service Principal"
             mock_sp_user.active = True
 
-            mock_client.return_value.current_user.me = AsyncMock(return_value=mock_sp_user)
+            mock_client.return_value.current_user.me = Mock(return_value=mock_sp_user)
 
             # When: get_user_info() is called without token
             result = await service.get_user_info()

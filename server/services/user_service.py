@@ -162,7 +162,7 @@ class UserService:
         status_code=401,
         detail={
           "error_code": "AUTH_USER_IDENTITY_FAILED",
-          "message": "User authentication required. Please provide a valid user access token."
+          "message": f"Failed to extract user identity: {str(e)}"
         }
       ) from e
 

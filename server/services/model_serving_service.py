@@ -89,8 +89,8 @@ class ModelServingService:
         try:
             endpoints = []
             
-            # List all serving endpoints
-            endpoint_list = self.client.serving_endpoints.list()
+            # List all serving endpoints (wrap sync SDK call in async)
+            endpoint_list = await asyncio.to_thread(self.client.serving_endpoints.list)
             
             for ep in endpoint_list:
                 try:
@@ -175,7 +175,8 @@ class ModelServingService:
             DatabricksError: If endpoint not found
         """
         try:
-            ep = self.client.serving_endpoints.get(endpoint_name)
+            # Wrap sync SDK call in async
+            ep = await asyncio.to_thread(self.client.serving_endpoints.get, endpoint_name)
             
             # Extract served model/entity info (supports both formats)
             served_model = None

@@ -54,7 +54,8 @@ class TestUserServiceContract:
             assert service.user_token == "mock-token-12345"
             assert service.workspace_url == "https://test.cloud.databricks.com"
 
-    def test_service_creates_workspace_client_with_obo_auth(self):
+    @pytest.mark.asyncio
+    async def test_service_creates_workspace_client_with_obo_auth(self):
         """Test UserService with user_token creates client with auth_type='pat'."""
         user_token = "mock-user-token-12345"
         
@@ -62,9 +63,17 @@ class TestUserServiceContract:
              patch.dict(os.environ, {"DATABRICKS_HOST": "https://test.cloud.databricks.com"}):
             
             mock_client = MagicMock()
+            mock_user = MagicMock()
+            mock_user.user_name = "user@example.com"
+            mock_user.display_name = "Test User"
+            mock_user.active = True
+            mock_client.current_user.me = MagicMock(return_value=mock_user)
             mock_workspace_client.return_value = mock_client
             
             service = UserService(user_token=user_token)
+            
+            # Trigger client creation by calling a method
+            await service.get_user_info()
             
             # Verify WorkspaceClient was created with correct parameters
             mock_workspace_client.assert_called_once()
@@ -118,7 +127,7 @@ class TestUserServiceContract:
              patch.dict(os.environ, {"DATABRICKS_HOST": "https://test.cloud.databricks.com"}):
             
             mock_client = MagicMock()
-            mock_client.current_user.me = AsyncMock(return_value=mock_user_data)
+            mock_client.current_user.me = MagicMock(return_value=mock_user_data)
             mock_workspace_client.return_value = mock_client
             
             service = UserService(user_token=user_token)
