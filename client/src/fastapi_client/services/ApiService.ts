@@ -20,9 +20,10 @@ import { request as __request } from '../core/request';
 export class ApiService {
     /**
      * Get Auth Status
-     * Get authentication status for the current request (OBO-only).
+     * Get authentication status for the current request.
      *
-     * Returns information about OBO authentication and user identity.
+     * Returns information about authentication mode and user identity.
+     * This endpoint does NOT require authentication - it reports the auth status.
      * @returns AuthenticationStatusResponse Successful Response
      * @throws ApiError
      */
@@ -39,10 +40,11 @@ export class ApiService {
      * Requires X-Forwarded-Access-Token header with valid user access token.
      *
      * Returns:
-     * UserInfoResponse with user_id, display_name, active status, and workspace_url
+     * UserInfoResponse with userName, displayName, active status, and emails
      *
      * Raises:
      * 401: Authentication required (missing or invalid token)
+     * 500: Failed to fetch user info
      * @returns UserInfoResponse Successful Response
      * @throws ApiError
      */
@@ -59,7 +61,7 @@ export class ApiService {
      * Requires X-Forwarded-Access-Token header with valid user access token.
      *
      * Returns:
-     * WorkspaceInfoResponse with workspace_id, workspace_url, workspace_name
+     * WorkspaceInfoResponse with user and workspace information
      *
      * Raises:
      * 401: Authentication required (missing or invalid token)
@@ -423,6 +425,38 @@ export class ApiService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/model-serving/endpoints',
+        });
+    }
+    /**
+     * Get Endpoint
+     * Get specific Model Serving endpoint details.
+     *
+     * Args:
+     * endpoint_name: Name of the endpoint
+     *
+     * Returns:
+     * ModelEndpoint with metadata
+     *
+     * Raises:
+     * 401: Authentication required
+     * 404: Endpoint not found
+     * 503: Service unavailable
+     * @param endpointName
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static getEndpointApiModelServingEndpointsEndpointNameGet(
+        endpointName: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/model-serving/endpoints/{endpoint_name}',
+            path: {
+                'endpoint_name': endpointName,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**

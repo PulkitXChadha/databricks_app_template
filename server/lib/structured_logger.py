@@ -254,3 +254,7 @@ def log_event(event: str, level: str = "INFO", context: Optional[Dict[str, Any]]
             del log_entry[key]
     
     print(json.dumps(log_entry))
+
+
+# Export a default logger instance for module-level use
+logger = StructuredLogger(__name__)

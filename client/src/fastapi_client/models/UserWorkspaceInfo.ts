@@ -3,24 +3,20 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * Response model for /api/user/me endpoint.
+ * User information for workspace response.
  */
-export type UserInfoResponse = {
+export type UserWorkspaceInfo = {
     /**
      * User email address
      */
-    user_id: string;
+    userName: string;
     /**
      * User's display name
      */
-    display_name: string;
+    displayName: string;
     /**
      * Whether user is active
      */
     active?: boolean;
-    /**
-     * User email addresses
-     */
-    emails?: Array<string>;
 };
 

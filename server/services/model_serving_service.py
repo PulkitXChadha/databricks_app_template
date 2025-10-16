@@ -22,7 +22,7 @@ from server.models.model_inference import (
     InferenceStatus
 )
 from server.lib.structured_logger import StructuredLogger
-from server.lib.database import get_engine
+from server.lib.database import get_engine, is_lakebase_configured
 
 logger = StructuredLogger(__name__)
 
@@ -39,45 +39,46 @@ class ModelServingService:
     - OBO-only: Requires user access token (no service principal fallback)
     """
     
-    def __init__(self, user_token: str):
-        """Initialize Model Serving service with OBO authentication.
+    def __init__(self, user_token: str | None = None):
+        """Initialize Model Serving service with authentication.
         
         Args:
-            user_token: User access token (required for all operations)
+            user_token: User access token for OBO auth (None for service principal)
             
         Raises:
-            ValueError: If user_token is None or empty
+            ValueError: If DATABRICKS_HOST is not set and not in Databricks runtime
         """
-        if not user_token:
-            raise ValueError("user_token is required for ModelServingService")
-        
         databricks_host = os.getenv('DATABRICKS_HOST')
         
-        # On-behalf-of-user (OBO) authorization: Use ONLY the user's access token
-        # MUST set auth_type="pat" to prevent SDK from detecting OAuth env vars
-        if databricks_host:
-            # Ensure host has proper format
-            if not databricks_host.startswith('http'):
-                databricks_host = f'https://{databricks_host}'
+        if not databricks_host:
+            raise ValueError("DATABRICKS_HOST environment variable is not set")
+        
+        # Ensure host has proper format
+        if not databricks_host.startswith('http'):
+            databricks_host = f'https://{databricks_host}'
+        
+        if user_token:
+            # On-behalf-of-user (OBO) authorization
             cfg = Config(
                 host=databricks_host,
                 token=user_token,
-                auth_type="pat",  # Forces token-only auth, ignores OAuth env vars
+                auth_type="pat",  # Forces token-only auth
                 timeout=30,  # 30-second timeout per NFR-010
                 retry_timeout=30  # Allow full timeout window
             )
+            logger.info("Model Serving service initialized with OBO authentication")
         else:
-            # In Databricks Apps, host is auto-detected
+            # Service principal (OAuth M2M) authorization
             cfg = Config(
-                token=user_token,
-                auth_type="pat",  # Forces token-only auth, ignores OAuth env vars
-                timeout=30,  # 30-second timeout per NFR-010
-                retry_timeout=30  # Allow full timeout window
+                host=databricks_host,
+                timeout=30,
+                retry_timeout=30
             )
+            logger.info("Model Serving service initialized with service principal authentication")
         
         self.client = WorkspaceClient(config=cfg)
         self.user_token = user_token
-        logger.info("Model Serving service initialized with OBO authentication")
+        self.workspace_url = databricks_host
         
         self.default_timeout = int(os.getenv('MODEL_SERVING_TIMEOUT', '30'))
     
@@ -509,9 +510,6 @@ class ModelServingService:
             response: Model inference response
         """
         try:
-            # Import here to avoid circular dependency
-            from server.lib.database import is_lakebase_configured
-            
             # Skip logging if Lakebase is not configured
             if not is_lakebase_configured():
                 logger.debug(
@@ -585,9 +583,6 @@ class ModelServingService:
             Tuple of (logs list, total count)
         """
         try:
-            # Import here to avoid circular dependency
-            from server.lib.database import is_lakebase_configured
-            
             # Return empty logs if Lakebase is not configured (local development)
             if not is_lakebase_configured():
                 logger.debug(

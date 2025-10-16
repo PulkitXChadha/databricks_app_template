@@ -5,6 +5,19 @@ unit, contract, and integration tests to reduce duplication and improve
 test performance.
 """
 
+import sys
+import os
+from pathlib import Path
+
+# CRITICAL: Ensure the correct project root is first in sys.path
+# This prevents importing from other projects with similar module names
+project_root = str(Path(__file__).parent.parent.absolute())
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+elif sys.path[0] != project_root:
+    sys.path.remove(project_root)
+    sys.path.insert(0, project_root)
+
 import pytest
 from unittest.mock import Mock, MagicMock
 from fastapi import FastAPI, Request
@@ -39,6 +52,14 @@ def create_test_app() -> FastAPI:
         # Set authentication context in request state (OBO-only)
         request.state.user_token = user_token
         request.state.user_id = None  # Will be set by endpoints if needed
+        
+        # Set auth mode based on token presence
+        if user_token:
+            request.state.auth_mode = "obo"
+            request.state.has_user_token = True
+        else:
+            request.state.auth_mode = "service_principal"
+            request.state.has_user_token = False
 
         # Track request start time
         start_time = time.time()
@@ -54,6 +75,48 @@ def create_test_app() -> FastAPI:
 
         return response
 
+    # Add health endpoint (public, no auth required)
+    @app.get('/health')
+    async def health():
+        """Health check endpoint."""
+        return {'status': 'healthy'}
+    
+    @app.get('/api/health')
+    async def health_api():
+        """Health check endpoint under /api prefix."""
+        return {'status': 'healthy'}
+    
+    # Add metrics endpoint (requires auth)
+    @app.get('/metrics')
+    async def metrics(request: Request):
+        """Prometheus metrics endpoint."""
+        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        from fastapi.responses import Response
+        from server.lib.auth import get_user_token
+        
+        # Require authentication for metrics endpoint
+        user_token = await get_user_token(request)
+        
+        return Response(
+            content=generate_latest(),
+            media_type=CONTENT_TYPE_LATEST
+        )
+    
+    @app.get('/api/metrics')
+    async def metrics_api(request: Request):
+        """Prometheus metrics endpoint under /api prefix."""
+        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        from fastapi.responses import Response
+        from server.lib.auth import get_user_token
+        
+        # Require authentication for metrics endpoint
+        user_token = await get_user_token(request)
+        
+        return Response(
+            content=generate_latest(),
+            media_type=CONTENT_TYPE_LATEST
+        )
+    
     # Include the routers with the correct structure - matching main app
     from server.routers import router
     app.include_router(router, prefix='/api', tags=['api'])
@@ -64,10 +127,8 @@ def create_test_app() -> FastAPI:
 @pytest.fixture
 def app():
     """Fixture that provides the real FastAPI app for testing."""
-    # Use the real app instead of create_test_app() to ensure
-    # we're testing the actual application behavior
-    from server.app import app as real_app
-    return real_app
+    # Use create_test_app() which includes all the same routes but without static files
+    return create_test_app()
 
 
 @pytest.fixture
@@ -297,10 +358,85 @@ def mock_model_serving_client():
 # Utility Fixtures
 # ============================================================================
 
+@pytest.fixture(autouse=True)
+def reset_circuit_breaker():
+    """Reset the circuit breaker before each test."""
+    from server.lib.auth import auth_circuit_breaker
+    auth_circuit_breaker.consecutive_failures = 0
+    auth_circuit_breaker.state = "closed"
+    auth_circuit_breaker.last_failure_time = None
+    yield
+
+
 @pytest.fixture
 def correlation_id():
     """Generate a unique correlation ID for testing."""
     return str(uuid4())
+
+
+@pytest.fixture
+def mock_auth_headers():
+    """Provide mock authentication headers for contract tests.
+    
+    This fixture provides the X-Forwarded-Access-Token header that would
+    normally be provided by Databricks Apps in production.
+    """
+    return {
+        "X-Forwarded-Access-Token": "mock-user-token-for-testing"
+    }
+
+
+@pytest.fixture
+def mock_user_auth(monkeypatch):
+    """Mock user authentication for contract tests.
+    
+    This fixture mocks the entire authentication flow so contract tests
+    can focus on testing API validation and business logic without
+    needing real Databricks credentials.
+    """
+    from unittest.mock import AsyncMock, Mock
+    from server.models.user_session import UserIdentity
+    from datetime import datetime
+    
+    # Mock UserService.get_user_info to return a test user
+    async def mock_get_user_info(self):
+        return UserIdentity(
+            user_id="test@example.com",
+            display_name="Test User",
+            active=True,
+            extracted_at=datetime.utcnow()
+        )
+    
+    # Mock UserService.get_user_id to return test user ID
+    async def mock_get_user_id(self):
+        if not self.user_token:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=401, detail="User authentication required")
+        return "test@example.com"
+    
+    # Mock is_lakebase_configured to return True for tests
+    def mock_is_lakebase_configured():
+        return True
+    
+    # Patch the methods
+    monkeypatch.setattr(
+        "server.services.user_service.UserService.get_user_info",
+        mock_get_user_info
+    )
+    monkeypatch.setattr(
+        "server.services.user_service.UserService.get_user_id",
+        mock_get_user_id
+    )
+    monkeypatch.setattr(
+        "server.lib.database.is_lakebase_configured",
+        mock_is_lakebase_configured
+    )
+    
+    # Set Lakebase environment variables for tests
+    monkeypatch.setenv("PGHOST", "test-lakebase-host")
+    monkeypatch.setenv("LAKEBASE_DATABASE", "test_database")
+    
+    yield
 
 
 @pytest.fixture

@@ -25,7 +25,9 @@ export type { QueryTableRequest } from './models/QueryTableRequest';
 export type { SavePreferenceRequest } from './models/SavePreferenceRequest';
 export type { UserInfoResponse } from './models/UserInfoResponse';
 export type { UserPreferenceResponse } from './models/UserPreferenceResponse';
+export type { UserWorkspaceInfo } from './models/UserWorkspaceInfo';
 export type { ValidationError } from './models/ValidationError';
+export type { WorkspaceInfo } from './models/WorkspaceInfo';
 export type { WorkspaceInfoResponse } from './models/WorkspaceInfoResponse';
 
 export { ApiService } from './services/ApiService';

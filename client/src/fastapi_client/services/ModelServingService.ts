@@ -30,6 +30,38 @@ export class ModelServingService {
         });
     }
     /**
+     * Get Endpoint
+     * Get specific Model Serving endpoint details.
+     *
+     * Args:
+     * endpoint_name: Name of the endpoint
+     *
+     * Returns:
+     * ModelEndpoint with metadata
+     *
+     * Raises:
+     * 401: Authentication required
+     * 404: Endpoint not found
+     * 503: Service unavailable
+     * @param endpointName
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static getEndpointApiModelServingEndpointsEndpointNameGet(
+        endpointName: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/model-serving/endpoints/{endpoint_name}',
+            path: {
+                'endpoint_name': endpointName,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Invoke Model
      * Invoke model for inference.
      *

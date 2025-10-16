@@ -346,3 +346,38 @@ class LakebaseService:
             })
             
             return False
+    
+    # Aliases for backward compatibility with tests
+    async def get_user_preferences(
+        self,
+        user_id: str,
+        preference_key: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Alias for get_preferences() for backward compatibility."""
+        return await self.get_preferences(user_id, preference_key)
+    
+    async def save_user_preference(
+        self,
+        user_id: str,
+        key: str,
+        value: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Alias for save_preference() for backward compatibility with different param names."""
+        return await self.save_preference(user_id, key, value)
+    
+    async def get_preference(
+        self,
+        user_id: str,
+        key: str
+    ) -> dict[str, Any] | None:
+        """Get a single preference by key for a user.
+        
+        Args:
+            user_id: User identifier (from authentication context, REQUIRED)
+            key: Preference key to retrieve
+            
+        Returns:
+            Preference dictionary if found, None otherwise
+        """
+        preferences = await self.get_preferences(user_id=user_id, preference_key=key)
+        return preferences[0] if preferences else None

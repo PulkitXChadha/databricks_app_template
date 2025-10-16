@@ -13,6 +13,12 @@ from server.app import app
 client = TestClient(app)
 
 
+@pytest.fixture
+def auth_headers():
+    """Provide authentication headers for contract tests."""
+    return {"X-Forwarded-Access-Token": "mock-user-token-for-testing"}
+
+
 class TestUnityCatalogListTablesContract:
     """Contract tests for GET /api/unity-catalog/tables endpoint."""
 
@@ -87,7 +93,7 @@ class TestUnityCatalogListTablesContract:
 class TestUnityCatalogQueryContract:
     """Contract tests for POST /api/unity-catalog/query endpoint."""
 
-    def test_query_table_response_structure(self):
+    def test_query_table_response_structure(self, auth_headers, mock_user_auth):
         """Verify response matches QueryResult schema from OpenAPI spec."""
         payload = {
             'catalog': 'main',
@@ -97,7 +103,7 @@ class TestUnityCatalogQueryContract:
             'offset': 0
         }
         
-        response = client.post('/api/unity-catalog/query', json=payload)
+        response = client.post('/api/unity-catalog/query', json=payload, headers=auth_headers)
         
         # Should return 200, 400, 403, 404, or 503
         assert response.status_code in [200, 400, 403, 404, 503], \
@@ -155,24 +161,24 @@ class TestUnityCatalogQueryContract:
             data = response.json()
             assert data['row_count'] <= 5, 'limit parameter not respected'
 
-    def test_query_table_required_fields(self):
+    def test_query_table_required_fields(self, auth_headers, mock_user_auth):
         """Verify required fields (catalog, schema, table) are enforced."""
         # Missing catalog
         payload = {'schema': 'samples', 'table': 'demo_data'}
-        response = client.post('/api/unity-catalog/query', json=payload)
+        response = client.post('/api/unity-catalog/query', json=payload, headers=auth_headers)
         assert response.status_code == 422, 'Should reject missing catalog'
         
         # Missing schema
         payload = {'catalog': 'main', 'table': 'demo_data'}
-        response = client.post('/api/unity-catalog/query', json=payload)
+        response = client.post('/api/unity-catalog/query', json=payload, headers=auth_headers)
         assert response.status_code == 422, 'Should reject missing schema'
         
         # Missing table
         payload = {'catalog': 'main', 'schema': 'samples'}
-        response = client.post('/api/unity-catalog/query', json=payload)
+        response = client.post('/api/unity-catalog/query', json=payload, headers=auth_headers)
         assert response.status_code == 422, 'Should reject missing table'
 
-    def test_query_table_limit_boundaries(self):
+    def test_query_table_limit_boundaries(self, auth_headers, mock_user_auth):
         """Verify limit parameter boundaries (1-1000)."""
         # Test minimum boundary
         payload = {
@@ -181,22 +187,22 @@ class TestUnityCatalogQueryContract:
             'table': 'demo_data',
             'limit': 1
         }
-        response = client.post('/api/unity-catalog/query', json=payload)
+        response = client.post('/api/unity-catalog/query', json=payload, headers=auth_headers)
         assert response.status_code in [200, 400, 403, 404, 503]
         
         # Test maximum boundary
         payload['limit'] = 1000
-        response = client.post('/api/unity-catalog/query', json=payload)
+        response = client.post('/api/unity-catalog/query', json=payload, headers=auth_headers)
         assert response.status_code in [200, 400, 403, 404, 503]
         
         # Test below minimum (should fail validation)
         payload['limit'] = 0
-        response = client.post('/api/unity-catalog/query', json=payload)
+        response = client.post('/api/unity-catalog/query', json=payload, headers=auth_headers)
         assert response.status_code == 422, 'Should reject limit < 1'
         
         # Test above maximum (should fail validation)
         payload['limit'] = 1001
-        response = client.post('/api/unity-catalog/query', json=payload)
+        response = client.post('/api/unity-catalog/query', json=payload, headers=auth_headers)
         assert response.status_code == 422, 'Should reject limit > 1000'
 
     def test_query_table_error_response_structure(self):

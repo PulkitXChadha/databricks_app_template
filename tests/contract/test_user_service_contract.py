@@ -26,17 +26,19 @@ pytestmark = pytest.mark.contract
 class TestUserServiceContract:
     """Contract tests for UserService OBO-only authentication patterns."""
 
-    def test_service_requires_user_token_raises_value_error_on_none(self):
-        """Test that UserService raises ValueError when user_token is None."""
+    def test_service_accepts_none_for_service_principal_mode(self):
+        """Test that UserService accepts None for service principal mode."""
         with patch.dict(os.environ, {"DATABRICKS_HOST": "https://test.cloud.databricks.com"}):
-            with pytest.raises(ValueError, match="user_token is required"):
-                UserService(user_token=None)
+            # Should not raise exception - None means service principal mode
+            service = UserService(user_token=None)
+            assert service.user_token is None
     
-    def test_service_requires_user_token_raises_value_error_on_empty_string(self):
-        """Test that UserService raises ValueError when user_token is empty string."""
+    def test_service_accepts_empty_string_for_service_principal_mode(self):
+        """Test that UserService accepts empty string for service principal mode."""
         with patch.dict(os.environ, {"DATABRICKS_HOST": "https://test.cloud.databricks.com"}):
-            with pytest.raises(ValueError, match="user_token is required"):
-                UserService(user_token="")
+            # Empty string treated as None (no token)
+            service = UserService(user_token="")
+            assert service.user_token == ""
     
     def test_service_initialization_succeeds_with_valid_token(self):
         """Test that UserService initializes successfully with valid token."""

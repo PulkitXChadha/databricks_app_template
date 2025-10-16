@@ -2,21 +2,19 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { UserWorkspaceInfo } from './UserWorkspaceInfo';
+import type { WorkspaceInfo } from './WorkspaceInfo';
 /**
  * Response model for /api/user/me/workspace endpoint.
  */
 export type WorkspaceInfoResponse = {
     /**
-     * Workspace identifier
+     * User information
      */
-    workspace_id: string;
+    user: UserWorkspaceInfo;
     /**
-     * Workspace URL
+     * Workspace information
      */
-    workspace_url: string;
-    /**
-     * Workspace display name
-     */
-    workspace_name: string;
+    workspace: WorkspaceInfo;
 };
 

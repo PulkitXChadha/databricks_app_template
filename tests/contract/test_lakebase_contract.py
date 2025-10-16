@@ -13,6 +13,12 @@ from server.app import app
 client = TestClient(app)
 
 
+@pytest.fixture
+def auth_headers():
+    """Provide authentication headers for contract tests."""
+    return {"X-Forwarded-Access-Token": "mock-user-token-for-testing"}
+
+
 class TestLakebaseGetPreferencesContract:
     """Contract tests for GET /api/preferences endpoint."""
 
@@ -100,19 +106,19 @@ class TestLakebaseCreatePreferenceContract:
             assert data['preference_key'] == payload['preference_key']
             assert data['preference_value'] == payload['preference_value']
 
-    def test_create_preference_required_fields(self):
+    def test_create_preference_required_fields(self, auth_headers, mock_user_auth):
         """Verify required fields (preference_key, preference_value) are enforced."""
         # Missing preference_key
         payload = {'preference_value': {'mode': 'dark'}}
-        response = client.post('/api/preferences', json=payload)
+        response = client.post('/api/preferences', json=payload, headers=auth_headers)
         assert response.status_code == 422, 'Should reject missing preference_key'
         
         # Missing preference_value
         payload = {'preference_key': 'theme'}
-        response = client.post('/api/preferences', json=payload)
+        response = client.post('/api/preferences', json=payload, headers=auth_headers)
         assert response.status_code == 422, 'Should reject missing preference_value'
 
-    def test_create_preference_key_enum_validation(self):
+    def test_create_preference_key_enum_validation(self, auth_headers, mock_user_auth):
         """Verify preference_key must be one of allowed values."""
         valid_keys = ['dashboard_layout', 'favorite_tables', 'theme']
         
@@ -122,8 +128,8 @@ class TestLakebaseCreatePreferenceContract:
                 'preference_key': key,
                 'preference_value': {'test': 'value'}
             }
-            response = client.post('/api/preferences', json=payload)
-            assert response.status_code in [200, 401, 503], \
+            response = client.post('/api/preferences', json=payload, headers=auth_headers)
+            assert response.status_code in [201, 503], \
                 f'Valid preference_key rejected: {key}'
         
         # Test invalid key
@@ -131,7 +137,7 @@ class TestLakebaseCreatePreferenceContract:
             'preference_key': 'invalid_key',
             'preference_value': {'test': 'value'}
         }
-        response = client.post('/api/preferences', json=payload)
+        response = client.post('/api/preferences', json=payload, headers=auth_headers)
         # Should either reject at validation (422) or app level (400)
         assert response.status_code in [400, 422], \
             'Should reject invalid preference_key'

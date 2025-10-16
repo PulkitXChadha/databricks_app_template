@@ -74,6 +74,78 @@ async def list_endpoints(
         )
 
 
+@router.get("/endpoints/{endpoint_name}")
+async def get_endpoint(
+    endpoint_name: str,
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+    user_token: str = Depends(get_user_token)
+):
+    """Get specific Model Serving endpoint details.
+    
+    Args:
+        endpoint_name: Name of the endpoint
+        
+    Returns:
+        ModelEndpoint with metadata
+        
+    Raises:
+        401: Authentication required
+        404: Endpoint not found
+        503: Service unavailable
+    """
+    logger.info(
+        "Getting model serving endpoint",
+        user_id=user_id,
+        endpoint=endpoint_name
+    )
+    
+    try:
+        service = ModelServingService(user_token=user_token)
+        endpoint = await service.get_endpoint(endpoint_name=endpoint_name)
+        
+        logger.info(
+            f"Retrieved endpoint details",
+            user_id=user_id,
+            endpoint=endpoint_name
+        )
+        
+        return endpoint
+        
+    except Exception as e:
+        error_str = str(e).lower()
+        
+        # Check if endpoint not found
+        if "not found" in error_str or "does not exist" in error_str:
+            logger.warning(
+                f"Endpoint not found: {endpoint_name}",
+                user_id=user_id
+            )
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_code": "ENDPOINT_NOT_FOUND",
+                    "message": f"Model serving endpoint '{endpoint_name}' not found."
+                }
+            )
+        
+        logger.error(
+            f"Error getting model serving endpoint: {str(e)}",
+            exc_info=True,
+            user_id=user_id,
+            endpoint=endpoint_name
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "SERVICE_UNAVAILABLE",
+                "message": "Model Serving service temporarily unavailable.",
+                "technical_details": {"error_type": type(e).__name__},
+                "retry_after": 10
+            }
+        )
+
+
 @router.post("/invoke", response_model=ModelInferenceResponse)
 async def invoke_model(
     http_request: Request,

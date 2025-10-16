@@ -40,15 +40,25 @@ class TestModelServingServiceAuthentication:
         """Set up environment variables for testing."""
         monkeypatch.setenv('DATABRICKS_HOST', 'https://test.cloud.databricks.com')
     
-    def test_service_requires_user_token_raises_value_error_on_none(self, mock_env):
-        """Test that ModelServingService raises ValueError when user_token is None."""
-        with pytest.raises(ValueError, match="user_token is required"):
-            ModelServingService(user_token=None)
+    def test_service_accepts_none_for_service_principal_mode(self, mock_env):
+        """Test that ModelServingService accepts None for service principal mode."""
+        with patch('server.services.model_serving_service.WorkspaceClient') as mock_client_class:
+            mock_client = Mock(spec=WorkspaceClient)
+            mock_client_class.return_value = mock_client
+            
+            # Should not raise exception - None means service principal mode
+            service = ModelServingService(user_token=None)
+            assert service.user_token is None
     
-    def test_service_requires_user_token_raises_value_error_on_empty_string(self, mock_env):
-        """Test that ModelServingService raises ValueError when user_token is empty string."""
-        with pytest.raises(ValueError, match="user_token is required"):
-            ModelServingService(user_token="")
+    def test_service_accepts_empty_string_for_service_principal_mode(self, mock_env):
+        """Test that ModelServingService accepts empty string for service principal mode."""
+        with patch('server.services.model_serving_service.WorkspaceClient') as mock_client_class:
+            mock_client = Mock(spec=WorkspaceClient)
+            mock_client_class.return_value = mock_client
+            
+            # Empty string treated as no token
+            service = ModelServingService(user_token="")
+            assert service.user_token == ""
     
     def test_service_initialization_succeeds_with_valid_token(self, mock_env):
         """Test that ModelServingService initializes successfully with valid token."""

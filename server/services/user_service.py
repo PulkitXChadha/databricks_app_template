@@ -11,7 +11,7 @@ from databricks.sdk.service.iam import User
 
 from server.lib.structured_logger import StructuredLogger, log_event
 from server.lib.metrics import record_upstream_api_call, record_auth_retry
-from server.models.user_session import UserIdentity, WorkspaceInfoResponse
+from server.models.user_session import UserIdentity, InternalWorkspaceInfo
 
 # Import retry decorator after defining logger to avoid circular imports
 logger = StructuredLogger(__name__)
@@ -20,64 +20,81 @@ logger = StructuredLogger(__name__)
 class UserService:
   """Service for managing Databricks user operations with OBO-only authentication."""
 
-  def __init__(self, user_token: str):
+  def __init__(self, user_token: Optional[str] = None):
     """Initialize the user service with OBO authentication.
     
     Args:
-        user_token: User access token (required for all operations)
+        user_token: User access token (None for service principal mode)
         
-    Raises:
-        ValueError: If user_token is None or empty
+    Note:
+        If user_token is None, the service will use service principal authentication.
+        Methods that require user identity (get_user_info, get_user_id) will raise
+        HTTPException(401) if called without a user token.
     """
-    if not user_token:
-      raise ValueError("user_token is required for UserService")
-    
     self.user_token = user_token
     self.workspace_url = os.getenv('DATABRICKS_HOST', '')
     
-    # Log authentication mode selection (OBO-only)
-    log_event("auth.mode", context={
-      "mode": "obo",
-      "auth_type": "pat",
-      "service": "UserService"
-    })
+    # Log authentication mode selection
+    if user_token:
+      log_event("auth.mode", context={
+        "mode": "obo",
+        "auth_type": "pat",
+        "service": "UserService"
+      })
+    else:
+      log_event("auth.mode", context={
+        "mode": "service_principal",
+        "auth_type": "oauth_m2m",
+        "service": "UserService"
+      })
 
   def _get_client(self) -> WorkspaceClient:
-    """Get WorkspaceClient with OBO authentication.
+    """Get WorkspaceClient with appropriate authentication.
     
-    Uses ONLY user access token for authentication (OBO pattern).
+    Uses user access token (OBO) if available, otherwise service principal.
     Includes 30-second timeout configuration per NFR-010.
     
     Returns:
-        WorkspaceClient configured with OBO authentication
+        WorkspaceClient configured with appropriate authentication
     """
-    # Configure timeout using SDK's built-in Config class
-    config = Config()
-    config.timeout = 30  # 30-second timeout per NFR-010
-    config.retry_timeout = 30  # Allow full timeout window
+    # Ensure DATABRICKS_HOST is set
+    if not self.workspace_url:
+      raise ValueError("DATABRICKS_HOST environment variable is not set")
     
-    # On-Behalf-Of-User Authentication (OBO-only)
-    log_event("service.client_created", context={
-      "service_name": "UserService",
-      "auth_mode": "obo",
-      "auth_type": "pat"
-    })
+    # Ensure host has proper format
+    host = self.workspace_url if self.workspace_url.startswith('http') else f'https://{self.workspace_url}'
     
-    if self.workspace_url:
-      # Ensure host has proper format
-      host = self.workspace_url if self.workspace_url.startswith('http') else f'https://{self.workspace_url}'
+    # Create client with or without user token
+    if self.user_token:
+      # On-Behalf-Of-User Authentication (OBO)
+      log_event("service.client_created", context={
+        "service_name": "UserService",
+        "auth_mode": "obo",
+        "auth_type": "pat",
+        "has_host": bool(host)
+      })
+      
       return WorkspaceClient(
         host=host,
         token=self.user_token,
         auth_type="pat",  # REQUIRED: Explicit authentication type
-        config=config
+        timeout=30,  # 30-second timeout per NFR-010
+        retry_timeout=30  # Allow full timeout window
       )
     else:
-      # In Databricks Apps, host is auto-detected
+      # Service Principal Authentication (OAuth M2M)
+      log_event("service.client_created", context={
+        "service_name": "UserService",
+        "auth_mode": "service_principal",
+        "auth_type": "oauth_m2m",
+        "has_host": bool(host)
+      })
+      
+      # Use OAuth M2M (env vars: DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET)
       return WorkspaceClient(
-        token=self.user_token,
-        auth_type="pat",
-        config=config
+        host=host,
+        timeout=30,
+        retry_timeout=30
       )
 
   async def get_user_info(self) -> UserIdentity:
@@ -159,16 +176,22 @@ class UserService:
         User email address (user_id)
         
     Raises:
-        HTTPException: 401 if authentication fails
+        HTTPException: 401 if user_token is missing or authentication fails
     """
+    if not self.user_token:
+      raise HTTPException(
+        status_code=401,
+        detail="User authentication required"
+      )
+    
     user_info = await self.get_user_info()
     return user_info.user_id
 
-  async def get_workspace_info(self) -> WorkspaceInfoResponse:
+  async def get_workspace_info(self) -> InternalWorkspaceInfo:
     """Get workspace information using OBO authentication.
     
     Returns:
-        WorkspaceInfoResponse with workspace_id, workspace_url, workspace_name
+        InternalWorkspaceInfo with workspace_id, workspace_url, workspace_name
         
     Raises:
         HTTPException: 401 if authentication fails
@@ -200,7 +223,7 @@ class UserService:
     try:
       workspace_url, workspace_id, workspace_name = await _fetch_workspace_info()
       
-      return WorkspaceInfoResponse(
+      return InternalWorkspaceInfo(
         workspace_id=workspace_id,
         workspace_url=workspace_url or self.workspace_url,
         workspace_name=workspace_name

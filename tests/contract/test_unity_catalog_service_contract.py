@@ -33,15 +33,25 @@ class TestUnityCatalogServiceAuthentication:
         monkeypatch.setenv('DATABRICKS_HOST', 'https://test.cloud.databricks.com')
         monkeypatch.setenv('DATABRICKS_WAREHOUSE_ID', 'test-warehouse-id')
     
-    def test_service_requires_user_token_raises_value_error_on_none(self, mock_env):
-        """Test that UnityCatalogService raises ValueError when user_token is None."""
-        with pytest.raises(ValueError, match="user_token is required"):
-            UnityCatalogService(user_token=None)
+    def test_service_accepts_none_for_service_principal_mode(self, mock_env):
+        """Test that UnityCatalogService accepts None for service principal mode."""
+        with patch('server.services.unity_catalog_service.WorkspaceClient') as mock_client_class:
+            mock_client = Mock(spec=WorkspaceClient)
+            mock_client_class.return_value = mock_client
+            
+            # Should not raise exception - None means service principal mode
+            service = UnityCatalogService(user_token=None)
+            assert service.user_token is None
     
-    def test_service_requires_user_token_raises_value_error_on_empty_string(self, mock_env):
-        """Test that UnityCatalogService raises ValueError when user_token is empty string."""
-        with pytest.raises(ValueError, match="user_token is required"):
-            UnityCatalogService(user_token="")
+    def test_service_accepts_empty_string_for_service_principal_mode(self, mock_env):
+        """Test that UnityCatalogService accepts empty string for service principal mode."""
+        with patch('server.services.unity_catalog_service.WorkspaceClient') as mock_client_class:
+            mock_client = Mock(spec=WorkspaceClient)
+            mock_client_class.return_value = mock_client
+            
+            # Empty string treated as no token
+            service = UnityCatalogService(user_token="")
+            assert service.user_token == ""
     
     def test_service_initialization_succeeds_with_valid_token(self, mock_env):
         """Test that UnityCatalogService initializes successfully with valid token."""

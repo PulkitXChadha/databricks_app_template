@@ -13,6 +13,12 @@ from server.app import app
 client = TestClient(app)
 
 
+@pytest.fixture
+def auth_headers():
+    """Provide authentication headers for contract tests."""
+    return {"X-Forwarded-Access-Token": "mock-user-token-for-testing"}
+
+
 class TestModelServingListEndpointsContract:
     """Contract tests for GET /api/model-serving/endpoints endpoint (SHOULD capability)."""
 
@@ -140,19 +146,19 @@ class TestModelServingInvokeContract:
             assert 'X-Request-ID' in response.headers or 'x-request-id' in response.headers, \
                 'Missing X-Request-ID header for correlation ID'
 
-    def test_invoke_model_required_fields(self):
+    def test_invoke_model_required_fields(self, auth_headers, mock_user_auth):
         """Verify required fields (endpoint_name, inputs) are enforced."""
         # Missing endpoint_name
         payload = {'inputs': {'text': 'Test'}}
-        response = client.post('/api/model-serving/invoke', json=payload)
+        response = client.post('/api/model-serving/invoke', json=payload, headers=auth_headers)
         assert response.status_code == 422, 'Should reject missing endpoint_name'
         
         # Missing inputs
         payload = {'endpoint_name': 'sentiment-analysis'}
-        response = client.post('/api/model-serving/invoke', json=payload)
+        response = client.post('/api/model-serving/invoke', json=payload, headers=auth_headers)
         assert response.status_code == 422, 'Should reject missing inputs'
 
-    def test_invoke_model_timeout_boundaries(self):
+    def test_invoke_model_timeout_boundaries(self, auth_headers, mock_user_auth):
         """Verify timeout_seconds parameter boundaries (1-300)."""
         # Test minimum boundary
         payload = {
@@ -160,22 +166,22 @@ class TestModelServingInvokeContract:
             'inputs': {'text': 'Test'},
             'timeout_seconds': 1
         }
-        response = client.post('/api/model-serving/invoke', json=payload)
-        assert response.status_code in [200, 400, 401, 404, 503]
+        response = client.post('/api/model-serving/invoke', json=payload, headers=auth_headers)
+        assert response.status_code in [200, 400, 404, 503]
         
         # Test maximum boundary
         payload['timeout_seconds'] = 300
-        response = client.post('/api/model-serving/invoke', json=payload)
-        assert response.status_code in [200, 400, 401, 404, 503]
+        response = client.post('/api/model-serving/invoke', json=payload, headers=auth_headers)
+        assert response.status_code in [200, 400, 404, 503]
         
         # Test below minimum (should fail validation)
         payload['timeout_seconds'] = 0
-        response = client.post('/api/model-serving/invoke', json=payload)
+        response = client.post('/api/model-serving/invoke', json=payload, headers=auth_headers)
         assert response.status_code == 422, 'Should reject timeout_seconds < 1'
         
         # Test above maximum (should fail validation)
         payload['timeout_seconds'] = 301
-        response = client.post('/api/model-serving/invoke', json=payload)
+        response = client.post('/api/model-serving/invoke', json=payload, headers=auth_headers)
         assert response.status_code == 422, 'Should reject timeout_seconds > 300'
 
     def test_invoke_model_default_timeout(self):

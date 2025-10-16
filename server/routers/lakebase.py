@@ -129,7 +129,7 @@ async def get_preferences(
         )
 
 
-@router.post("/preferences", response_model=UserPreferenceResponse)
+@router.post("/preferences", response_model=UserPreferenceResponse, status_code=201)
 async def save_preference(
     http_request: Request,
     request: SavePreferenceRequest,

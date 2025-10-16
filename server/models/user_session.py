@@ -93,7 +93,7 @@ class UserIdentity(BaseModel):
     Represents the authenticated user's identity information
     retrieved from the Databricks workspace.
     """
-    user_id: str = Field(..., description="User identifier (email or UUID)")
+    user_id: EmailStr = Field(..., description="User identifier (email address)")
     display_name: str = Field(..., description="User's display name")
     active: bool = Field(default=True, description="Whether user is active")
     extracted_at: datetime = Field(
@@ -115,35 +115,61 @@ class UserIdentity(BaseModel):
 
 class UserInfoResponse(BaseModel):
     """Response model for /api/user/me endpoint."""
-    user_id: str = Field(..., description="User email address")
-    display_name: str = Field(..., description="User's display name")
+    userName: str = Field(..., description="User email address", alias="user_id")
+    displayName: str = Field(..., description="User's display name", alias="display_name")
     active: bool = Field(default=True, description="Whether user is active")
-    workspace_url: str = Field(..., description="Databricks workspace URL")
+    emails: list[str] = Field(default_factory=list, description="User email addresses")
 
     model_config = {
+        "populate_by_name": True,  # Allow both field name and alias
         "json_schema_extra": {
             "example": {
-                "user_id": "user@example.com",
-                "display_name": "John Doe",
+                "userName": "user@example.com",
+                "displayName": "John Doe",
                 "active": True,
-                "workspace_url": "https://example.cloud.databricks.com"
+                "emails": ["user@example.com"]
             }
         }
     }
 
 
-class WorkspaceInfoResponse(BaseModel):
-    """Response model for /api/user/me/workspace endpoint."""
+class WorkspaceInfo(BaseModel):
+    """Workspace information."""
+    name: str = Field(..., description="Workspace display name")
+    url: str = Field(..., description="Workspace URL")
+
+
+class UserWorkspaceInfo(BaseModel):
+    """User information for workspace response."""
+    userName: str = Field(..., description="User email address")
+    displayName: str = Field(..., description="User's display name")
+    active: bool = Field(default=True, description="Whether user is active")
+
+
+class InternalWorkspaceInfo(BaseModel):
+    """Internal model for workspace info from service (used by UserService)."""
     workspace_id: str = Field(..., description="Workspace identifier")
     workspace_url: str = Field(..., description="Workspace URL")
     workspace_name: str = Field(..., description="Workspace display name")
 
+
+class WorkspaceInfoResponse(BaseModel):
+    """Response model for /api/user/me/workspace endpoint."""
+    user: UserWorkspaceInfo = Field(..., description="User information")
+    workspace: WorkspaceInfo = Field(..., description="Workspace information")
+
     model_config = {
         "json_schema_extra": {
             "example": {
-                "workspace_id": "1234567890",
-                "workspace_url": "https://example.cloud.databricks.com",
-                "workspace_name": "Production Workspace"
+                "user": {
+                    "userName": "user@example.com",
+                    "displayName": "John Doe",
+                    "active": True
+                },
+                "workspace": {
+                    "name": "Production Workspace",
+                    "url": "https://example.cloud.databricks.com"
+                }
             }
         }
     }

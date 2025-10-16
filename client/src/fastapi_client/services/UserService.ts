@@ -11,9 +11,10 @@ import { request as __request } from '../core/request';
 export class UserService {
     /**
      * Get Auth Status
-     * Get authentication status for the current request (OBO-only).
+     * Get authentication status for the current request.
      *
-     * Returns information about OBO authentication and user identity.
+     * Returns information about authentication mode and user identity.
+     * This endpoint does NOT require authentication - it reports the auth status.
      * @returns AuthenticationStatusResponse Successful Response
      * @throws ApiError
      */
@@ -30,10 +31,11 @@ export class UserService {
      * Requires X-Forwarded-Access-Token header with valid user access token.
      *
      * Returns:
-     * UserInfoResponse with user_id, display_name, active status, and workspace_url
+     * UserInfoResponse with userName, displayName, active status, and emails
      *
      * Raises:
      * 401: Authentication required (missing or invalid token)
+     * 500: Failed to fetch user info
      * @returns UserInfoResponse Successful Response
      * @throws ApiError
      */
@@ -50,7 +52,7 @@ export class UserService {
      * Requires X-Forwarded-Access-Token header with valid user access token.
      *
      * Returns:
-     * WorkspaceInfoResponse with workspace_id, workspace_url, workspace_name
+     * WorkspaceInfoResponse with user and workspace information
      *
      * Raises:
      * 401: Authentication required (missing or invalid token)

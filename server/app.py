@@ -105,8 +105,17 @@ async def add_correlation_id(request: Request, call_next):
       header_keys=header_keys[:10] if len(header_keys) > 10 else header_keys
     )
 
-  # Set authentication context in request state (OBO-only)
+  # Set authentication context in request state
   request.state.user_token = user_token
+  
+  # Set auth mode based on token presence
+  # OBO: user token is present, service_principal: no user token
+  if user_token:
+    request.state.auth_mode = "obo"
+    request.state.has_user_token = True
+  else:
+    request.state.auth_mode = "service_principal"
+    request.state.has_user_token = False
   
   # Track request start time
   start_time = time.time()
@@ -127,17 +136,18 @@ async def add_correlation_id(request: Request, call_next):
   
   # Record metrics (skip health and metrics endpoints to reduce noise)
   if request.url.path not in ['/health', '/metrics']:
-    # Record authentication metrics (OBO-only)
+    # Record authentication metrics based on actual auth mode
     auth_status = "success" if 200 <= response.status_code < 400 else "failure"
+    auth_mode = getattr(request.state, 'auth_mode', 'obo')  # Default to OBO
     record_auth_request(
       endpoint=request.url.path,
-      mode="obo",  # OBO-only (hardcoded)
+      mode=auth_mode,
       status=auth_status
     )
     
-    # Record auth overhead
+    # Record auth overhead based on actual auth mode
     record_auth_overhead(
-      mode="obo",  # OBO-only (hardcoded)
+      mode=auth_mode,
       overhead_seconds=auth_overhead
     )
     
@@ -160,18 +170,22 @@ async def add_correlation_id(request: Request, call_next):
   return response
 
 
-app.include_router(router, prefix='/api', tags=['api'])
-
-
 @app.get('/health')
-async def health():
-  """Health check endpoint."""
+async def health_root():
+  """Health check endpoint at root level (for load balancers)."""
   return {'status': 'healthy'}
 
 
-@app.get('/metrics')
-async def metrics(request: Request):
-  """Prometheus metrics endpoint.
+# Add /api/health for consistency with API structure
+@app.get('/api/health')
+async def health_api():
+  """Health check endpoint under /api prefix."""
+  return {'status': 'healthy'}
+
+
+@app.get('/api/metrics')
+async def metrics_api(request: Request):
+  """Prometheus metrics endpoint under /api prefix.
   
   Exposes authentication and performance metrics in Prometheus format.
   Requires user authentication for security.
@@ -190,6 +204,32 @@ async def metrics(request: Request):
     content=generate_latest(),
     media_type=CONTENT_TYPE_LATEST
   )
+
+
+@app.get('/metrics')
+async def metrics_root(request: Request):
+  """Prometheus metrics endpoint at root level (for monitoring systems).
+  
+  Exposes authentication and performance metrics in Prometheus format.
+  Requires user authentication for security.
+  
+  Raises:
+      401: Authentication required (missing or invalid token)
+  """
+  from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+  from fastapi.responses import Response
+  from server.lib.auth import get_user_token
+  
+  # Require authentication for metrics endpoint
+  user_token = await get_user_token(request)
+  
+  return Response(
+    content=generate_latest(),
+    media_type=CONTENT_TYPE_LATEST
+  )
+
+
+app.include_router(router, prefix='/api', tags=['api'])
 
 
 # ============================================================================
