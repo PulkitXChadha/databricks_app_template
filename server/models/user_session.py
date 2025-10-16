@@ -115,13 +115,12 @@ class UserIdentity(BaseModel):
 
 class UserInfoResponse(BaseModel):
     """Response model for /api/user/me endpoint."""
-    userName: str = Field(..., description="User email address", alias="user_id")
-    displayName: str = Field(..., description="User's display name", alias="display_name")
+    userName: str = Field(..., description="User email address")
+    displayName: str = Field(..., description="User's display name")
     active: bool = Field(default=True, description="Whether user is active")
     emails: list[str] = Field(default_factory=list, description="User email addresses")
 
     model_config = {
-        "populate_by_name": True,  # Allow both field name and alias
         "json_schema_extra": {
             "example": {
                 "userName": "user@example.com",

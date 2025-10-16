@@ -82,6 +82,9 @@ async def get_current_user(user_token: str = Depends(get_user_token)):
       active=user_identity.active,
       emails=[user_identity.user_id]
     )
+  except HTTPException:
+    # Re-raise HTTP exceptions (like 401) as-is
+    raise
   except Exception as e:
     raise HTTPException(
       status_code=500,

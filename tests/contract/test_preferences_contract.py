@@ -17,12 +17,15 @@ class TestPreferencesContract:
         user_token = "mock-user-token-12345"
         user_id = "test@example.com"  # From mock_user_auth fixture
 
-        with patch('server.services.lakebase_service.LakebaseService.get_user_preferences', new_callable=AsyncMock) as mock_get_prefs:
+        # Patch get_preferences (not get_user_preferences) since that's what the router calls
+        with patch('server.services.lakebase_service.LakebaseService.get_preferences', new_callable=AsyncMock) as mock_get_prefs:
 
             mock_get_prefs.return_value = [
                 {
+                    "id": 1,
+                    "user_id": user_id,
                     "preference_key": "theme",
-                    "preference_value": "dark",
+                    "preference_value": {"mode": "dark"},
                     "created_at": "2025-10-10T12:00:00Z",
                     "updated_at": "2025-10-10T12:00:00Z"
                 }
@@ -39,7 +42,7 @@ class TestPreferencesContract:
             assert preferences[0]["preference_key"] == "theme"
 
             # Verify user_id was passed to lakebase service
-            mock_get_prefs.assert_called_once_with(user_id=user_id)
+            mock_get_prefs.assert_called_once_with(user_id=user_id, preference_key=None)
 
     def test_post_preference_saves_with_correct_user_id(self, client, mock_user_auth):
         """Test POST /api/preferences saves with correct user_id."""
@@ -99,11 +102,19 @@ class TestPreferencesContract:
         user_token = "mock-user-token"
         user_id = "test@example.com"  # From mock_user_auth fixture
 
-        with patch('server.services.lakebase_service.LakebaseService.get_user_preferences', new_callable=AsyncMock) as mock_get_prefs:
+        # Patch get_preferences (not get_user_preferences)
+        with patch('server.services.lakebase_service.LakebaseService.get_preferences', new_callable=AsyncMock) as mock_get_prefs:
 
             # First call returns data
             mock_get_prefs.return_value = [
-                {"preference_key": "theme", "preference_value": {"mode": "dark"}}
+                {
+                    "id": 1,
+                    "user_id": user_id,
+                    "preference_key": "theme",
+                    "preference_value": {"mode": "dark"},
+                    "created_at": "2025-10-10T12:00:00Z",
+                    "updated_at": "2025-10-10T12:00:00Z"
+                }
             ]
 
             response_a = client.get(
@@ -147,7 +158,8 @@ class TestPreferencesContract:
         user_token = "mock-user-token-12345"
         user_id = "test@example.com"  # From mock_user_auth fixture
 
-        with patch('server.services.lakebase_service.LakebaseService.get_user_preferences', new_callable=AsyncMock) as mock_get_prefs:
+        # Patch get_preferences (not get_user_preferences)
+        with patch('server.services.lakebase_service.LakebaseService.get_preferences', new_callable=AsyncMock) as mock_get_prefs:
 
             mock_get_prefs.return_value = []
 

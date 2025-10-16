@@ -54,24 +54,19 @@ class UnityCatalogService:
         
         if user_token:
             # On-behalf-of-user (OBO) authorization
-            cfg = Config(
+            self.client = WorkspaceClient(
                 host=databricks_host,
                 token=user_token,
-                auth_type="pat",  # Forces token-only auth
-                timeout=30,  # 30-second timeout per NFR-010
-                retry_timeout=30  # Allow full timeout window
+                auth_type="pat"  # Forces token-only auth
             )
             logger.info("Unity Catalog service initialized with OBO authentication")
         else:
             # Service principal (OAuth M2M) authorization
-            cfg = Config(
-                host=databricks_host,
-                timeout=30,
-                retry_timeout=30
+            self.client = WorkspaceClient(
+                host=databricks_host
             )
             logger.info("Unity Catalog service initialized with service principal authentication")
         
-        self.client = WorkspaceClient(config=cfg)
         self.user_token = user_token
         self.workspace_url = databricks_host
         

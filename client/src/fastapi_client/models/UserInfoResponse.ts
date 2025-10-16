@@ -9,11 +9,11 @@ export type UserInfoResponse = {
     /**
      * User email address
      */
-    user_id: string;
+    userName: string;
     /**
      * User's display name
      */
-    display_name: string;
+    displayName: string;
     /**
      * Whether user is active
      */

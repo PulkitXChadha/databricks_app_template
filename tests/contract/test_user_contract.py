@@ -13,17 +13,26 @@ import os
 class TestUserEndpoints:
     """Contract tests for user endpoints with OBO authentication."""
 
-    def test_get_user_me_returns_user_info_with_valid_token(self, client):
+    def test_get_user_me_returns_user_info_with_valid_token(self, client, monkeypatch):
         """Test that GET /api/user/me returns UserInfoResponse with valid token."""
-        with patch('server.services.user_service.UserService') as MockService:
+        from server.models.user_session import UserIdentity
+        from datetime import datetime
+        
+        # Set required env var
+        monkeypatch.setenv('DATABRICKS_HOST', 'https://test.databricks.com')
+        
+        # Patch at the location where it's imported in the router
+        with patch('server.routers.user.UserService') as MockService:
             mock_service = Mock()
-            mock_user_info = {
-                'userName': 'user@example.com',
-                'displayName': 'Test User',
-                'active': True,
-                'emails': ['user@example.com']
-            }
-            mock_service.get_user_info.return_value = mock_user_info
+            # Return UserIdentity object (get_user_info returns this, not a dict)
+            mock_user_identity = UserIdentity(
+                user_id='user@example.com',
+                display_name='Test User',
+                active=True,
+                extracted_at=datetime.utcnow()
+            )
+            # Use AsyncMock for async method
+            mock_service.get_user_info = AsyncMock(return_value=mock_user_identity)
             MockService.return_value = mock_service
 
             # When: Request with valid token
@@ -39,11 +48,16 @@ class TestUserEndpoints:
             assert data["displayName"] == "Test User"
             assert data["active"] is True
 
-    def test_get_user_me_returns_500_with_invalid_token(self, client):
+    def test_get_user_me_returns_500_with_invalid_token(self, client, monkeypatch):
         """Test that GET /api/user/me returns 500 when service fails."""
-        with patch('server.services.user_service.UserService') as MockService:
+        # Set required env var
+        monkeypatch.setenv('DATABRICKS_HOST', 'https://test.databricks.com')
+        
+        # Patch at the location where it's imported in the router
+        with patch('server.routers.user.UserService') as MockService:
             mock_service = Mock()
-            mock_service.get_user_info.side_effect = Exception("Authentication failed")
+            # Use AsyncMock for async method
+            mock_service.get_user_info = AsyncMock(side_effect=Exception("Authentication failed"))
             MockService.return_value = mock_service
 
             # When: Request with invalid token
@@ -57,66 +71,48 @@ class TestUserEndpoints:
             assert "Failed to fetch user info" in response.json()["detail"]
 
     def test_get_user_me_falls_back_to_service_principal_when_token_missing(self, client):
-        """Test that GET /api/user/me falls back to service principal when token missing."""
-        with patch('server.services.user_service.UserService') as MockService:
-            mock_service = Mock()
-            mock_sp_info = {
-                'userName': 'service-principal@databricks.com',
-                'displayName': 'Service Principal',
-                'active': True,
-                'emails': []
-            }
-            mock_service.get_user_info.return_value = mock_sp_info
-            MockService.return_value = mock_service
+        """Test that GET /api/user/me requires token (OBO-only, no service principal fallback)."""
+        # When: Request without token
+        response = client.get("/api/user/me")
 
-            # When: Request without token
-            response = client.get("/api/user/me")
-
-            # Then: Should return service principal info
-            assert response.status_code == 200
-            data = response.json()
-            assert "service-principal" in data["userName"].lower()
+        # Then: Should return 401 (no token = no access in OBO-only mode)
+        assert response.status_code == 401
 
     def test_get_user_workspace_requires_valid_token(self, client):
-        """Test that GET /api/user/me/workspace requires valid token."""
-        # When: Request without token (should work with service principal)
-        with patch('server.services.user_service.UserService') as MockService:
-            mock_service = Mock()
-            mock_workspace_info = {
-                'user': {
-                    'userName': 'service-principal@databricks.com',
-                    'displayName': 'Service Principal',
-                    'active': True
-                },
-                'workspace': {
-                    'name': 'Test Workspace',
-                    'url': 'https://workspace.cloud.databricks.com'
-                }
-            }
-            mock_service.get_user_workspace_info.return_value = mock_workspace_info
-            MockService.return_value = mock_service
+        """Test that GET /api/user/me/workspace requires valid token (OBO-only)."""
+        # When: Request without token
+        response = client.get("/api/user/me/workspace")
 
-            response = client.get("/api/user/me/workspace")
+        # Then: Should return 401 (OBO-only, no fallback)
+        assert response.status_code == 401
 
-            # Then: Should work with service principal fallback
-            assert response.status_code == 200
-
-    def test_get_user_workspace_returns_workspace_info_response(self, client):
+    def test_get_user_workspace_returns_workspace_info_response(self, client, monkeypatch):
         """Test that GET /api/user/me/workspace returns UserWorkspaceInfo."""
-        with patch('server.services.user_service.UserService') as MockService:
+        from server.models.user_session import UserIdentity, InternalWorkspaceInfo
+        from datetime import datetime
+        
+        # Set required env var
+        monkeypatch.setenv('DATABRICKS_HOST', 'https://test.databricks.com')
+        
+        # Patch at the location where it's imported in the router
+        with patch('server.routers.user.UserService') as MockService:
             mock_service = Mock()
-            mock_workspace_info = {
-                'user': {
-                    'userName': 'user@example.com',
-                    'displayName': 'Test User',
-                    'active': True
-                },
-                'workspace': {
-                    'name': 'Test Workspace',
-                    'url': 'https://workspace.cloud.databricks.com'
-                }
-            }
-            mock_service.get_user_workspace_info.return_value = mock_workspace_info
+            # Mock get_user_info to return UserIdentity
+            mock_user_identity = UserIdentity(
+                user_id='user@example.com',
+                display_name='Test User',
+                active=True,
+                extracted_at=datetime.utcnow()
+            )
+            mock_service.get_user_info = AsyncMock(return_value=mock_user_identity)
+            
+            # Mock get_workspace_info to return InternalWorkspaceInfo
+            mock_workspace_info = InternalWorkspaceInfo(
+                workspace_id='test-workspace-id',
+                workspace_url='https://workspace.cloud.databricks.com',
+                workspace_name='Test Workspace'
+            )
+            mock_service.get_workspace_info = AsyncMock(return_value=mock_workspace_info)
             MockService.return_value = mock_service
 
             # When: Request with valid token
@@ -132,32 +128,46 @@ class TestUserEndpoints:
             assert data["user"]["displayName"] == "Test User"
             assert data["workspace"]["name"] == "Test Workspace"
 
-    def test_all_endpoints_include_correlation_id_in_response_headers(self, client):
+    def test_all_endpoints_include_correlation_id_in_response_headers(self, client, monkeypatch):
         """Test that all endpoints include X-Correlation-ID in response headers."""
-        # Mock services to prevent actual calls
-        with patch('server.services.user_service.UserService') as MockService:
+        from server.models.user_session import UserIdentity, InternalWorkspaceInfo
+        from datetime import datetime
+        
+        # Set required env var
+        monkeypatch.setenv('DATABRICKS_HOST', 'https://test.databricks.com')
+        
+        # Mock services to prevent actual calls - patch at router level
+        with patch('server.routers.user.UserService') as MockService:
             mock_service = Mock()
-            mock_service.get_user_info.return_value = {
-                'userName': 'test@example.com',
-                'displayName': 'Test',
-                'active': True,
-                'emails': []
-            }
-            mock_service.get_user_workspace_info.return_value = {
-                'user': {'userName': 'test@example.com', 'displayName': 'Test', 'active': True},
-                'workspace': {'name': 'Test', 'url': 'https://test.com'}
-            }
+            mock_user_identity = UserIdentity(
+                user_id='test@example.com',
+                display_name='Test',
+                active=True,
+                extracted_at=datetime.utcnow()
+            )
+            mock_workspace_info = InternalWorkspaceInfo(
+                workspace_id='test-id',
+                workspace_url='https://test.com',
+                workspace_name='Test'
+            )
+            mock_service.get_user_info = AsyncMock(return_value=mock_user_identity)
+            mock_service.get_workspace_info = AsyncMock(return_value=mock_workspace_info)
             MockService.return_value = mock_service
 
             # When: Making requests to different endpoints
-            endpoints = ["/api/user/me", "/api/user/auth/status", "/api/user/me/workspace"]
+            endpoints = [
+                ("/api/user/me", True),  # Requires token
+                ("/api/user/auth/status", False),  # No token required
+                ("/api/user/me/workspace", True)  # Requires token
+            ]
             correlation_ids = []
 
-            for endpoint in endpoints:
-                response = client.get(
-                    endpoint,
-                    headers={"X-Correlation-ID": f"test-correlation-{endpoint}"}
-                )
+            for endpoint, requires_token in endpoints:
+                headers = {"X-Correlation-ID": f"test-correlation-{endpoint}"}
+                if requires_token:
+                    headers["X-Forwarded-Access-Token"] = "test-token"
+                    
+                response = client.get(endpoint, headers=headers)
 
                 # Then: Each response should include correlation ID
                 assert "X-Correlation-ID" in response.headers
@@ -172,20 +182,39 @@ class TestUserEndpoints:
 class TestAuthenticationStatusEndpoint:
     """Contract tests for authentication status endpoint."""
 
-    def test_auth_status_returns_correct_mode_with_token(self, client):
+    def test_auth_status_returns_correct_mode_with_token(self, client, monkeypatch):
         """Test that /api/user/auth/status returns OBO mode with token."""
-        # When: Request with token
-        response = client.get(
-            "/api/user/auth/status",
-            headers={"X-Forwarded-Access-Token": "user-token"}
-        )
+        from server.models.user_session import UserIdentity
+        from datetime import datetime
+        
+        # Set required env var
+        monkeypatch.setenv('DATABRICKS_HOST', 'https://test.databricks.com')
+        
+        # Mock UserService to return user identity - patch at router level
+        with patch('server.routers.user.UserService') as MockService:
+            mock_service = Mock()
+            mock_user_identity = UserIdentity(
+                user_id='user@example.com',
+                display_name='Test User',
+                active=True,
+                extracted_at=datetime.utcnow()
+            )
+            mock_service.get_user_info = AsyncMock(return_value=mock_user_identity)
+            MockService.return_value = mock_service
+            
+            # When: Request with token
+            response = client.get(
+                "/api/user/auth/status",
+                headers={"X-Forwarded-Access-Token": "user-token"}
+            )
 
-        # Then: Should show OBO authentication
-        assert response.status_code == 200
-        data = response.json()
-        assert data["authenticated"] is True
-        assert data["auth_mode"] == "obo"
-        assert data["has_user_identity"] is True or data["has_user_identity"] is False  # Depends on user extraction
+            # Then: Should show OBO authentication
+            assert response.status_code == 200
+            data = response.json()
+            assert data["authenticated"] is True
+            assert data["auth_mode"] == "obo"
+            assert data["has_user_identity"] is True
+            assert data["user_id"] == "user@example.com"
 
     def test_auth_status_returns_correct_mode_without_token(self, client):
         """Test that /api/user/auth/status returns service principal mode without token."""

@@ -52,7 +52,6 @@ class UserService:
     """Get WorkspaceClient with appropriate authentication.
     
     Uses user access token (OBO) if available, otherwise service principal.
-    Includes 30-second timeout configuration per NFR-010.
     
     Returns:
         WorkspaceClient configured with appropriate authentication
@@ -77,9 +76,7 @@ class UserService:
       return WorkspaceClient(
         host=host,
         token=self.user_token,
-        auth_type="pat",  # REQUIRED: Explicit authentication type
-        timeout=30,  # 30-second timeout per NFR-010
-        retry_timeout=30  # Allow full timeout window
+        auth_type="pat"  # REQUIRED: Explicit authentication type
       )
     else:
       # Service Principal Authentication (OAuth M2M)
@@ -92,9 +89,7 @@ class UserService:
       
       # Use OAuth M2M (env vars: DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET)
       return WorkspaceClient(
-        host=host,
-        timeout=30,
-        retry_timeout=30
+        host=host
       )
 
   async def get_user_info(self) -> UserIdentity:
@@ -161,9 +156,14 @@ class UserService:
         "has_token": bool(self.user_token),
         "service": "UserService"
       })
+      
+      # Return standardized error response
       raise HTTPException(
         status_code=401,
-        detail="Failed to extract user identity"
+        detail={
+          "error_code": "AUTH_USER_IDENTITY_FAILED",
+          "message": "User authentication required. Please provide a valid user access token."
+        }
       ) from e
 
   async def get_user_id(self) -> str:
