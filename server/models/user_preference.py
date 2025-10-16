@@ -4,7 +4,7 @@ Represents user-specific application state and preferences stored in Lakebase.
 """
 
 from sqlalchemy import Column, Integer, String, JSON, DateTime, Index, UniqueConstraint
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from datetime import datetime
 
 Base = declarative_base()
