@@ -25,10 +25,10 @@
 
 **Purpose**: Database schema and shared models for all user stories
 
-- [ ] **T001** [P] [SETUP] Create Alembic migration for `schema_detection_events` table in `migrations/versions/004_create_schema_detection_events.py` per data-model.md Section 1.2
-- [ ] **T002** [P] [SETUP] Create `SchemaDetectionEvent` SQLAlchemy model in `server/models/schema_detection_event.py` per data-model.md Section 1.2
-- [ ] **T003** [P] [SETUP] Create `SchemaDetectionResult` Pydantic model in `server/models/schema_detection_result.py` with enums `EndpointType` and `DetectionStatus` per data-model.md Section 1.1
-- [ ] **T004** [SETUP] Run database migration to create `schema_detection_events` table: `alembic upgrade head`
+- [X] **T001** [P] [SETUP] Create Alembic migration for `schema_detection_events` table in `migrations/versions/004_create_schema_detection_events.py` per data-model.md Section 1.2
+- [X] **T002** [P] [SETUP] Create `SchemaDetectionEvent` SQLAlchemy model in `server/models/schema_detection_event.py` per data-model.md Section 1.2
+- [X] **T003** [P] [SETUP] Create `SchemaDetectionResult` Pydantic model in `server/models/schema_detection_result.py` with enums `EndpointType` and `DetectionStatus` per data-model.md Section 1.1
+- [X] **T004** [SETUP] Run database migration to create `schema_detection_events` table: `alembic upgrade head`
 
 **Checkpoint**: Database schema ready, shared models defined
 
@@ -40,12 +40,12 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] **T005** [FOUNDATION] Create `SchemaDetectionService` skeleton in `server/services/schema_detection_service.py` with method signatures per data-model.md Section 5.1 (no implementations yet, just structure)
-- [ ] **T006** [P] [FOUNDATION] Add foundation model chat format constants in `schema_detection_service.py` (FOUNDATION_MODEL_CHAT_SCHEMA, FOUNDATION_MODEL_CHAT_EXAMPLE) per research.md Decision 7
-- [ ] **T007** [P] [FOUNDATION] Add generic fallback template constant (GENERIC_FALLBACK_TEMPLATE) in `schema_detection_service.py` per research.md Decision 7
-- [ ] **T008** [P] [FOUNDATION] Implement `log_detection_event()` method in `SchemaDetectionService` to persist events to Lakebase per data-model.md Section 5.1 and schema-logging-api.yaml
-- [ ] **T009** [P] [FOUNDATION] Implement correlation ID middleware enhancement in `server/lib/distributed_tracing.py` to support X-Correlation-ID header per research.md Decision 6
-- [ ] **T010** [FOUNDATION] Add schema detection endpoint `/api/model-serving/endpoints/{endpoint_name}/schema` to `server/routers/model_serving.py` (route only, delegate to service) per schema-detection-api.yaml
+- [X] **T005** [FOUNDATION] Create `SchemaDetectionService` skeleton in `server/services/schema_detection_service.py` with method signatures per data-model.md Section 5.1 (no implementations yet, just structure)
+- [X] **T006** [P] [FOUNDATION] Add foundation model chat format constants in `schema_detection_service.py` (FOUNDATION_MODEL_CHAT_SCHEMA, FOUNDATION_MODEL_CHAT_EXAMPLE) per research.md Decision 7
+- [X] **T007** [P] [FOUNDATION] Add generic fallback template constant (GENERIC_FALLBACK_TEMPLATE) in `schema_detection_service.py` per research.md Decision 7
+- [X] **T008** [P] [FOUNDATION] Implement `log_detection_event()` method in `SchemaDetectionService` to persist events to Lakebase per data-model.md Section 5.1 and schema-logging-api.yaml
+- [X] **T009** [P] [FOUNDATION] Implement correlation ID middleware enhancement in `server/lib/distributed_tracing.py` to support X-Correlation-ID header per research.md Decision 6
+- [X] **T010** [FOUNDATION] Add schema detection endpoint `/api/model-serving/endpoints/{endpoint_name}/schema` to `server/routers/model_serving.py` (route only, delegate to service) per schema-detection-api.yaml
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -59,15 +59,15 @@
 
 ### Implementation for User Story 1
 
-- [ ] **T011** [US1] Implement `detect_endpoint_type()` method in `SchemaDetectionService` to identify foundation models using heuristic-based detection per research.md Decision 1 (check endpoint name for keywords: claude, gpt, llama, mistral, chat, foundation)
-- [ ] **T012** [US1] Implement fast-path foundation model detection in `detect_schema()` method: when `EndpointType.FOUNDATION_MODEL` detected, return pre-built chat format example with SUCCESS status in <500ms per research.md Decision 7
-- [ ] **T013** [US1] Add structured logging for foundation model detection events (log endpoint_name, detected_type, status, latency_ms) using existing StructuredLogger per research.md Decision 6
-- [ ] **T014** [US1] Wire up foundation model detection in `/endpoints/{endpoint_name}/schema` router endpoint to call `detect_schema()` and return `SchemaDetectionResult` per schema-detection-api.yaml
-- [ ] **T015** [P] [US1] Create `useSchemaCache` React hook in `client/src/hooks/useSchemaCache.ts` with `getCachedSchema()` and `setCachedSchema()` methods using sessionStorage per research.md Decision 4
-- [ ] **T016** [P] [US1] Create `SchemaDetectionStatus` badge component in `client/src/components/SchemaDetectionStatus.tsx` using Design Bricks `<Badge>` to display detected model type per research.md Decision 5
-- [ ] **T017** [US1] Create `useSchemaDetection` React Query hook in `client/src/pages/DatabricksServicesPage.tsx` integrating cache check → API call → cache write per research.md Decision 8
-- [ ] **T018** [US1] Integrate schema detection into `DatabricksServicesPage.tsx`: on endpoint selection, trigger `useSchemaDetection()`, show loading spinner (hide JSON input), populate input box on success, display status badge per quickstart.md User Flow Section 1. Note: JSON input population may be done directly in DatabricksServicesPage or extracted to a `ModelInputEditor` component if UI complexity warrants separation
-- [ ] **T019** [US1] Regenerate TypeScript API client from FastAPI OpenAPI spec: `cd client && python ../scripts/make_fastapi_client.py` to generate `SchemaDetectionResult` types and `detectSchema()` service method per plan.md Principle VI
+- [X] **T011** [US1] Implement `detect_endpoint_type()` method in `SchemaDetectionService` to identify foundation models using heuristic-based detection per research.md Decision 1 (check endpoint name for keywords: claude, gpt, llama, mistral, chat, foundation)
+- [X] **T012** [US1] Implement fast-path foundation model detection in `detect_schema()` method: when `EndpointType.FOUNDATION_MODEL` detected, return pre-built chat format example with SUCCESS status in <500ms per research.md Decision 7
+- [X] **T013** [US1] Add structured logging for foundation model detection events (log endpoint_name, detected_type, status, latency_ms) using existing StructuredLogger per research.md Decision 6
+- [X] **T014** [US1] Wire up foundation model detection in `/endpoints/{endpoint_name}/schema` router endpoint to call `detect_schema()` and return `SchemaDetectionResult` per schema-detection-api.yaml
+- [X] **T015** [P] [US1] Create `useSchemaCache` React hook in `client/src/hooks/useSchemaCache.ts` with `getCachedSchema()` and `setCachedSchema()` methods using sessionStorage per research.md Decision 4
+- [X] **T016** [P] [US1] Create `SchemaDetectionStatus` badge component in `client/src/components/SchemaDetectionStatus.tsx` using Design Bricks `<Badge>` to display detected model type per research.md Decision 5
+- [X] **T017** [US1] Create `useSchemaDetection` React Query hook in `client/src/pages/DatabricksServicesPage.tsx` integrating cache check → API call → cache write per research.md Decision 8
+- [X] **T018** [US1] Integrate schema detection into `DatabricksServicesPage.tsx`: on endpoint selection, trigger `useSchemaDetection()`, show loading spinner (hide JSON input), populate input box on success, display status badge per quickstart.md User Flow Section 1. Note: JSON input population may be done directly in DatabricksServicesPage or extracted to a `ModelInputEditor` component if UI complexity warrants separation
+- [X] **T019** [US1] Regenerate TypeScript API client from FastAPI OpenAPI spec: `cd client && python ../scripts/make_fastapi_client.py` to generate `SchemaDetectionResult` types and `detectSchema()` service method per plan.md Principle VI
 
 **Checkpoint**: Foundation models (Claude, GPT, Llama) should auto-populate chat format in <500ms. Test with databricks-claude-sonnet-4 endpoint per quickstart.md Example 1.
 

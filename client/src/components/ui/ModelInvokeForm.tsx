@@ -2,11 +2,15 @@
  * ModelInvokeForm Component
  *
  * Form for invoking Model Serving endpoints for ML inference.
+ * Includes automatic schema detection for foundation and MLflow models.
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Button, Alert, TextField, Select, Typography } from "designbricks";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SchemaDetectionStatus } from "@/components/SchemaDetectionStatus";
+import { useSchemaCache } from "@/hooks/useSchemaCache";
+import { ModelServingService, type SchemaDetectionResult } from "@/fastapi_client";
 
 interface ModelEndpoint {
   endpoint_name: string;
@@ -56,6 +60,11 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
   const [invoking, setInvoking] = useState(false);
   const [response, setResponse] = useState<ModelInferenceResponse | null>(null);
   const [invocationError, setInvocationError] = useState<string | null>(null);
+  
+  // Schema detection state (T017)
+  const [schemaDetecting, setSchemaDetecting] = useState(false);
+  const [schemaResult, setSchemaResult] = useState<SchemaDetectionResult | null>(null);
+  const { getCachedSchema, setCachedSchema } = useSchemaCache();
 
   const handleInvoke = async () => {
     if (!onInvoke || !selectedEndpoint) return;
@@ -78,10 +87,58 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
     }
   };
 
-  const handleEndpointChange = (value: string | number | (string | number)[]) => {
-    setSelectedEndpoint(value as string);
+  const handleEndpointChange = async (value: string | number | (string | number)[]) => {
+    const endpointName = value as string;
+    setSelectedEndpoint(endpointName);
     setResponse(null);
     setInvocationError(null);
+    
+    // Trigger schema detection (T018)
+    if (endpointName) {
+      await detectSchema(endpointName);
+    } else {
+      setSchemaResult(null);
+    }
+  };
+  
+  // Schema detection function (T017)
+  const detectSchema = async (endpointName: string) => {
+    try {
+      setSchemaDetecting(true);
+      setSchemaResult(null);
+      
+      // Check cache first
+      const cached = getCachedSchema(endpointName);
+      if (cached) {
+        setSchemaResult(cached);
+        setInputsJson(JSON.stringify(cached.example_json, null, 2));
+        setSchemaDetecting(false);
+        return;
+      }
+      
+      // Call API
+      const result = await ModelServingService.detectEndpointSchemaApiModelServingEndpointsEndpointNameSchemaGet(
+        endpointName
+      );
+      
+      // Cache successful result
+      if (result.status === 'SUCCESS') {
+        setCachedSchema(endpointName, result);
+      }
+      
+      setSchemaResult(result);
+      
+      // Auto-populate JSON input with example
+      setInputsJson(JSON.stringify(result.example_json, null, 2));
+      
+    } catch (err: any) {
+      console.warn('Schema detection failed:', err);
+      // Don't show error to user - graceful degradation
+      // User can still manually edit JSON
+      setSchemaResult(null);
+    } finally {
+      setSchemaDetecting(false);
+    }
   };
 
   const handleTimeoutChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -214,30 +271,69 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
         </div>
       )}
 
-      {/* Input JSON Editor */}
+      {/* Input JSON Editor with Schema Detection (T018) */}
       <div style={{ marginBottom: "24px" }}>
-        <Typography.Text bold style={{ display: "block", marginBottom: "8px" }}>
-          Input Data (JSON)
-        </Typography.Text>
-        <textarea
-          id="inputs-json"
-          value={inputsJson}
-          onChange={(e) => setInputsJson(e.target.value)}
-          rows={10}
-          style={{
-            width: "100%",
-            padding: "12px",
-            fontSize: "14px",
-            fontFamily: "monospace",
-            borderRadius: "4px",
-            border: "1px solid #ddd",
-            backgroundColor: "#fafafa",
-          }}
-          placeholder='{"messages": [{"role": "user", "content": "Your question here"}], "max_tokens": 150}'
-        />
-        <Typography.Hint style={{ marginTop: "4px" }}>
-          Enter input data in JSON format. For chat models like Claude, use: {`{"messages": [{"role": "user", "content": "..."}], "max_tokens": 150}`}
-        </Typography.Hint>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
+          <Typography.Text bold>
+            Input Data (JSON)
+          </Typography.Text>
+          {schemaResult && (
+            <SchemaDetectionStatus 
+              detectedType={schemaResult.detected_type} 
+              status={schemaResult.status}
+            />
+          )}
+          {schemaDetecting && (
+            <Typography.Text color="secondary" style={{ fontSize: "13px" }}>
+              Detecting schema...
+            </Typography.Text>
+          )}
+        </div>
+        
+        {schemaDetecting ? (
+          <Skeleton className="h-64 w-full" />
+        ) : (
+          <textarea
+            id="inputs-json"
+            value={inputsJson}
+            onChange={(e) => setInputsJson(e.target.value)}
+            rows={10}
+            style={{
+              width: "100%",
+              padding: "12px",
+              fontSize: "14px",
+              fontFamily: "monospace",
+              borderRadius: "4px",
+              border: "1px solid #ddd",
+              backgroundColor: "#fafafa",
+            }}
+            placeholder='{"messages": [{"role": "user", "content": "Your question here"}], "max_tokens": 150}'
+          />
+        )}
+        
+        {schemaResult?.status === 'TIMEOUT' && (
+          <Alert severity="warning" className="mt-2">
+            Schema detection timed out. You can manually edit the input format.
+          </Alert>
+        )}
+        
+        {schemaResult?.status === 'FAILURE' && (
+          <Alert severity="warning" className="mt-2">
+            Schema detection unavailable. Please consult model documentation for input format.
+          </Alert>
+        )}
+        
+        {schemaResult?.status === 'SUCCESS' && (
+          <Typography.Hint style={{ marginTop: "4px" }}>
+            Auto-detected {schemaResult.detected_type === 'FOUNDATION_MODEL' ? 'foundation model' : 'MLflow model'} schema. You can edit the JSON above.
+          </Typography.Hint>
+        )}
+        
+        {!schemaResult && !schemaDetecting && (
+          <Typography.Hint style={{ marginTop: "4px" }}>
+            Enter input data in JSON format. For chat models like Claude, use: {`{"messages": [{"role": "user", "content": "..."}], "max_tokens": 150}`}
+          </Typography.Hint>
+        )}
       </div>
 
       {/* Timeout Setting */}

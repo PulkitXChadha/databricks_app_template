@@ -8,8 +8,10 @@ from pydantic import BaseModel, Field
 from typing import Any
 
 from server.services.model_serving_service import ModelServingService
+from server.services.schema_detection_service import SchemaDetectionService
 from server.models.model_endpoint import ModelEndpointResponse
 from server.models.model_inference import ModelInferenceResponse
+from server.models.schema_detection_result import SchemaDetectionResult
 from server.lib.structured_logger import StructuredLogger
 from server.lib.auth import get_current_user_id, get_user_token
 
@@ -140,6 +142,103 @@ async def get_endpoint(
             detail={
                 "error_code": "SERVICE_UNAVAILABLE",
                 "message": "Model Serving service temporarily unavailable.",
+                "technical_details": {"error_type": type(e).__name__},
+                "retry_after": 10
+            }
+        )
+
+
+@router.get("/endpoints/{endpoint_name}/schema", response_model=SchemaDetectionResult)
+async def detect_endpoint_schema(
+    endpoint_name: str,
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+    user_token: str = Depends(get_user_token)
+):
+    """Detect input schema for a Model Serving endpoint.
+    
+    Automatically detects endpoint type (foundation model, MLflow model, or unknown)
+    and returns appropriate input schema with generated example JSON.
+    
+    Args:
+        endpoint_name: Name of the endpoint
+        
+    Returns:
+        SchemaDetectionResult with detected type, schema, and example JSON
+        
+    Raises:
+        401: Authentication required
+        404: Endpoint not found
+        503: Service unavailable
+    """
+    logger.info(
+        "Detecting schema for endpoint",
+        user_id=user_id,
+        endpoint=endpoint_name
+    )
+    
+    try:
+        service = SchemaDetectionService(user_token=user_token)
+        result = await service.detect_schema(
+            endpoint_name=endpoint_name,
+            user_id=user_id
+        )
+        
+        logger.info(
+            f"Schema detection completed",
+            user_id=user_id,
+            endpoint=endpoint_name,
+            detected_type=result.detected_type,
+            status=result.status,
+            latency_ms=result.latency_ms
+        )
+        
+        return result
+        
+    except NotImplementedError as e:
+        # Service method not yet implemented
+        logger.warning(
+            f"Schema detection not yet implemented: {str(e)}",
+            user_id=user_id,
+            endpoint=endpoint_name
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "NOT_IMPLEMENTED",
+                "message": "Schema detection feature is under development.",
+                "technical_details": {"error_type": type(e).__name__}
+            }
+        )
+        
+    except Exception as e:
+        error_str = str(e).lower()
+        
+        # Check if endpoint not found
+        if "not found" in error_str or "does not exist" in error_str:
+            logger.warning(
+                f"Endpoint not found: {endpoint_name}",
+                user_id=user_id
+            )
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_code": "ENDPOINT_NOT_FOUND",
+                    "message": f"Model serving endpoint '{endpoint_name}' not found."
+                }
+            )
+        
+        logger.error(
+            f"Error detecting schema: {str(e)}",
+            exc_info=True,
+            user_id=user_id,
+            endpoint=endpoint_name
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "SERVICE_UNAVAILABLE",
+                "message": "Schema detection service temporarily unavailable.",
                 "technical_details": {"error_type": type(e).__name__},
                 "retry_after": 10
             }

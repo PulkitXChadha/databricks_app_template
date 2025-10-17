@@ -6,6 +6,7 @@ import type { InferenceLogsListResponse } from '../models/InferenceLogsListRespo
 import type { InvokeModelRequest } from '../models/InvokeModelRequest';
 import type { ModelEndpointResponse } from '../models/ModelEndpointResponse';
 import type { ModelInferenceResponse } from '../models/ModelInferenceResponse';
+import type { SchemaDetectionResult } from '../models/SchemaDetectionResult';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -53,6 +54,41 @@ export class ModelServingService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/model-serving/endpoints/{endpoint_name}',
+            path: {
+                'endpoint_name': endpointName,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Detect Endpoint Schema
+     * Detect input schema for a Model Serving endpoint.
+     *
+     * Automatically detects endpoint type (foundation model, MLflow model, or unknown)
+     * and returns appropriate input schema with generated example JSON.
+     *
+     * Args:
+     * endpoint_name: Name of the endpoint
+     *
+     * Returns:
+     * SchemaDetectionResult with detected type, schema, and example JSON
+     *
+     * Raises:
+     * 401: Authentication required
+     * 404: Endpoint not found
+     * 503: Service unavailable
+     * @param endpointName
+     * @returns SchemaDetectionResult Successful Response
+     * @throws ApiError
+     */
+    public static detectEndpointSchemaApiModelServingEndpointsEndpointNameSchemaGet(
+        endpointName: string,
+    ): CancelablePromise<SchemaDetectionResult> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/model-serving/endpoints/{endpoint_name}/schema',
             path: {
                 'endpoint_name': endpointName,
             },
