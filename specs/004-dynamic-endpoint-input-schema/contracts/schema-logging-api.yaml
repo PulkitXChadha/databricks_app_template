@@ -1,0 +1,304 @@
+openapi: 3.0.3
+info:
+  title: Schema Detection Logging API (Internal)
+  description: |
+    **Internal API - NOT exposed to external clients**
+    
+    This contract documents the internal service interface for logging schema detection events
+    to Lakebase (PostgreSQL). Used by SchemaDetectionService to persist observability data.
+    
+    This file serves as:
+    1. Service layer contract for Lakebase operations
+    2. Testing contract for database integration tests
+    3. Documentation for queryable schema detection events
+  version: 1.0.0
+
+paths:
+  /internal/schema-detection-events:
+    post:
+      operationId: logSchemaDetectionEvent
+      summary: Log schema detection event to Lakebase
+      description: |
+        Internal service method to persist schema detection events for observability.
+        Called by SchemaDetectionService after every detection attempt (success, failure, timeout).
+        
+        **Service Usage**:
+        ```python
+        from server.services.schema_detection_service import SchemaDetectionService
+        
+        service = SchemaDetectionService(user_token=token)
+        await service.log_detection_event(event)
+        ```
+      tags:
+        - Internal Logging
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchemaDetectionEvent'
+            examples:
+              successEvent:
+                summary: Successful schema detection
+                value:
+                  correlation_id: 550e8400-e29b-41d4-a716-446655440000
+                  endpoint_name: databricks-claude-sonnet-4
+                  detected_type: FOUNDATION_MODEL
+                  status: SUCCESS
+                  latency_ms: 245
+                  error_details: null
+                  user_id: user@company.com
+              failureEvent:
+                summary: Failed schema detection
+                value:
+                  correlation_id: 660f9500-f30c-52e5-b827-557766551111
+                  endpoint_name: invalid-endpoint
+                  detected_type: UNKNOWN
+                  status: FAILURE
+                  latency_ms: 1032
+                  error_details: "Endpoint 'invalid-endpoint' not found"
+                  user_id: user@company.com
+              timeoutEvent:
+                summary: Schema detection timeout
+                value:
+                  correlation_id: 770g0600-g41d-63f6-c938-668877662222
+                  endpoint_name: slow-model
+                  detected_type: UNKNOWN
+                  status: TIMEOUT
+                  latency_ms: 5003
+                  error_details: Schema retrieval exceeded 5 second timeout
+                  user_id: user@company.com
+      responses:
+        '201':
+          description: Event logged successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: Database-generated event ID
+                    example: 12345
+                  created_at:
+                    type: string
+                    format: date-time
+                    description: Event creation timestamp (UTC)
+                    example: '2025-10-17T10:30:00Z'
+        '400':
+          description: Invalid event data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error_code: INVALID_REQUEST
+                message: Missing required field 'correlation_id'
+        '503':
+          description: Lakebase database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error_code: DATABASE_UNAVAILABLE
+                message: Lakebase connection failed
+
+    get:
+      operationId: querySchemaDetectionEvents
+      summary: Query schema detection events
+      description: |
+        Query logged schema detection events for a specific user. Supports filtering and pagination.
+        Used for debugging, observability, and user-specific event history.
+      tags:
+        - Internal Logging
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          description: Filter events by user ID (required for multi-user data isolation)
+          schema:
+            type: string
+            example: user@company.com
+        - name: endpoint_name
+          in: query
+          required: false
+          description: Filter events by endpoint name
+          schema:
+            type: string
+            example: databricks-claude-sonnet-4
+        - name: status
+          in: query
+          required: false
+          description: Filter events by detection status
+          schema:
+            type: string
+            enum:
+              - SUCCESS
+              - FAILURE
+              - TIMEOUT
+            example: SUCCESS
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of events to return (default 100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+            example: 50
+        - name: offset
+          in: query
+          required: false
+          description: Number of events to skip (for pagination)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+      responses:
+        '200':
+          description: Events retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SchemaDetectionEventWithId'
+                  total_count:
+                    type: integer
+                    description: Total number of matching events (for pagination)
+                    example: 237
+                  limit:
+                    type: integer
+                    example: 100
+                  offset:
+                    type: integer
+                    example: 0
+              example:
+                events:
+                  - id: 12345
+                    correlation_id: 550e8400-e29b-41d4-a716-446655440000
+                    endpoint_name: databricks-claude-sonnet-4
+                    detected_type: FOUNDATION_MODEL
+                    status: SUCCESS
+                    latency_ms: 245
+                    error_details: null
+                    user_id: user@company.com
+                    created_at: '2025-10-17T10:30:00Z'
+                  - id: 12344
+                    correlation_id: 660f9500-f30c-52e5-b827-557766551111
+                    endpoint_name: fraud-model
+                    detected_type: MLFLOW_MODEL
+                    status: SUCCESS
+                    latency_ms: 1832
+                    error_details: null
+                    user_id: user@company.com
+                    created_at: '2025-10-17T10:28:30Z'
+                total_count: 237
+                limit: 100
+                offset: 0
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error_code: INVALID_REQUEST
+                message: Missing required parameter 'user_id'
+
+components:
+  schemas:
+    SchemaDetectionEvent:
+      type: object
+      description: Schema detection event for Lakebase logging
+      required:
+        - correlation_id
+        - endpoint_name
+        - detected_type
+        - status
+        - latency_ms
+        - user_id
+      properties:
+        correlation_id:
+          type: string
+          format: uuid
+          description: Request correlation ID (from X-Correlation-ID header or server-generated)
+          example: 550e8400-e29b-41d4-a716-446655440000
+        endpoint_name:
+          type: string
+          description: Name of the serving endpoint
+          example: databricks-claude-sonnet-4
+        detected_type:
+          type: string
+          enum:
+            - FOUNDATION_MODEL
+            - MLFLOW_MODEL
+            - UNKNOWN
+          description: Detected model type
+          example: FOUNDATION_MODEL
+        status:
+          type: string
+          enum:
+            - SUCCESS
+            - FAILURE
+            - TIMEOUT
+          description: Detection result status
+          example: SUCCESS
+        latency_ms:
+          type: integer
+          description: Schema detection latency in milliseconds
+          minimum: 0
+          example: 245
+        error_details:
+          type: string
+          nullable: true
+          description: Error message or stack trace (if status is FAILURE or TIMEOUT)
+          example: Schema retrieval timed out after 5 seconds
+        user_id:
+          type: string
+          description: Databricks user ID who triggered detection
+          example: user@company.com
+    
+    SchemaDetectionEventWithId:
+      allOf:
+        - $ref: '#/components/schemas/SchemaDetectionEvent'
+        - type: object
+          required:
+            - id
+            - created_at
+          properties:
+            id:
+              type: integer
+              description: Database-generated event ID
+              example: 12345
+            created_at:
+              type: string
+              format: date-time
+              description: Event creation timestamp (UTC)
+              example: '2025-10-17T10:30:00Z'
+    
+    Error:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+          example: DATABASE_UNAVAILABLE
+        message:
+          type: string
+          description: Human-readable error message
+          example: Lakebase connection failed
+
+tags:
+  - name: Internal Logging
+    description: Internal service methods for Lakebase logging (not exposed to external clients)
+

@@ -1,0 +1,273 @@
+openapi: 3.0.3
+info:
+  title: Model Schema Detection API
+  description: |
+    API for automatic detection and retrieval of model input schemas for Databricks Model Serving endpoints.
+    Supports foundation models (chat format) and MLflow models (Unity Catalog schemas).
+  version: 1.0.0
+  contact:
+    name: Databricks App Template Team
+
+servers:
+  - url: /api/model-serving
+    description: Model Serving API base path
+
+paths:
+  /endpoints/{endpoint_name}/schema:
+    get:
+      operationId: detectSchema
+      summary: Detect input schema for a serving endpoint
+      description: |
+        Automatically detects the model type (foundation model, MLflow model, or unknown) and returns
+        the appropriate input schema with a generated example JSON payload.
+        
+        - **Foundation models**: Returns standardized chat format with messages array
+        - **MLflow models**: Queries Model Registry for schema and generates example from JSON Schema
+        - **Unknown models**: Returns generic fallback template with warning message
+        
+        Results are cached in browser sessionStorage for the duration of the browser session.
+        All detection events are logged to Lakebase for observability.
+      tags:
+        - Schema Detection
+      parameters:
+        - name: endpoint_name
+          in: path
+          required: true
+          description: Name of the serving endpoint (e.g., "databricks-claude-sonnet-4")
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            example: databricks-claude-sonnet-4
+        - name: X-Correlation-ID
+          in: header
+          required: false
+          description: |
+            Client-provided correlation ID for request tracing. If not provided, server generates a UUID.
+          schema:
+            type: string
+            format: uuid
+            example: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        '200':
+          description: Schema detection successful
+          headers:
+            X-Correlation-ID:
+              description: Correlation ID for request tracing (client-provided or server-generated)
+              schema:
+                type: string
+                format: uuid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaDetectionResult'
+              examples:
+                foundationModelSuccess:
+                  summary: Foundation model schema detection (Claude)
+                  value:
+                    endpoint_name: databricks-claude-sonnet-4
+                    detected_type: FOUNDATION_MODEL
+                    status: SUCCESS
+                    schema: null
+                    example_json:
+                      messages:
+                        - role: system
+                          content: You are a helpful assistant.
+                        - role: user
+                          content: Hello, how can you help me?
+                      max_tokens: 150
+                      temperature: 0.7
+                    error_message: null
+                    latency_ms: 245
+                    detected_at: '2025-10-17T10:30:00Z'
+                mlflowModelSuccess:
+                  summary: MLflow model schema detection
+                  value:
+                    endpoint_name: fraud-detection-model
+                    detected_type: MLFLOW_MODEL
+                    status: SUCCESS
+                    schema:
+                      type: object
+                      properties:
+                        transaction_amount:
+                          type: number
+                        merchant_category:
+                          type: string
+                        user_account_age_days:
+                          type: integer
+                      required:
+                        - transaction_amount
+                        - merchant_category
+                    example_json:
+                      transaction_amount: 3.14
+                      merchant_category: example text
+                      user_account_age_days: 42
+                    error_message: null
+                    latency_ms: 1832
+                    detected_at: '2025-10-17T10:30:00Z'
+                timeoutFallback:
+                  summary: Schema detection timeout (fallback)
+                  value:
+                    endpoint_name: slow-model-endpoint
+                    detected_type: UNKNOWN
+                    status: TIMEOUT
+                    schema: null
+                    example_json:
+                      input: value
+                      _comment: Schema detection unavailable. Consult model documentation for correct input format.
+                    error_message: Schema retrieval timed out after 5 seconds
+                    latency_ms: 5003
+                    detected_at: '2025-10-17T10:30:00Z'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: AUTHENTICATION_REQUIRED
+                message: Authentication token missing or invalid
+        '404':
+          description: Endpoint not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: ENDPOINT_NOT_FOUND
+                message: "Model serving endpoint 'invalid-endpoint' not found."
+        '503':
+          description: Service unavailable (Model Registry API unavailable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: SERVICE_UNAVAILABLE
+                message: Model Registry service temporarily unavailable.
+                technical_details:
+                  error_type: TimeoutError
+                retry_after: 10
+
+components:
+  schemas:
+    SchemaDetectionResult:
+      type: object
+      required:
+        - endpoint_name
+        - detected_type
+        - status
+        - example_json
+        - latency_ms
+        - detected_at
+      properties:
+        endpoint_name:
+          type: string
+          description: Name of the serving endpoint
+          example: databricks-claude-sonnet-4
+        detected_type:
+          type: string
+          enum:
+            - FOUNDATION_MODEL
+            - MLFLOW_MODEL
+            - UNKNOWN
+          description: |
+            Detected model type:
+            - `FOUNDATION_MODEL`: Chat-based foundation models (Claude, GPT, Llama, etc.)
+            - `MLFLOW_MODEL`: MLflow models registered in Unity Catalog with custom schemas
+            - `UNKNOWN`: Unable to detect model type or schema unavailable
+          example: FOUNDATION_MODEL
+        status:
+          type: string
+          enum:
+            - SUCCESS
+            - FAILURE
+            - TIMEOUT
+          description: |
+            Detection result status:
+            - `SUCCESS`: Schema detected and example generated successfully
+            - `FAILURE`: Schema detection failed (e.g., API error, malformed schema)
+            - `TIMEOUT`: Schema retrieval exceeded 5 second timeout
+          example: SUCCESS
+        schema:
+          type: object
+          nullable: true
+          description: |
+            JSON Schema definition (MLflow models only). Foundation models return null.
+            Follows JSON Schema Draft 7 format with type, properties, required fields.
+          additionalProperties: true
+          example:
+            type: object
+            properties:
+              feature1:
+                type: number
+              feature2:
+                type: string
+            required:
+              - feature1
+        example_json:
+          type: object
+          description: |
+            Generated example input JSON for the endpoint. Realistic sample values based on schema.
+            Users can edit this example before invoking the model.
+          additionalProperties: true
+          example:
+            messages:
+              - role: user
+                content: Hello!
+            max_tokens: 150
+        error_message:
+          type: string
+          nullable: true
+          description: Error description (present only if status is FAILURE or TIMEOUT)
+          example: Schema retrieval timed out after 5 seconds
+        latency_ms:
+          type: integer
+          description: Schema detection latency in milliseconds (includes API calls and processing time)
+          minimum: 0
+          example: 245
+        detected_at:
+          type: string
+          format: date-time
+          description: Timestamp when schema was detected (ISO 8601 UTC)
+          example: '2025-10-17T10:30:00Z'
+    
+    ErrorResponse:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+          example: ENDPOINT_NOT_FOUND
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Model serving endpoint 'invalid-endpoint' not found."
+        technical_details:
+          type: object
+          description: Optional technical details for debugging
+          additionalProperties: true
+          example:
+            error_type: NotFoundError
+        retry_after:
+          type: integer
+          description: Suggested retry delay in seconds (for 503 errors)
+          example: 10
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        On-Behalf-Of-User (OBO) authentication using Databricks user access token.
+        Extracted from Authorization header. Required for all endpoints.
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Schema Detection
+    description: Automatic model input schema detection and example generation
+

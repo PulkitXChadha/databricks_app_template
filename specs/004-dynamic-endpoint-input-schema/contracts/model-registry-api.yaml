@@ -1,0 +1,237 @@
+openapi: 3.0.3
+info:
+  title: Databricks Model Registry API (External Reference)
+  description: |
+    **External API Reference - NOT implemented by this application**
+    
+    This contract documents the Databricks Model Registry API endpoints used by the schema detection feature.
+    The actual API is provided by Databricks and accessed via the Databricks SDK.
+    
+    This file serves as:
+    1. Documentation for developers implementing schema detection
+    2. Contract for testing external API integration
+    3. Reference for error handling and response formats
+  version: 2.0.0
+  contact:
+    name: Databricks Platform
+    url: https://docs.databricks.com/api/workspace/modelregistry
+
+servers:
+  - url: https://{workspace}.databricks.com/api/2.0
+    description: Databricks Workspace API
+    variables:
+      workspace:
+        default: my-workspace
+        description: Databricks workspace hostname
+
+paths:
+  /mlflow/unity-catalog/model-versions/get:
+    get:
+      operationId: getModelVersion
+      summary: Get MLflow model version from Unity Catalog
+      description: |
+        Retrieve model version metadata including input/output schema signature.
+        Used by schema detection to query MLflow model schemas.
+        
+        **SDK Usage**:
+        ```python
+        from databricks.sdk import WorkspaceClient
+        
+        client = WorkspaceClient(token=user_token)
+        model_version = client.model_registry.get_model_version(
+            full_name="main.default.fraud_detection_model",
+            version="1"
+        )
+        ```
+      tags:
+        - Model Registry
+      parameters:
+        - name: full_name
+          in: query
+          required: true
+          description: |
+            Fully-qualified Unity Catalog model name in format: `{catalog}.{schema}.{model_name}`
+          schema:
+            type: string
+            example: main.default.fraud_detection_model
+        - name: version
+          in: query
+          required: true
+          description: Model version number (as string)
+          schema:
+            type: string
+            example: "1"
+      responses:
+        '200':
+          description: Model version metadata retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelVersion'
+              example:
+                model_version:
+                  name: fraud_detection_model
+                  version: "1"
+                  creation_timestamp: 1697555400000
+                  last_updated_timestamp: 1697555400000
+                  user_id: user@company.com
+                  description: Fraud detection model v1
+                  source: dbfs:/databricks/mlflow-tracking/123/456/artifacts/model
+                  run_id: abc123def456
+                  status: READY
+                  tags:
+                    - key: environment
+                      value: production
+                  signature:
+                    inputs: |
+                      [
+                        {"name": "transaction_amount", "type": "double"},
+                        {"name": "merchant_category", "type": "string"},
+                        {"name": "user_account_age_days", "type": "long"}
+                      ]
+                    outputs: |
+                      [
+                        {"name": "prediction", "type": "double"}
+                      ]
+        '404':
+          description: Model version not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error_code: RESOURCE_DOES_NOT_EXIST
+                message: "Model version 'main.default.invalid_model' version '1' not found"
+        '403':
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error_code: PERMISSION_DENIED
+                message: User does not have permission to access model
+
+components:
+  schemas:
+    ModelVersion:
+      type: object
+      description: MLflow model version metadata from Unity Catalog
+      required:
+        - model_version
+      properties:
+        model_version:
+          type: object
+          required:
+            - name
+            - version
+            - creation_timestamp
+            - last_updated_timestamp
+            - user_id
+            - status
+          properties:
+            name:
+              type: string
+              description: Model name (without catalog/schema prefix)
+              example: fraud_detection_model
+            version:
+              type: string
+              description: Model version number
+              example: "1"
+            creation_timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp (milliseconds) when version was created
+              example: 1697555400000
+            last_updated_timestamp:
+              type: integer
+              format: int64
+              description: Unix timestamp (milliseconds) when version was last updated
+              example: 1697555400000
+            user_id:
+              type: string
+              description: User who created the model version
+              example: user@company.com
+            description:
+              type: string
+              description: Optional model version description
+              example: Fraud detection model v1
+            source:
+              type: string
+              description: DBFS path to model artifacts
+              example: dbfs:/databricks/mlflow-tracking/123/456/artifacts/model
+            run_id:
+              type: string
+              description: MLflow run ID that produced this model version
+              example: abc123def456
+            status:
+              type: string
+              enum:
+                - PENDING_REGISTRATION
+                - FAILED_REGISTRATION
+                - READY
+              description: Model version status
+              example: READY
+            tags:
+              type: array
+              description: Model version tags
+              items:
+                type: object
+                properties:
+                  key:
+                    type: string
+                  value:
+                    type: string
+            signature:
+              type: object
+              nullable: true
+              description: |
+                MLflow model signature (input/output schema). May be null if model has no signature.
+                Format follows MLflow ModelSignature JSON representation.
+              properties:
+                inputs:
+                  type: string
+                  description: JSON-encoded input schema (array of field definitions)
+                  example: |
+                    [
+                      {"name": "transaction_amount", "type": "double"},
+                      {"name": "merchant_category", "type": "string"}
+                    ]
+                outputs:
+                  type: string
+                  description: JSON-encoded output schema (array of field definitions)
+                  example: |
+                    [
+                      {"name": "prediction", "type": "double"}
+                    ]
+    
+    Error:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+          example: RESOURCE_DOES_NOT_EXIST
+        message:
+          type: string
+          description: Human-readable error message
+          example: Model version not found
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Databricks user access token (Personal Access Token or OAuth token).
+        Used for on-behalf-of-user authentication.
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Model Registry
+    description: Unity Catalog Model Registry API endpoints
+
