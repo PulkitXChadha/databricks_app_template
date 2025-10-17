@@ -62,6 +62,39 @@ check_auth() {
   fi
 }
 
+# Refresh OAuth token for frontend
+refresh_frontend_token() {
+  echo "🔐 Refreshing OAuth token for frontend..."
+  
+  # Check if token exists and is still valid
+  if [ -x "./scripts/check_token_expiry.sh" ]; then
+    TOKEN_STATUS=$(./scripts/check_token_expiry.sh)
+    TOKEN_EXIT_CODE=$?
+    
+    if [ $TOKEN_EXIT_CODE -eq 0 ]; then
+      echo "$TOKEN_STATUS"
+      return 0
+    else
+      echo "$TOKEN_STATUS"
+    fi
+  fi
+  
+  # Token is expired or missing, refresh it
+  if [ -x "./refresh_local_token.sh" ]; then
+    ./refresh_local_token.sh --quiet
+    if [ $? -eq 0 ]; then
+      echo "✅ Frontend token refreshed successfully"
+      return 0
+    else
+      echo "⚠️  Failed to refresh frontend token, continuing anyway..."
+      return 1
+    fi
+  else
+    echo "⚠️  Token refresh script not found, skipping..."
+    return 1
+  fi
+}
+
 if command -v databricks >/dev/null 2>&1; then
   if ! check_auth; then
     echo "🔐 Not authenticated, logging in..."
@@ -73,8 +106,11 @@ if command -v databricks >/dev/null 2>&1; then
       databricks auth login
     fi
   else
-    echo "✅ Already authenticated"
+    echo "✅ Already authenticated with Databricks CLI"
   fi
+  
+  # Always try to refresh the frontend token
+  refresh_frontend_token
 else
   echo "⚠️  Databricks CLI not found, skipping authentication"
 fi
@@ -119,6 +155,13 @@ uv run watchmedo auto-restart \
 WATCHER_PID=$!
 echo "Watcher PID: $WATCHER_PID"
 
+# Start token monitor in background (only if not in production mode)
+if [ "$PROD_MODE" = false ] && [ -x "./scripts/monitor_token.sh" ]; then
+  ./scripts/monitor_token.sh &
+  MONITOR_PID=$!
+  echo "Token monitor PID: $MONITOR_PID"
+fi
+
 # Give everything time to start
 sleep 3
 
@@ -136,6 +179,9 @@ else
   echo "  Frontend PID: $FRONTEND_PID"
   echo "  Backend PID: $BACKEND_PID"
   echo "  Watcher PID: $WATCHER_PID"
+  if [ ! -z "$MONITOR_PID" ]; then
+    echo "  Token Monitor PID: $MONITOR_PID"
+  fi
   echo ""
   # Detect the actual frontend port (default 5173, or next available)
   FRONTEND_PORT=$(netstat -an | grep LISTEN | grep ':517[3-9]' | head -1 | sed 's/.*:\([0-9]*\).*/\1/' || echo "5173")
@@ -144,6 +190,9 @@ else
 fi
 echo "API Docs: http://localhost:8000/docs"
 echo ""
+if [ ! -z "$MONITOR_PID" ]; then
+  echo "🔐 Token monitor active - will auto-refresh before expiry"
+fi
 echo "📄 Logs: tail -f $LOG_FILE"
 echo "🛑 Stop: kill \$(cat $PID_FILE) or pkill -f watch.sh"
 echo ""
@@ -169,7 +218,7 @@ cleanup() {
   echo "🛑 Stopping servers..."
   
   # Kill each process tree we started
-  for pid in $FRONTEND_PID $BACKEND_PID $WATCHER_PID; do
+  for pid in $FRONTEND_PID $BACKEND_PID $WATCHER_PID $MONITOR_PID; do
     if [ ! -z "$pid" ] && ps -p "$pid" > /dev/null 2>&1; then
       echo "Killing process tree PID: $pid"
       kill_tree "$pid"
