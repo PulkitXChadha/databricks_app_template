@@ -319,14 +319,27 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
         
         {schemaResult?.status === 'FAILURE' && (
           <Alert severity="warning" className="mt-2">
-            Schema detection unavailable. Please consult model documentation for input format.
+            {schemaResult.error_message?.includes('Permission Denied') 
+              ? schemaResult.error_message
+              : 'Schema detection unavailable. Please consult model documentation for input format.'}
           </Alert>
         )}
         
         {schemaResult?.status === 'SUCCESS' && (
-          <Typography.Hint style={{ marginTop: "4px" }}>
-            Auto-detected {schemaResult.detected_type === 'FOUNDATION_MODEL' ? 'foundation model' : 'MLflow model'} schema. You can edit the JSON above.
-          </Typography.Hint>
+          <div style={{ marginTop: "4px" }}>
+            <Typography.Hint>
+              Auto-detected {schemaResult.detected_type === 'FOUNDATION_MODEL' ? 'foundation model' : 'MLflow model'} schema. You can edit the JSON above.
+            </Typography.Hint>
+            {schemaResult.detected_type === 'MLFLOW_MODEL' && schemaResult.schema && (
+              <Typography.Hint style={{ marginTop: "4px", color: "#0369a1" }}>
+                💡 Schema includes {
+                  schemaResult.schema.required?.length > 0 
+                    ? `required fields: ${schemaResult.schema.required.join(', ')}` 
+                    : 'no required fields'
+                }. All other fields are optional.
+              </Typography.Hint>
+            )}
+          </div>
         )}
         
         {!schemaResult && !schemaDetecting && (
@@ -357,12 +370,20 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
           variant="primary"
           onClick={handleInvoke}
           disabled={
-            invoking || !selectedEndpoint || currentEndpoint?.state !== "READY"
+            invoking || 
+            !selectedEndpoint || 
+            currentEndpoint?.state !== "READY" ||
+            (schemaResult?.status === 'FAILURE' && schemaResult?.error_message?.includes('Permission Denied'))
           }
           loading={invoking}
         >
           Invoke Model
         </Button>
+        {schemaResult?.status === 'FAILURE' && schemaResult?.error_message?.includes('Permission Denied') && (
+          <Typography.Hint style={{ marginTop: "4px", color: "#dc2626" }}>
+            You do not have permission to invoke this endpoint.
+          </Typography.Hint>
+        )}
       </div>
 
       {/* Invocation Error */}

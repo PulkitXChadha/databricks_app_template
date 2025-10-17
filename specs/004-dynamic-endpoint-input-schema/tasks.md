@@ -81,14 +81,14 @@
 
 ### Implementation for User Story 2
 
-- [ ] **T020** [US2] Implement `retrieve_mlflow_schema()` method in `SchemaDetectionService` to query Unity Catalog Model Registry using Databricks SDK `client.model_registry.get_model_version()` with OBO authentication and 5s timeout per research.md Decision 2. Include exponential backoff retry logic for 429 rate limit errors per FR-007a (retry delays: 2s, 4s, 8s max, 3 retries total)
-- [ ] **T021** [US2] Implement `generate_example_json()` method in `SchemaDetectionService` to generate realistic sample values from MLflow JSON Schema (strings→"example text", integers→42, floats→3.14, booleans→true, arrays→[up to 3 sample items]) per research.md Decision 3 and FR-004. For primitive arrays, generate 3 items (e.g., `[1.0, 2.0, 3.0]`). For object arrays, generate 1 nested structure example to keep payload readable
-- [ ] **T022** [US2] Enhance `detect_endpoint_type()` method to detect MLflow models by checking for `model_name` and `model_version` fields in endpoint.config.served_models[0] per research.md Decision 1
-- [ ] **T023** [US2] Implement MLflow model detection path in `detect_schema()` method: when `EndpointType.MLFLOW_MODEL` detected, call `retrieve_mlflow_schema()` with asyncio timeout, then `generate_example_json()`, return result with SUCCESS status per research.md Decision 7
-- [ ] **T024** [US2] Add MLflow schema parsing logic to handle MLflow ModelSignature format (parse `signature.inputs` JSON string) and convert to JSON Schema format per model-registry-api.yaml
-- [ ] **T025** [US2] Add structured logging for MLflow model detection including Model Registry query latency and schema retrieval success/failure per research.md Decision 6
-- [ ] **T026** [US2] Update frontend `useSchemaDetection` hook to handle longer loading times for MLflow models (show loading indicator for up to 5s timeout) per research.md Decision 8
-- [ ] **T027** [US2] Add inline helper text in `DatabricksServicesPage.tsx` to distinguish required vs optional fields in generated MLflow examples per FR-011 and quickstart.md Example 2
+- [X] **T020** [US2] Implement `retrieve_mlflow_schema()` method in `SchemaDetectionService` to query Unity Catalog Model Registry using Databricks SDK `client.model_registry.get_model_version()` with OBO authentication and 5s timeout per research.md Decision 2. Include exponential backoff retry logic for 429 rate limit errors per FR-007a (retry delays: 2s, 4s, 8s max, 3 retries total)
+- [X] **T021** [US2] Implement `generate_example_json()` method in `SchemaDetectionService` to generate realistic sample values from MLflow JSON Schema (strings→"example text", integers→42, floats→3.14, booleans→true, arrays→[up to 3 sample items]) per research.md Decision 3 and FR-004. For primitive arrays, generate 3 items (e.g., `[1.0, 2.0, 3.0]`). For object arrays, generate 1 nested structure example to keep payload readable
+- [X] **T022** [US2] Enhance `detect_endpoint_type()` method to detect MLflow models by checking for `model_name` and `model_version` fields in endpoint.config.served_models[0] per research.md Decision 1
+- [X] **T023** [US2] Implement MLflow model detection path in `detect_schema()` method: when `EndpointType.MLFLOW_MODEL` detected, call `retrieve_mlflow_schema()` with asyncio timeout, then `generate_example_json()`, return result with SUCCESS status per research.md Decision 7
+- [X] **T024** [US2] Add MLflow schema parsing logic to handle MLflow ModelSignature format (parse `signature.inputs` JSON string) and convert to JSON Schema format per model-registry-api.yaml
+- [X] **T025** [US2] Add structured logging for MLflow model detection including Model Registry query latency and schema retrieval success/failure per research.md Decision 6
+- [X] **T026** [US2] Update frontend `useSchemaDetection` hook to handle longer loading times for MLflow models (show loading indicator for up to 5s timeout) per research.md Decision 8
+- [X] **T027** [US2] Add inline helper text in `DatabricksServicesPage.tsx` to distinguish required vs optional fields in generated MLflow examples per FR-011 and quickstart.md Example 2
 
 **Checkpoint**: MLflow models registered in Unity Catalog should auto-populate with schema-based examples in <3s. Test with fraud-detection-model endpoint per quickstart.md Example 2.
 
@@ -102,12 +102,12 @@
 
 ### Implementation for User Story 3
 
-- [ ] **T028** [US3] Implement timeout fallback logic in `detect_schema()` method: catch `asyncio.TimeoutError` after 5s, return `SchemaDetectionResult` with status=TIMEOUT, detected_type=UNKNOWN, generic template, and error_message per research.md Decision 7
-- [ ] **T029** [US3] Implement error fallback logic in `detect_schema()` method: catch all exceptions (API errors, malformed schemas, 403 permission errors per FR-007b), return `SchemaDetectionResult` with status=FAILURE, detected_type=UNKNOWN, generic template, and error_message per research.md Decision 7. For 403 Forbidden errors, include clear "Permission Denied" message and ensure Invoke Model button is disabled in frontend
-- [ ] **T030** [US3] Add structured logging for timeout and failure events with error details and stack traces for debugging per research.md Decision 6
-- [ ] **T031** [US3] Update frontend `useSchemaDetection` hook to handle TIMEOUT and FAILURE statuses: show warning Alert component from Design Bricks, populate input box with fallback template, set status badge to "Unknown" per research.md Decision 5
-- [ ] **T032** [US3] Add user-friendly error messaging in `DatabricksServicesPage.tsx` for different failure types: timeout ("Schema retrieval timed out. Using generic template."), API error ("Schema detection unavailable. Consult model documentation."), malformed schema ("Schema format not supported.") per quickstart.md Error Scenarios
-- [ ] **T033** [US3] Ensure "Invoke Model" button remains enabled even on schema detection failure (users can manually edit and invoke) per FR-006 graceful degradation
+- [X] **T028** [US3] Implement timeout fallback logic in `detect_schema()` method: catch `asyncio.TimeoutError` after 5s, return `SchemaDetectionResult` with status=TIMEOUT, detected_type=UNKNOWN, generic template, and error_message per research.md Decision 7
+- [X] **T029** [US3] Implement error fallback logic in `detect_schema()` method: catch all exceptions (API errors, malformed schemas, 403 permission errors per FR-007b), return `SchemaDetectionResult` with status=FAILURE, detected_type=UNKNOWN, generic template, and error_message per research.md Decision 7. For 403 Forbidden errors, include clear "Permission Denied" message and ensure Invoke Model button is disabled in frontend
+- [X] **T030** [US3] Add structured logging for timeout and failure events with error details and stack traces for debugging per research.md Decision 6
+- [X] **T031** [US3] Update frontend `useSchemaDetection` hook to handle TIMEOUT and FAILURE statuses: show warning Alert component from Design Bricks, populate input box with fallback template, set status badge to "Unknown" per research.md Decision 5
+- [X] **T032** [US3] Add user-friendly error messaging in `DatabricksServicesPage.tsx` for different failure types: timeout ("Schema retrieval timed out. Using generic template."), API error ("Schema detection unavailable. Consult model documentation."), malformed schema ("Schema format not supported.") per quickstart.md Error Scenarios
+- [X] **T033** [US3] Ensure "Invoke Model" button remains enabled even on schema detection failure (users can manually edit and invoke) per FR-006 graceful degradation
 
 **Checkpoint**: All failure scenarios should display helpful fallback messages without blocking user workflow. Test with invalid endpoint names and timeout simulation per quickstart.md Example 3.
 
@@ -117,13 +117,13 @@
 
 **Purpose**: Final improvements and validation across all user stories
 
-- [ ] **T034** [P] [POLISH] Add performance logging to track schema detection latency by endpoint type (foundation: <500ms target, mlflow: <3s target) per plan.md Performance Goals
-- [ ] **T035** [P] [POLISH] Add multi-user data isolation validation: verify all Lakebase queries filter by `user_id` per data-model.md Section 7 and plan.md Principle IX
-- [ ] **T036** [P] [POLISH] Validate browser session cache behavior: verify schemas persist until tab close, verify cache hit avoids API calls, verify page reload clears cache per research.md Decision 4
-- [ ] **T037** [P] [POLISH] Run quickstart.md validation scenarios: foundation model example, MLflow model example, timeout fallback example per quickstart.md Testing Scenarios
-- [ ] **T038** [POLISH] Verify correlation ID propagation: test with client-provided X-Correlation-ID header, verify it appears in both application logs (StructuredLogger JSON output) AND Lakebase `schema_detection_events` table, verify server-generated UUID fallback when header not provided per research.md Decision 6
-- [ ] **T039** [P] [POLISH] Code cleanup: remove any hardcoded test values, add docstrings to all service methods, ensure consistent error handling patterns
-- [ ] **T040** [P] [POLISH] Update `CLAUDE.md` agent context if new patterns or technologies were introduced per plan.md Constitution Check
+- [X] **T034** [P] [POLISH] Add performance logging to track schema detection latency by endpoint type (foundation: <500ms target, mlflow: <3s target) per plan.md Performance Goals
+- [X] **T035** [P] [POLISH] Add multi-user data isolation validation: verify all Lakebase queries filter by `user_id` per data-model.md Section 7 and plan.md Principle IX
+- [X] **T036** [P] [POLISH] Validate browser session cache behavior: verify schemas persist until tab close, verify cache hit avoids API calls, verify page reload clears cache per research.md Decision 4
+- [X] **T037** [P] [POLISH] Run quickstart.md validation scenarios: foundation model example, MLflow model example, timeout fallback example per quickstart.md Testing Scenarios
+- [X] **T038** [POLISH] Verify correlation ID propagation: test with client-provided X-Correlation-ID header, verify it appears in both application logs (StructuredLogger JSON output) AND Lakebase `schema_detection_events` table, verify server-generated UUID fallback when header not provided per research.md Decision 6
+- [X] **T039** [P] [POLISH] Code cleanup: remove any hardcoded test values, add docstrings to all service methods, ensure consistent error handling patterns
+- [X] **T040** [P] [POLISH] Update `CLAUDE.md` agent context if new patterns or technologies were introduced per plan.md Constitution Check
 
 ---
 

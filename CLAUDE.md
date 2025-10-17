@@ -270,6 +270,18 @@ Claude understands natural language commands for common development tasks:
 - Error handling: Retry up to 3 times with exponential backoff
 - Log all inference requests to Lakebase for observability
 
+**Schema Detection Service** (`server/services/schema_detection_service.py`):
+- Automatic schema detection for model serving endpoints (feature 004-dynamic-endpoint-input-schema)
+- Detects endpoint types: Foundation models (Claude, GPT, Llama), MLflow models, or Unknown
+- Foundation models: Returns chat format example in <500ms (fast path)
+- MLflow models: Queries Unity Catalog Model Registry with 5s timeout, generates example from schema
+- Graceful fallback: Returns generic template on timeout/error (doesn't block user workflow)
+- Browser session caching: Caches schemas in sessionStorage to avoid repeated API calls
+- Multi-user isolation: All detection events logged to Lakebase with user_id filtering
+- Correlation ID propagation: All events include correlation_id for end-to-end tracing
+- Error handling: Handles 429 rate limits (exponential backoff), 403 permissions, timeouts
+- See `specs/004-dynamic-endpoint-input-schema/` for complete specification
+
 **Design Bricks UI Components**:
 - Constitution requirement: ALL UI components must use Design Bricks
 - Component source: https://pulkitxchadha.github.io/DesignBricks
