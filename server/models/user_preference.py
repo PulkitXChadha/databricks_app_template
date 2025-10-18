@@ -3,6 +3,7 @@
 Represents user-specific application state and preferences stored in Lakebase.
 """
 
+import os
 from sqlalchemy import Column, Integer, String, JSON, DateTime, Index, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 from datetime import datetime
@@ -37,11 +38,20 @@ class UserPreference(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
-    __table_args__ = (
-        UniqueConstraint('user_id', 'preference_key', name='uq_user_preference'),
-        Index('idx_user_preferences_user_id', 'user_id'),
-        {'schema': 'public'}
-    )
+    # Conditionally set schema based on environment
+    # SQLite (used in tests) doesn't support schemas, Postgres does
+    _use_schema = os.getenv('USE_DB_SCHEMA', 'true').lower() == 'true'
+    if _use_schema:
+        __table_args__ = (
+            UniqueConstraint('user_id', 'preference_key', name='uq_user_preference'),
+            Index('idx_user_preferences_user_id', 'user_id'),
+            {'schema': 'public'}
+        )
+    else:
+        __table_args__ = (
+            UniqueConstraint('user_id', 'preference_key', name='uq_user_preference'),
+            Index('idx_user_preferences_user_id', 'user_id'),
+        )
     
     def __repr__(self) -> str:
         return (

@@ -230,6 +230,46 @@ def mock_user_identity_b():
 
 
 # ============================================================================
+# Test User Identity Fixtures (Session-Scoped for Integration Tests)
+# ============================================================================
+
+@pytest.fixture(scope="session")
+def test_user_a():
+    """Test User A identity (session-scoped).
+    
+    Provides consistent test user data across integration tests.
+    Used for multi-user isolation testing.
+    
+    Returns:
+        dict: User identity with user_id, display_name, token, active
+    """
+    return {
+        "user_id": "test-user-a@example.com",
+        "display_name": "Test User A",
+        "token": "mock-token-user-a",
+        "active": True
+    }
+
+
+@pytest.fixture(scope="session")
+def test_user_b():
+    """Test User B identity (session-scoped).
+    
+    Provides consistent test user data across integration tests.
+    Used for multi-user isolation testing.
+    
+    Returns:
+        dict: User identity with user_id, display_name, token, active
+    """
+    return {
+        "user_id": "test-user-b@example.com",
+        "display_name": "Test User B",
+        "token": "mock-token-user-b",
+        "active": True
+    }
+
+
+# ============================================================================
 # Authentication Token Fixtures
 # ============================================================================
 

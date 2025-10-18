@@ -38,6 +38,7 @@ dev = [
     "pytest-xdist>=3.5.0",  # Parallel test execution
     "pytest-timeout>=2.2.0",  # Prevent hanging tests
     "pytest-mock>=3.12.0",  # Cleaner mock syntax
+    "pytest-cov>=4.1.0",  # Coverage measurement and reporting
     "httpx>=0.25.0",
 ]
 
@@ -144,9 +145,23 @@ markers = [
     "unit: marks tests as unit tests",
     "requires_server: tests that need a running server",
     "asyncio: marks tests as async",
+    "manual: marks tests as manual tests (require human interaction)",
+    "timeout: marks tests with timeout requirements",
 ]
 # Async mode for pytest-asyncio
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["server/routers", "server/services"]
+omit = ["*/tests/*", "*/__pycache__/*", "*/migrations/*"]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+
+[tool.coverage.html]
+directory = "htmlcov"
 
 [dependency-groups]
 dev = [
