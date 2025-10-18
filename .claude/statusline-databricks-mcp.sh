@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Databricks MCP Project Status Line  
+# Databricks App Template Status Line
 # Enhanced multi-line statusline with Claude Code integration showing:
 # Line 1: Model, prompt, directory, git, services, processes, conversation, session metrics, system info
 # Line 2: Last prompt text with thought bubble emoji (💭) - truncated to 100 chars if needed
@@ -9,9 +9,10 @@
 # - Model name with robot emoji (🤖)
 # - Current prompt with clipboard emoji (📋) if active
 # - Project directory with folder emoji (📁)
-# - Git branch with plant emoji (🌿) + status indicators (* uncommitted, + untracked)
-# - Service status: DB (Databricks), MCP (endpoint health), BE (backend), FE (frontend)
-# - Active processes: 🧪 (testing), 🚀 (deployment)
+# - Git branch with plant emoji (🌿) + status indicators (* uncommitted, + untracked, ⚡ feature branch)
+# - Service status: DB (Databricks connection), MCP (servers), BE (FastAPI), FE (Vite), TS (TypeScript client)
+# - Active processes: 🧪 (testing), 🚀 (deployment), 📦 (building)
+# - Development indicators: ✅ (tests passing), ❌ (tests failing), 🔄 (watch mode)
 # - Conversation context: 💬 (message count if reasonable)
 # - Session metrics: 🧮 (token usage in K format), 💰 (estimated cost), ⏱️ (session duration)
 # - System info: hostname and current time
@@ -167,13 +168,32 @@ if [ "$total_tokens" -gt 0 ]; then
 fi
 
 # Project-specific information
-project_name="awesome-databricks-mcp"
+# Detect project name from git remote or directory name
+project_name=""
+if git rev-parse --git-dir > /dev/null 2>&1; then
+    # Try to get from git remote
+    project_name=$(git remote get-url origin 2>/dev/null | sed 's|.*/||' | sed 's|\.git$||')
+fi
+if [ -z "$project_name" ] || [ "$project_name" = "null" ]; then
+    # Fallback to directory name
+    project_name=$(basename "$project_dir")
+fi
+if [ -z "$project_name" ]; then
+    project_name="databricks-app"
+fi
 
 # Git information (if in git repo)
 git_branch=""
 git_status=""
+feature_branch=""
 if git rev-parse --git-dir > /dev/null 2>&1; then
     git_branch=$(git branch --show-current 2>/dev/null || echo "detached")
+
+    # Check if it's a feature branch (contains numbers and hyphens, like 005-write-integration-test)
+    if [[ "$git_branch" =~ ^[0-9]+-.*$ ]]; then
+        feature_branch="⚡"
+    fi
+
     # Check if there are uncommitted changes
     if ! git diff-index --quiet HEAD -- 2>/dev/null; then
         git_status="*"
@@ -184,38 +204,107 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
     fi
 fi
 
-# Databricks connection status (check if env vars are set)
+# Databricks connection status
 databricks_status="❌"
 if [ -n "$DATABRICKS_HOST" ] && [ -n "$DATABRICKS_TOKEN" ]; then
-    databricks_status="🟢"
+    # Try to validate the connection with a quick API call
+    if databricks current-user me > /dev/null 2>&1; then
+        databricks_status="🟢"
+    else
+        databricks_status="🟡"  # Env vars set but connection failed
+    fi
 elif [ -f ".env.local" ] && grep -q "DATABRICKS_HOST" ".env.local"; then
-    databricks_status="🟡"
+    databricks_status="🔧"  # Config exists but not loaded
 fi
 
-# Development server status (check if ports are in use)
+# Development server status with more specific checks
 backend_status="❌"
 frontend_status="❌"
 mcp_status="❌"
+ts_client_status="❌"
+watch_mode=""
+
+# Backend/FastAPI status
 if lsof -i:8000 > /dev/null 2>&1; then
-    backend_status="🟢"
-    # Check if MCP endpoint is responding
-    if curl -s -f http://localhost:8000/mcp/ > /dev/null 2>&1; then
-        mcp_status="🟢"
+    # Check if FastAPI is actually responding
+    if curl -s -f http://localhost:8000/health > /dev/null 2>&1; then
+        backend_status="🟢"
     else
-        mcp_status="🟡"
+        backend_status="🟡"  # Port in use but not responding
     fi
 fi
+
+# Frontend/Vite status
 if lsof -i:5173 > /dev/null 2>&1; then
     frontend_status="🟢"
 fi
 
-# Check for active testing or deployment
+# MCP server status - check for running MCP servers
+if pgrep -f "mcp.*server" > /dev/null 2>&1 || pgrep -f "playwright.*mcp" > /dev/null 2>&1; then
+    mcp_status="🟢"
+elif [ -d ".claude/mcp-servers" ] && [ "$(ls -A .claude/mcp-servers 2>/dev/null)" ]; then
+    mcp_status="🟡"  # Servers configured but not running
+fi
+
+# TypeScript client generation status
+if [ -f "client/src/fastapi_client/client.ts" ]; then
+    # Check if client is up-to-date with backend
+    client_mtime=$(stat -f %m "client/src/fastapi_client/client.ts" 2>/dev/null || stat -c %Y "client/src/fastapi_client/client.ts" 2>/dev/null)
+    backend_mtime=$(find server -name "*.py" -type f -exec stat -f %m {} \; 2>/dev/null | sort -n | tail -1)
+    if [ -z "$backend_mtime" ]; then
+        backend_mtime=$(find server -name "*.py" -type f -exec stat -c %Y {} \; 2>/dev/null | sort -n | tail -1)
+    fi
+
+    if [ -n "$client_mtime" ] && [ -n "$backend_mtime" ]; then
+        if [ "$client_mtime" -ge "$backend_mtime" ]; then
+            ts_client_status="🟢"
+        else
+            ts_client_status="🟡"  # Client outdated
+        fi
+    else
+        ts_client_status="🟢"  # Can't determine, assume OK
+    fi
+fi
+
+# Check if watch.sh is running
+if pgrep -f "watch.sh" > /dev/null 2>&1; then
+    watch_mode="🔄"
+fi
+
+# Check for active processes
 testing_status=""
+build_status=""
+deploy_status=""
+
+# Testing status - more specific
 if pgrep -f "pytest" > /dev/null 2>&1; then
     testing_status="🧪"
+elif [ -f ".pytest_cache/lastfailed" ] && [ -s ".pytest_cache/lastfailed" ]; then
+    # Check if last test run had failures
+    if grep -q "\"" ".pytest_cache/lastfailed" 2>/dev/null; then
+        testing_status="❌"  # Tests failed
+    fi
+elif [ -d ".pytest_cache" ]; then
+    testing_status="✅"  # Tests passed (no failures in cache)
 fi
-if pgrep -f "databricks.*deploy" > /dev/null 2>&1; then
-    testing_status="${testing_status}🚀"
+
+# Build status
+if pgrep -f "bun.*build" > /dev/null 2>&1 || pgrep -f "uv.*build" > /dev/null 2>&1; then
+    build_status="📦"
+fi
+
+# Deployment status
+if pgrep -f "databricks.*deploy" > /dev/null 2>&1 || pgrep -f "deploy.sh" > /dev/null 2>&1; then
+    deploy_status="🚀"
+fi
+
+# Check for deployed app (if app.yaml exists)
+deployed_app_status=""
+if [ -f "app.yaml" ]; then
+    # Check if app URL exists in status
+    if [ -f ".databricks_app_url" ]; then
+        deployed_app_status="☁️"  # App deployed
+    fi
 fi
 
 # Directory context - show relative path if we're in the project
@@ -237,15 +326,43 @@ fi
 # Directory and git context
 printf "\033[1;34m📁%s\033[0m " "$display_dir"
 if [ -n "$git_branch" ]; then
-    printf "\033[1;32m🌿%s%s\033[0m " "$git_branch" "$git_status"
+    printf "\033[1;32m🌿%s%s%s\033[0m " "$git_branch" "$git_status" "$feature_branch"
 fi
 
 # Service status with visual indicators
-printf "| DB:%s MCP:%s BE:%s FE:%s " "$databricks_status" "$mcp_status" "$backend_status" "$frontend_status"
+printf "| DB:%s BE:%s FE:%s" "$databricks_status" "$backend_status" "$frontend_status"
 
-# Active processes
+# Additional development status
+if [ "$ts_client_status" != "❌" ]; then
+    printf " TS:%s" "$ts_client_status"
+fi
+if [ "$mcp_status" != "❌" ]; then
+    printf " MCP:%s" "$mcp_status"
+fi
+
+# Development mode indicators
+if [ -n "$watch_mode" ]; then
+    printf " %s" "$watch_mode"
+fi
+
+printf " "
+
+# Active processes and test status
+process_indicators=""
 if [ -n "$testing_status" ]; then
-    printf "%s " "$testing_status"
+    process_indicators="${process_indicators}${testing_status} "
+fi
+if [ -n "$build_status" ]; then
+    process_indicators="${process_indicators}${build_status} "
+fi
+if [ -n "$deploy_status" ]; then
+    process_indicators="${process_indicators}${deploy_status} "
+fi
+if [ -n "$deployed_app_status" ]; then
+    process_indicators="${process_indicators}${deployed_app_status} "
+fi
+if [ -n "$process_indicators" ]; then
+    printf "| %s" "$process_indicators"
 fi
 
 # Conversation context (if meaningful)
