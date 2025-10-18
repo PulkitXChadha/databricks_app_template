@@ -1,0 +1,235 @@
+# Coverage Targets Contract: Integration Test Coverage Requirements
+#
+# This contract defines the minimum line and branch coverage requirements
+# for integration tests targeting routers and services.
+#
+# Feature: 005-write-integration-test
+# Success Criterion: SC-001 (90% line/branch coverage in routers/services)
+
+---
+version: "1.0"
+coverage_policy:
+  minimum_line_coverage: 90.0  # Percentage (SC-001 requirement)
+  minimum_branch_coverage: 90.0  # Percentage (SC-001 requirement)
+  fail_under: 90.0  # pytest-cov --cov-fail-under threshold
+
+target_directories:
+  # Primary targets for integration test coverage
+  - path: "server/routers/"
+    description: "FastAPI API endpoints (Lakebase, Unity Catalog, Model Serving, User)"
+    required_coverage: 90.0
+    test_files:
+      - "tests/integration/test_lakebase_full_flow.py"
+      - "tests/integration/test_unity_catalog_full_flow.py"
+      - "tests/integration/test_model_serving_full_flow.py"
+      - "tests/integration/test_cross_service_workflows.py"
+    modules:
+      - name: "server/routers/lakebase.py"
+        minimum_coverage: 90.0
+        critical_paths:
+          - "GET /api/lakebase/preferences"
+          - "POST /api/lakebase/preferences"
+          - "DELETE /api/lakebase/preferences/{preference_key}"
+        edge_cases:
+          - "Lakebase not configured (503)"
+          - "Invalid preference key format (400)"
+          - "User data isolation (200 with filtered results)"
+      
+      - name: "server/routers/unity_catalog.py"
+        minimum_coverage: 90.0
+        critical_paths:
+          - "GET /api/unity-catalog/catalogs"
+          - "GET /api/unity-catalog/schemas"
+          - "GET /api/unity-catalog/table-names"
+          - "GET /api/unity-catalog/tables"
+          - "GET /api/unity-catalog/query"
+          - "POST /api/unity-catalog/query"
+        edge_cases:
+          - "User lacks catalog permissions (403)"
+          - "Non-existent table (404)"
+          - "Invalid pagination parameters (400)"
+          - "Table not found (404)"
+      
+      - name: "server/routers/model_serving.py"
+        minimum_coverage: 90.0
+        critical_paths:
+          - "GET /api/model-serving/endpoints"
+          - "GET /api/model-serving/endpoints/{endpoint_name}"
+          - "GET /api/model-serving/endpoints/{endpoint_name}/schema"
+          - "POST /api/model-serving/invoke"
+          - "GET /api/model-serving/logs"
+        edge_cases:
+          - "Endpoint not found (404)"
+          - "Model timeout (503)"
+          - "Invalid input format (400)"
+          - "Lakebase not configured for logs (503)"
+          - "User data isolation in logs (200 with filtered results)"
+      
+      - name: "server/routers/user.py"
+        minimum_coverage: 90.0
+        critical_paths:
+          - "GET /api/user/me"
+          - "GET /api/user/me/workspace"
+        edge_cases:
+          - "Invalid token (401)"
+          - "Token missing (401)"
+  
+  - path: "server/services/"
+    description: "Business logic layer (Lakebase, Unity Catalog, Model Serving, Schema Detection, User)"
+    required_coverage: 90.0
+    test_files:
+      - "tests/integration/test_lakebase_full_flow.py"
+      - "tests/integration/test_unity_catalog_full_flow.py"
+      - "tests/integration/test_model_serving_full_flow.py"
+      - "tests/integration/test_cross_service_workflows.py"
+      - "tests/integration/test_error_recovery.py"
+    modules:
+      - name: "server/services/lakebase_service.py"
+        minimum_coverage: 90.0
+        critical_operations:
+          - "get_preferences(user_id) with user_id filtering"
+          - "save_preference(user_id, key, value) with user_id injection"
+          - "delete_preference(user_id, key) with user_id filtering"
+          - "Database connection handling"
+          - "Error handling for database unavailable"
+      
+      - name: "server/services/unity_catalog_service.py"
+        minimum_coverage: 90.0
+        critical_operations:
+          - "list_catalogs(user_token) with OBO authentication"
+          - "list_schemas(catalog, user_token)"
+          - "list_table_names(catalog, schema, user_token)"
+          - "list_tables(catalog, schema, user_token)"
+          - "query_table(table, limit, offset, user_token)"
+          - "Permission error handling (403)"
+          - "Table not found handling (404)"
+      
+      - name: "server/services/model_serving_service.py"
+        minimum_coverage: 90.0
+        critical_operations:
+          - "list_endpoints(user_token)"
+          - "get_endpoint(endpoint_name, user_token)"
+          - "invoke_model(endpoint_name, payload, user_token)"
+          - "get_inference_logs(user_id, limit, offset)"
+          - "log_inference(user_id, endpoint_name, request, response, status)"
+          - "Model timeout handling (503)"
+          - "Invalid input handling (400)"
+      
+      - name: "server/services/schema_detection_service.py"
+        minimum_coverage: 90.0
+        critical_operations:
+          - "detect_schema(endpoint_name, user_token)"
+          - "Chat format detection (Foundation Model API)"
+          - "MLflow schema detection (Model Registry API)"
+          - "Fallback to unknown type"
+          - "Example JSON generation"
+          - "Schema caching"
+      
+      - name: "server/services/user_service.py"
+        minimum_coverage: 90.0
+        critical_operations:
+          - "get_user_info(user_token)"
+          - "get_user_id(user_token)"
+          - "User identity extraction from WorkspaceClient"
+          - "Authentication error handling (401)"
+          - "Circuit breaker behavior"
+
+excluded_paths:
+  # Paths excluded from coverage requirements
+  - "server/lib/*"  # Library code covered by unit tests
+  - "server/models/*"  # Data models covered by contract tests
+  - "server/make_openapi.py"  # Script, not runtime code
+  - "tests/*"  # Test code itself
+  - "migrations/*"  # Database migrations
+  - "scripts/*"  # Utility scripts
+
+coverage_reports:
+  # Report formats and destinations
+  terminal:
+    enabled: true
+    show_missing: true
+    precision: 2
+  
+  html:
+    enabled: true
+    directory: "htmlcov"
+    title: "Integration Test Coverage Report"
+  
+  xml:
+    enabled: true
+    output: "coverage.xml"
+    # For CI/CD integration (GitHub Actions, Codecov, etc.)
+
+test_execution:
+  # Commands for running tests with coverage
+  local_development:
+    command: "pytest tests/integration/ --cov=server/routers --cov=server/services --cov-report=term --cov-report=html"
+    description: "Run integration tests locally with terminal and HTML coverage reports"
+  
+  ci_cd:
+    command: "pytest tests/integration/ --cov=server/routers --cov=server/services --cov-report=xml --cov-fail-under=90"
+    description: "Run integration tests in CI/CD with XML coverage report and 90% threshold"
+    fail_on_coverage_below: 90.0
+  
+  full_suite:
+    command: "pytest --cov=server/routers --cov=server/services --cov-report=term --cov-report=html --cov-report=xml"
+    description: "Run all tests (contract + integration + unit) with full coverage"
+
+performance_constraints:
+  # SC-003: Integration test suite executes completely in under 5 minutes
+  maximum_suite_duration_seconds: 300  # 5 minutes
+  individual_test_timeout: null  # No individual test timeouts (per spec clarification)
+  parallel_execution:
+    enabled: false  # Can be enabled with pytest-xdist (-n auto)
+    max_workers: null  # Auto-detect CPU count
+
+validation_gates:
+  # Deployment gates (Constitution Principle III, XII)
+  pre_deployment:
+    - check: "coverage_threshold"
+      threshold: 90.0
+      blocking: true
+      description: "Line and branch coverage must be >= 90% in routers/services"
+    
+    - check: "all_tests_pass"
+      blocking: true
+      description: "All integration tests must pass (no failures, no skips)"
+    
+    - check: "suite_duration"
+      max_duration: 300  # 5 minutes (SC-003)
+      blocking: false  # Warning only, not blocking
+      description: "Integration test suite should complete in under 5 minutes"
+  
+  post_deployment:
+    - check: "smoke_tests"
+      blocking: false
+      description: "Run smoke tests against deployed app to verify endpoints"
+
+success_criteria:
+  # From spec.md Success Criteria section
+  - id: "SC-001"
+    description: "Integration test coverage reaches at least 90% line/branch coverage in router and service files"
+    measurement: "pytest-cov report"
+    target: 90.0
+    status: "IN_PROGRESS"
+  
+  - id: "SC-003"
+    description: "Integration test suite executes completely in under 5 minutes in CI/CD pipeline"
+    measurement: "pytest duration"
+    target: 300  # seconds
+    status: "IN_PROGRESS"
+  
+  - id: "SC-005"
+    description: "All error scenarios (400, 401, 403, 404, 503 responses) have corresponding integration tests"
+    measurement: "Manual test review"
+    target: "100%"
+    status: "IN_PROGRESS"
+
+notes:
+  - "Coverage targets are minimum requirements, not ceilings"
+  - "100% coverage is not required - focus on critical paths and edge cases"
+  - "Trivial code (getters, simple properties) may be excluded from coverage"
+  - "Mock-by-default pattern ensures tests run fast and without external dependencies"
+  - "Optional live mode (TEST_MODE=live) enables end-to-end validation against real workspace"
+  - "Per-test database cleanup ensures test isolation without transaction rollbacks"
+
