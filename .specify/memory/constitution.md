@@ -1,23 +1,27 @@
 <!--
 Sync Impact Report:
-Version: 1.0.0 → 1.1.0 (MINOR bump - new principles added)
+Version: 1.2.0 → 1.3.0 (MINOR bump - new principles and workflow sections added)
 Changes:
-  - Added Principle VIII: Observability First (structured logging, correlation IDs, metrics)
-  - Added Principle IX: Multi-User Data Isolation (security patterns for multi-tenant scenarios)
-  - Enhanced Principle III: Asset Bundle Deployment with validation requirements (EC-005 compliance)
-  - Expanded Security & Authentication with dual authentication patterns (service principal + on-behalf-of-user per FR-009)
-  - Enhanced Testing Philosophy with contract testing requirements
-  - Clarified Development Tooling Standards with specific version requirements
+  - Added Principle X: Specification-First Development (NON-NEGOTIABLE) - mandates specs/ directory structure
+  - Added Principle XI: Iterative Refinement Over Perfect First Attempts - embraces evolutionary architecture
+  - Enhanced Principle III: Asset Bundle Deployment with CI/CD validation gates
+  - Enhanced Principle IV: Type Safety with mandatory contract testing before implementation
+  - Enhanced Principle V: Model Serving with automatic schema detection requirements
+  - Enhanced Principle VIII: Observability with feature-level event logging and retention policies
+  - Added Feature Development Workflow section with numbered branch pattern
+  - Added Breaking Changes and Migration governance section
+  - Updated Security & Authentication to reflect OBO-only evolution (branch 003)
 Templates Status:
-  ⚠ plan-template.md - Needs review for new observability and data isolation principles
-  ⚠ spec-template.md - Needs review for authentication patterns and observability requirements
-  ⚠ tasks-template.md - Needs review for contract testing and observability task categories
+  ⚠ plan-template.md - Needs review for specification-first workflow and contract testing
+  ⚠ spec-template.md - Needs review for schema detection patterns and breaking change documentation
+  ⚠ tasks-template.md - Needs review for iterative refinement phases and validation gates
   ✅ CLAUDE.md - Will be auto-updated by update-agent-context.sh script
 Follow-up TODOs:
-  - Review and update plan-template.md for Principles VIII and IX
-  - Review and update spec-template.md for dual authentication patterns
-  - Review and update tasks-template.md for contract testing phase
-  - Validate templates align with enhanced constitution requirements
+  - Update templates to reflect specification-first development workflow (Principle X)
+  - Document iterative refinement patterns in plan-template.md (Principle XI)
+  - Add contract testing phase to tasks-template.md (Principle IV enhancement)
+  - Create breaking-changes-template.md for migration documentation
+  - Validate all templates align with enhanced constitution requirements
 -->
 
 # Databricks React App Template Constitution
@@ -50,7 +54,7 @@ All persistent data operations MUST use Lakebase (Postgres hosted in Databricks)
 **Rationale:** Lakebase provides integrated, secure, transactional storage within the Databricks platform, eliminating external dependencies.
 
 ### III. Asset Bundle Deployment (NON-NEGOTIABLE)
-All deployments MUST be managed through Databricks Asset Bundles.
+All deployments MUST be managed through Databricks Asset Bundles with validation gates.
 
 **Rules:**
 - `databricks.yml` configuration at repository root
@@ -60,22 +64,30 @@ All deployments MUST be managed through Databricks Asset Bundles.
 - No manual workspace file uploads or ad-hoc deployments
 - **MUST validate bundles** before deployment with `databricks bundle validate` (exit code 1 on validation errors)
 - Invalid bundle configurations MUST NOT be deployed
+- **CI/CD Integration**: Validation MUST run in CI/CD pipeline as deployment gate
+- **Pre-deployment Checklist**: Run validation locally before pushing changes
+- All bundle validation errors MUST be resolved before merge to main
 
-**Rationale:** Asset Bundles ensure reproducible, version-controlled, auditable deployments aligned with Databricks platform best practices.
+**Rationale:** Asset Bundles ensure reproducible, version-controlled, auditable deployments aligned with Databricks platform best practices. Validation gates prevent deployment of broken configurations (EC-005 edge cases from spec 001).
 
 ### IV. Type Safety Throughout
-Full type coverage MUST be maintained across Python backend and TypeScript frontend.
+Full type coverage MUST be maintained across Python backend and TypeScript frontend with contract testing as deployment gate.
 
 **Rules:**
 - Python: Type hints on all functions, Pydantic models for validation
 - TypeScript: Strict mode enabled, no `any` types without justification
 - Auto-generated TypeScript client from FastAPI OpenAPI spec
 - Type checking in CI/CD pipeline (ruff, ty for Python; tsc for TypeScript)
+- **Contract Testing (TDD)**: Generate contract tests from OpenAPI specs BEFORE implementation
+- **Test Organization**: One test file per router in `tests/contract/` (e.g., `test_lakebase_contract.py`)
+- **Red-Green-Refactor**: Contract tests MUST fail initially, pass after implementation
+- **Deployment Gate**: All contract tests MUST pass before deployment
+- Contract tests validate request/response schemas, status codes, and error formats
 
-**Rationale:** Type safety prevents runtime errors, improves developer experience, and enables reliable refactoring.
+**Rationale:** Type safety prevents runtime errors, improves developer experience, and enables reliable refactoring. Contract testing ensures API implementation matches specifications before deployment, catching breaking changes early.
 
 ### V. Model Serving Integration
-Applications MUST be ready to integrate with Databricks Model Serving endpoints.
+Applications MUST be ready to integrate with Databricks Model Serving endpoints with automatic schema detection.
 
 **Rules:**
 - Service layer abstractions for model inference calls
@@ -87,8 +99,12 @@ Applications MUST be ready to integrate with Databricks Model Serving endpoints.
 - Retry logic with exponential backoff for transient errors
 - **Inference logging**: All model inference requests MUST be logged to Lakebase with request/response details for auditability and debugging
 - **History UI**: Applications SHOULD provide user-facing history views for tracking inference requests with pagination and filtering
+- **Schema Detection**: Automatically detect model input schemas for foundation models (chat format) and MLflow models (Model Registry API)
+- **Example Generation**: Generate realistic example JSON payloads based on detected schemas
+- **Graceful Fallback**: Fall back to generic templates with clear guidance when schema detection fails
+- **Schema Caching**: Cache successfully retrieved schemas in browser session to avoid repeated API calls
 
-**Rationale:** Model serving is core to Databricks AI/ML capabilities; apps should leverage platform-native inference infrastructure. Comprehensive logging enables auditability, debugging, and usage tracking.
+**Rationale:** Model serving is core to Databricks AI/ML capabilities; apps should leverage platform-native inference infrastructure. Automatic schema detection reduces input errors and improves user experience (spec 004). Comprehensive logging enables auditability, debugging, and usage tracking.
 
 ### VI. Auto-Generated API Clients
 API clients MUST be automatically generated from OpenAPI specifications.
@@ -117,7 +133,7 @@ Modern, fast development tools MUST be used for optimal developer experience.
 **Rationale:** Fast tools accelerate iteration; standardization reduces cognitive load and onboarding friction.
 
 ### VIII. Observability First
-Applications MUST implement comprehensive observability from the start using structured logging, correlation IDs, and metrics.
+Applications MUST implement comprehensive observability from the start using structured logging, correlation IDs, and metrics with defined retention policies.
 
 **Rules:**
 - **Structured Logging**: All logs in JSON format with timestamp, log level, message, module, function
@@ -128,8 +144,11 @@ Applications MUST implement comprehensive observability from the start using str
 - **Sensitive Data Protection**: Never log tokens, passwords, or PII
 - **Performance Tracking**: Log execution time for all API calls, database queries, and model inferences
 - **Simplified Tracing**: Use correlation-ID based request tracking (not full OpenTelemetry for templates)
+- **Feature-Level Events**: Log feature-specific operations (schema detection, catalog queries, user interactions) with correlation IDs for debugging
+- **Retention Policy**: 7 days raw metrics/logs, 90 days aggregated data for compliance and audit requirements (spec 002)
+- **User Isolation Logging**: Include user_id in all logs for audit trail and data isolation verification
 
-**Rationale:** Observability is essential for debugging production issues, monitoring performance, and understanding user behavior. Structured logs enable automated analysis and alerting.
+**Rationale:** Observability is essential for debugging production issues, monitoring performance, and understanding user behavior. Structured logs enable automated analysis and alerting. Feature-level logging supports debugging complex user interactions beyond infrastructure events.
 
 ### IX. Multi-User Data Isolation
 Applications MUST implement comprehensive data isolation for multi-user scenarios using Unity Catalog access control and Lakebase row-level security.
@@ -144,6 +163,34 @@ Applications MUST implement comprehensive data isolation for multi-user scenario
 
 **Rationale:** Multi-user applications require strong data isolation to prevent unauthorized access and meet security/compliance requirements.
 
+### X. Specification-First Development (NON-NEGOTIABLE)
+All features MUST have comprehensive specifications written and approved before implementation begins.
+
+**Rules:**
+- Every feature has a specification document in `specs/###-feature-name/` directory structure
+- Specifications MUST include: problem statement, clarifications (Q&A format), user stories with acceptance criteria, functional requirements (FR-###), edge cases, and success metrics
+- Use numbered feature branches matching spec directories (e.g., `001-databricks-integrations`, `002-fix-api-authentication`)
+- No implementation without approved specification (exceptions: bug fixes <10 lines, documentation updates, minor refactoring)
+- Specifications are living documents - update during implementation as understanding deepens
+- Each spec MUST document what is explicitly OUT OF SCOPE to prevent scope creep
+- Clarifications section documents all Q&A from design discussions with dates
+
+**Rationale:** Specification-first development prevents scope creep, ensures clear acceptance criteria, documents decision rationale, and provides historical context. The git history (branches 001-004) demonstrates this pattern consistently delivers high-quality features with clear requirements.
+
+### XI. Iterative Refinement Over Perfect First Attempts
+Complex solutions are acceptable as first implementations; breaking changes that improve architecture are encouraged.
+
+**Rules:**
+- First implementations may be complex - focus on learning and validating requirements
+- Refactoring to remove complexity is planned work, not technical debt
+- Breaking changes are permitted when they improve security, usability, or maintainability
+- Each iteration should target one quality attribute improvement (security, UX, performance, simplicity)
+- Document breaking changes in specification with clear justification
+- Backward compatibility is NOT always required if breaking changes are justified
+- "Build then simplify" is preferred over "analyze forever then build perfectly"
+
+**Rationale:** Real-world usage reveals better solutions than upfront analysis. Branch evolution (002→003 removing service principal fallback after learning OBO-only was sufficient) demonstrates that building, learning, then simplifying produces better architecture than attempting perfection initially.
+
 ## Security & Authentication
 
 ### Databricks Platform Authentication
@@ -156,27 +203,30 @@ Applications MUST use Databricks Apps built-in authentication (via Databricks SD
 - Token refresh handling for long-running sessions
 - User info retrieval via Databricks SDK APIs (`WorkspaceClient.current_user.me()`)
 
-### Dual Authentication Patterns (NON-NEGOTIABLE)
-Applications MUST implement two distinct authentication patterns based on operation type.
+### On-Behalf-Of-User Authentication (NON-NEGOTIABLE)
+Applications MUST use On-Behalf-Of-User (OBO) authentication for all user-initiated operations.
 
-**Pattern A: Service Principal Authentication (App-Level Authorization)**
-- Use Service Principal for shared/system-level operations
-- Examples: health checks, system-level queries, batch operations
-- Configuration: `DATABRICKS_APP_SERVICE_PRINCIPAL_*` environment variables
-- No user context required
+**Evolution Note:** This project initially supported dual authentication patterns (service principal + OBO) but evolved to OBO-only in branch 003 for stronger security guarantees and simpler architecture.
 
-**Pattern B: On-Behalf-Of-User Authentication (User-Level Authorization)**
-- Use On-Behalf-Of-User authorization for user-specific data access
-- Examples: querying Unity Catalog with user's permissions, saving user preferences
+**Rules:**
+- ALL authenticated API endpoints require valid user access token (via X-Forwarded-Access-Token header)
+- No service principal fallback for user operations
 - User identity extracted from authentication context via `WorkspaceClient.current_user.me()`
 - Unity Catalog enforces user's table/column permissions automatically
+- Lakebase uses application-level credentials but enforces user_id filtering in queries
+- Health check endpoints MAY be unauthenticated for monitoring infrastructure
+
+**Local Development:**
+- Developers use personal Databricks tokens (via `databricks auth token`)
+- No service principal credentials required for development
+- Token passed via X-Forwarded-Access-Token header or environment variable
 
 **Implementation:**
-- Document both patterns in `docs/databricks_apis/authentication_patterns.md`
-- Use FastAPI dependency injection to inject user context where needed
-- Clear code comments indicating which pattern is used and why
+- Document OBO pattern in `docs/databricks_apis/authentication_patterns.md`
+- Use FastAPI dependency injection: `get_user_token()` (required) or `get_user_token_optional()` (health checks)
+- Clear error messages when authentication fails (HTTP 401 with structured error response)
 
-**Rationale:** Separating system and user operations ensures proper access control and auditability while maintaining security best practices.
+**Rationale:** OBO-only authentication ensures all operations use user's actual permissions, preventing privilege escalation and providing clear audit trails. Removing service principal fallback simplifies code and strengthens security (spec 003).
 
 ### Lakebase Access Control
 Database access MUST follow Databricks security best practices.
@@ -186,6 +236,37 @@ Database access MUST follow Databricks security best practices.
 - Row-level security via user_id filtering for multi-tenant scenarios
 - Audit logging of data access operations
 - Least privilege principle for service accounts
+
+## Feature Development Workflow
+
+### Specification-Based Development Process
+All features MUST follow this structured workflow to ensure quality and traceability.
+
+**Workflow Steps:**
+1. **Create Feature Branch**: Use numbered naming pattern `###-feature-name` (e.g., `001-databricks-integrations`, `004-dynamic-endpoint-input-schema`)
+2. **Create Spec Directory**: Create `specs/###-feature-name/` matching branch name
+3. **Write Specification**: Create `spec.md` with:
+   - Problem statement and input description
+   - Clarifications section documenting all Q&A with dates
+   - User stories with acceptance scenarios
+   - Functional requirements (FR-###) and edge cases (EC-###)
+   - Success metrics and out-of-scope items
+4. **Write Plan**: Create `plan.md` breaking down technical approach (optional for simple features)
+5. **Write Tasks**: Create `tasks.md` with granular, trackable task list
+6. **Implement with Tracking**: Update tasks.md as work progresses
+7. **Update Documentation**: Update relevant docs in `docs/` directory
+8. **Run Validation**: Execute all validation gates (bundle validate, contract tests, type checking)
+9. **Merge to Main**: After all acceptance criteria met and validation passes
+
+**Rationale:** This pattern (consistently followed in branches 001-004) ensures features have clear requirements, documented decisions, and trackable progress. The numbered branch structure provides chronological feature history.
+
+### Branch Naming Convention
+- **Feature branches**: `###-feature-name` (e.g., `001-databricks-integrations`)
+- **Bug fixes**: `bugfix/description` (e.g., `bugfix/auth-token-expiry`)
+- **Refactoring**: `refactor/description` (e.g., `refactor/component-decomposition`)
+- **Documentation**: `docs/description` (e.g., `docs/update-api-guide`)
+
+Numbered feature branches are reserved for substantial features with specifications. Minor changes use descriptive prefixes.
 
 ## Deployment Standards
 
@@ -250,6 +331,29 @@ After every deployment, MUST:
 ### Constitution Authority
 This constitution supersedes all other development practices. When conflicts arise between convenience and constitutional principles, principles win.
 
+### Breaking Changes and Migration
+Breaking changes are permitted when they improve architecture, security, or user experience.
+
+**Requirements for Breaking Changes:**
+- **Specification Documentation**: Breaking changes MUST be clearly documented in feature spec with:
+  - Explicit statement that backward compatibility is NOT maintained
+  - Clear justification for breaking change (security, architecture simplification, etc.)
+  - Migration path documentation (even if migration path is "no migration - users must adapt")
+  - Impact assessment on existing deployments and users
+- **Explicit Approval**: Breaking changes require explicit approval during spec review phase
+- **User Impact Documentation**: Document what users/operators must do differently
+- **Version Bumping**: Constitutional breaking changes require MAJOR version bump
+- **Communication**: Announce breaking changes in release notes and deployment guides
+
+**Example from Project History:**
+Branch 003 (`obo-only-support`) was an intentional breaking change that:
+- Removed service principal fallback authentication (simpler, more secure)
+- Required developers to use personal tokens for local development
+- Eliminated backward compatibility with service principal workflows
+- Documented new authentication pattern clearly in spec and migration guide
+
+**Rationale:** Real-world usage reveals better solutions than upfront analysis. Embracing breaking changes when justified (Principle XI) leads to better architecture than maintaining complexity for backward compatibility.
+
 ### Amendment Process
 1. Propose amendment with rationale in project discussion
 2. Document impact on existing code and workflows
@@ -271,11 +375,28 @@ This constitution supersedes all other development practices. When conflicts ari
 ### Agent-Specific Guidance
 Runtime development guidance available in `CLAUDE.md` for Claude Code and similar agents. This file provides operational commands and workflows aligned with constitutional principles.
 
-**Version**: 1.2.0 | **Ratified**: 2025-10-04 | **Last Amended**: 2025-10-08
+**Version**: 1.3.0 | **Ratified**: 2025-10-04 | **Last Amended**: 2025-10-18
 
 ---
 
 ## Changelog
+
+### Version 1.3.0 (2025-10-18) - MINOR
+**Changes:**
+- Added Principle X: Specification-First Development (NON-NEGOTIABLE) - mandates specs/ directory structure with numbered feature branches
+- Added Principle XI: Iterative Refinement Over Perfect First Attempts - embraces evolutionary architecture and planned breaking changes
+- Enhanced Principle III (Asset Bundle Deployment) with CI/CD validation gates and pre-deployment checklists
+- Enhanced Principle IV (Type Safety) with mandatory contract testing before implementation (TDD approach)
+- Enhanced Principle V (Model Serving) with automatic schema detection, example generation, and caching requirements
+- Enhanced Principle VIII (Observability) with feature-level event logging, retention policies (7 days raw, 90 days aggregated), and user isolation logging
+- Updated Security & Authentication section to reflect OBO-only authentication evolution (branch 003)
+- Added Feature Development Workflow section documenting specification-based development process
+- Added Breaking Changes and Migration governance section with requirements and project example
+- Added Branch Naming Convention guidelines for feature/bugfix/refactor/docs branches
+
+**Impact:** Major workflow and governance changes based on proven patterns from branches 001-004. All features MUST now follow specification-first workflow with numbered branches. Breaking changes are explicitly permitted when justified. Contract testing is now mandatory before deployment.
+
+**Rationale:** Git history analysis (branches 001-004) revealed consistent patterns that deliver high quality: specification-first development, iterative refinement with breaking changes when needed, comprehensive testing, and structured workflows. Codifying these proven practices ensures continued quality.
 
 ### Version 1.2.0 (2025-10-08) - MINOR
 **Changes:**
