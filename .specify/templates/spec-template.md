@@ -15,9 +15,14 @@
   Assign priorities (P1, P2, P3, etc.) to each story, where P1 is the most critical.
   Think of each story as a standalone slice of functionality that can be:
   - Developed independently
-  - Tested independently
+  - Tested independently (following TDD - see Principle XII)
   - Deployed independently
   - Demonstrated to users independently
+  
+  TDD REQUIREMENT (Principle XII):
+  All acceptance scenarios MUST be converted into automated tests BEFORE implementation.
+  Each scenario should map to specific test cases that will be written first and fail (RED),
+  then pass after implementation (GREEN), then be refactored for quality.
 -->
 
 ### User Story 1 - [Brief Title] (Priority: P1)
@@ -28,10 +33,14 @@
 
 **Independent Test**: [Describe how this can be tested independently - e.g., "Can be fully tested by [specific action] and delivers [specific value]"]
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** (will become automated tests following TDD):
 
 1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+   - *Test Type*: [Contract/Integration/Unit]
+   - *Test Location*: [e.g., tests/contract/test_feature.py]
 2. **Given** [initial state], **When** [action], **Then** [expected outcome]
+   - *Test Type*: [Contract/Integration/Unit]
+   - *Test Location*: [e.g., tests/integration/test_feature_flow.py]
 
 ---
 
@@ -43,9 +52,11 @@
 
 **Independent Test**: [Describe how this can be tested independently]
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** (will become automated tests following TDD):
 
 1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+   - *Test Type*: [Contract/Integration/Unit]
+   - *Test Location*: [e.g., tests/contract/test_feature.py]
 
 ---
 
@@ -57,9 +68,11 @@
 
 **Independent Test**: [Describe how this can be tested independently]
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** (will become automated tests following TDD):
 
 1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+   - *Test Type*: [Contract/Integration/Unit]
+   - *Test Location*: [e.g., tests/contract/test_feature.py]
 
 ---
 

@@ -1,27 +1,19 @@
 <!--
 Sync Impact Report:
-Version: 1.2.0 → 1.3.0 (MINOR bump - new principles and workflow sections added)
+Version: 1.3.0 → 1.4.0 (MINOR bump - new TDD principle added)
 Changes:
-  - Added Principle X: Specification-First Development (NON-NEGOTIABLE) - mandates specs/ directory structure
-  - Added Principle XI: Iterative Refinement Over Perfect First Attempts - embraces evolutionary architecture
-  - Enhanced Principle III: Asset Bundle Deployment with CI/CD validation gates
-  - Enhanced Principle IV: Type Safety with mandatory contract testing before implementation
-  - Enhanced Principle V: Model Serving with automatic schema detection requirements
-  - Enhanced Principle VIII: Observability with feature-level event logging and retention policies
-  - Added Feature Development Workflow section with numbered branch pattern
-  - Added Breaking Changes and Migration governance section
-  - Updated Security & Authentication to reflect OBO-only evolution (branch 003)
+  - Added Principle XII: Test Driven Development (NON-NEGOTIABLE) - mandates TDD for all production code
+  - Enhanced Testing Philosophy section with explicit TDD workflow requirements (RED-GREEN-REFACTOR)
+  - Updated Deployment Validation to include test suite execution as pre-deployment gate
 Templates Status:
-  ⚠ plan-template.md - Needs review for specification-first workflow and contract testing
-  ⚠ spec-template.md - Needs review for schema detection patterns and breaking change documentation
-  ⚠ tasks-template.md - Needs review for iterative refinement phases and validation gates
-  ✅ CLAUDE.md - Will be auto-updated by update-agent-context.sh script
+  ✅ plan-template.md - Updated Constitution Check with TDD requirements and testing gates
+  ✅ spec-template.md - Updated to emphasize TDD and map acceptance scenarios to test types/locations
+  ✅ tasks-template.md - Updated with explicit RED-GREEN-REFACTOR phases for all user stories
+  ✅ README.md - Testing section already mentions TDD patterns, no changes needed
 Follow-up TODOs:
-  - Update templates to reflect specification-first development workflow (Principle X)
-  - Document iterative refinement patterns in plan-template.md (Principle XI)
-  - Add contract testing phase to tasks-template.md (Principle IV enhancement)
-  - Create breaking-changes-template.md for migration documentation
-  - Validate all templates align with enhanced constitution requirements
+  - None - all templates updated and aligned with Principle XII
+  - Consider adding test coverage metrics in future PATCH version
+  - Consider documenting TDD best practices in a dedicated guide
 -->
 
 # Databricks React App Template Constitution
@@ -191,6 +183,23 @@ Complex solutions are acceptable as first implementations; breaking changes that
 
 **Rationale:** Real-world usage reveals better solutions than upfront analysis. Branch evolution (002→003 removing service principal fallback after learning OBO-only was sufficient) demonstrates that building, learning, then simplifying produces better architecture than attempting perfection initially.
 
+### XII. Test Driven Development (NON-NEGOTIABLE)
+All production code MUST be developed using Test Driven Development methodology with red-green-refactor cycles.
+
+**Rules:**
+- Write tests BEFORE implementation code (red phase)
+- Write minimal code to make tests pass (green phase)
+- Refactor for quality while keeping tests green (refactor phase)
+- Contract tests MUST be written first for all API endpoints
+- Integration tests MUST be written before service layer implementation
+- Unit tests MUST be written before complex business logic implementation
+- All tests MUST fail initially (red) before implementation begins
+- Test coverage MUST be maintained - no code without corresponding tests
+- Tests document expected behavior and serve as living specification
+- Deployment gates MUST include all test suites passing
+
+**Rationale:** TDD ensures code correctness from the start, creates comprehensive test coverage automatically, provides immediate regression detection, and produces better-designed code through test-first thinking. Writing tests first catches design issues before implementation, reduces debugging time, and provides confidence for refactoring. The red-green-refactor cycle enforces disciplined development and creates maintainable, well-tested codebases.
+
 ## Security & Authentication
 
 ### Databricks Platform Authentication
@@ -303,28 +312,46 @@ Bundle configuration MUST include:
 - FastAPI endpoints tested with curl after creation
 
 ### Testing Philosophy
-While TDD is ideal, practical testing includes:
-- **Contract Testing**: Validate API endpoints match OpenAPI specifications before implementation (TDD approach)
-- Endpoint verification with curl and FastAPI docs
-- UI validation via Playwright browser automation
-- Integration testing with deployed app
-- Log monitoring post-deployment for runtime errors
-- Multi-user testing for data isolation verification
+Test Driven Development (TDD) is MANDATORY for all production code (see Principle XII).
+
+**TDD Workflow (Red-Green-Refactor):**
+1. **RED**: Write failing test that defines desired behavior
+2. **GREEN**: Write minimal code to make test pass
+3. **REFACTOR**: Improve code quality while keeping tests green
+
+**Testing Layers (All Following TDD):**
+- **Contract Testing**: Write contract tests from OpenAPI specs BEFORE endpoint implementation
+- **Integration Testing**: Write integration tests BEFORE service layer implementation
+- **Unit Testing**: Write unit tests BEFORE complex business logic implementation
+- **UI Testing**: Playwright browser automation for end-to-end workflows
+- **Multi-User Testing**: Data isolation verification with multiple user accounts
 
 **Contract Testing Requirements:**
 - Generate contract tests from OpenAPI specs
 - One test file per API contract (e.g., `test_lakebase_contract.py`)
-- Tests MUST fail initially (before implementation)
+- Tests MUST fail initially (RED phase - before implementation)
+- Implement code to make tests pass (GREEN phase)
 - All contract tests MUST pass before deployment
 
+**Additional Validation:**
+- Endpoint verification with curl and FastAPI docs (post-implementation)
+- Log monitoring post-deployment for runtime errors
+- Integration testing with deployed app
+
 ### Deployment Validation (NON-NEGOTIABLE)
-After every deployment, MUST:
-1. Run `databricks bundle validate` before deployment (catches EC-005 errors)
-2. Run `dba_logz.py` to monitor logs for 60 seconds
-3. Verify uvicorn startup messages appear
-4. Check for Python exceptions or dependency errors
-5. Test core endpoints with `dba_client.py`
-6. Fix and redeploy immediately if errors found
+Before and after every deployment, MUST:
+1. **Pre-Deployment Gates**:
+   - Run full test suite (contract, integration, unit tests) - ALL MUST PASS
+   - Run `databricks bundle validate` (catches EC-005 errors)
+   - Type checking passes (Python: ruff, TypeScript: tsc)
+   - Code formatting validated with `./fix.sh`
+2. **Post-Deployment Validation**:
+   - Run `dba_logz.py` to monitor logs for 60 seconds
+   - Verify uvicorn startup messages appear
+   - Check for Python exceptions or dependency errors
+   - Test core endpoints with `dba_client.py`
+   - Run smoke tests against deployed endpoints
+3. **Failure Response**: Fix and redeploy immediately if any validation fails
 
 ## Governance
 
@@ -375,11 +402,23 @@ Branch 003 (`obo-only-support`) was an intentional breaking change that:
 ### Agent-Specific Guidance
 Runtime development guidance available in `CLAUDE.md` for Claude Code and similar agents. This file provides operational commands and workflows aligned with constitutional principles.
 
-**Version**: 1.3.0 | **Ratified**: 2025-10-04 | **Last Amended**: 2025-10-18
+**Version**: 1.4.0 | **Ratified**: 2025-10-04 | **Last Amended**: 2025-10-18
 
 ---
 
 ## Changelog
+
+### Version 1.4.0 (2025-10-18) - MINOR
+**Changes:**
+- Added Principle XII: Test Driven Development (NON-NEGOTIABLE) - mandates TDD methodology with red-green-refactor cycles for all production code
+- Enhanced Testing Philosophy section with explicit TDD workflow (RED-GREEN-REFACTOR phases)
+- Updated Deployment Validation with comprehensive pre-deployment gates including full test suite execution
+- Clarified that tests MUST be written BEFORE implementation across all testing layers (contract, integration, unit)
+- Added requirement that deployment gates MUST include all test suites passing
+
+**Impact:** All new production code MUST follow TDD methodology. Tests must be written first and fail initially before implementation. This applies to contract tests, integration tests, and unit tests. Test suite execution is now a mandatory pre-deployment gate.
+
+**Rationale:** TDD ensures code correctness from the start, creates comprehensive test coverage automatically, provides immediate regression detection, and produces better-designed code through test-first thinking. The red-green-refactor cycle enforces disciplined development and creates maintainable, well-tested codebases. This formalizes the TDD patterns already present in Principle IV (contract testing) and extends them to all code.
 
 ### Version 1.3.0 (2025-10-18) - MINOR
 **Changes:**

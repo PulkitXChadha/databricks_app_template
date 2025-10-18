@@ -31,7 +31,25 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+**Mandatory Requirements (from Constitution):**
+- [ ] Design Bricks First: All UI components use Design Bricks data design system
+- [ ] Lakebase Integration: Persistent data uses Lakebase (Postgres in Databricks)
+- [ ] Asset Bundle Deployment: All resources defined in databricks.yml with validation
+- [ ] Type Safety Throughout: Full type coverage with contract testing as deployment gate
+- [ ] Model Serving Integration: Service layer abstractions with automatic schema detection
+- [ ] Auto-Generated API Clients: TypeScript client from FastAPI OpenAPI spec
+- [ ] Observability First: Structured logging with correlation IDs and metrics
+- [ ] Multi-User Data Isolation: User-scoped data filtered by user_id
+- [ ] Specification-First Development: Feature spec in specs/###-feature-name/ before implementation
+- [ ] Test Driven Development: All code developed with TDD (red-green-refactor cycles)
+- [ ] OBO Authentication: On-Behalf-Of-User authentication for all user operations
+
+**Testing Requirements (TDD - Principle XII):**
+- [ ] Contract tests written BEFORE endpoint implementation
+- [ ] Integration tests written BEFORE service layer implementation
+- [ ] Unit tests written BEFORE complex business logic
+- [ ] All tests MUST fail initially (RED phase) before implementation
+- [ ] Test suite execution required in deployment gates
 
 ## Project Structure
 
