@@ -1,0 +1,581 @@
+openapi: 3.0.3
+info:
+  title: Metrics API
+  description: |
+    API for collecting and querying application usage and performance metrics.
+    
+    **Authentication**: All endpoints require admin privileges (Databricks workspace admin).
+    Non-admin users receive 403 Forbidden responses.
+    
+    **Data Retention**: Raw metrics retained for 7 days, aggregated metrics for 90 days.
+  version: 1.0.0
+  contact:
+    name: Databricks App Template
+    
+servers:
+  - url: /api/v1
+    description: API v1 base path
+
+tags:
+  - name: Metrics
+    description: Performance and usage metrics endpoints
+
+paths:
+  /metrics/performance:
+    get:
+      tags:
+        - Metrics
+      summary: Get performance metrics
+      description: |
+        Retrieve aggregated performance metrics for API requests over a specified time period.
+        Automatically routes to raw metrics (last 7 days) or aggregated metrics (8-90 days ago).
+        
+        **Admin Only**: Requires Databricks workspace admin privileges.
+      operationId: getPerformanceMetrics
+      parameters:
+        - name: time_range
+          in: query
+          description: Time range for metrics (24h, 7d, 30d, 90d)
+          required: false
+          schema:
+            type: string
+            enum: [24h, 7d, 30d, 90d]
+            default: 24h
+        - name: endpoint
+          in: query
+          description: Filter by specific endpoint path (optional)
+          required: false
+          schema:
+            type: string
+            maxLength: 500
+            example: /api/v1/lakebase/sources
+      responses:
+        '200':
+          description: Performance metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PerformanceMetricsResponse'
+              example:
+                time_range: "24h"
+                start_time: "2025-10-17T00:00:00Z"
+                end_time: "2025-10-18T00:00:00Z"
+                metrics:
+                  avg_response_time_ms: 145.32
+                  total_requests: 15234
+                  error_rate: 0.0023
+                  p50_response_time_ms: 98.5
+                  p95_response_time_ms: 450.2
+                  p99_response_time_ms: 850.7
+                endpoints:
+                  - endpoint: /api/v1/lakebase/sources
+                    method: GET
+                    avg_response_time_ms: 120.5
+                    request_count: 3456
+                    error_count: 2
+                  - endpoint: /api/v1/model-serving/invoke
+                    method: POST
+                    avg_response_time_ms: 2345.6
+                    request_count: 1234
+                    error_count: 12
+        '401':
+          description: Unauthorized - missing or invalid authentication token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - user does not have admin privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Access Denied"
+                message: "Administrator privileges required to access metrics"
+                status_code: 403
+        '503':
+          description: Service Unavailable - admin privilege check failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Service Unavailable"
+                message: "Unable to verify admin privileges"
+                status_code: 503
+      security:
+        - DatabricksAuth: []
+
+  /metrics/usage:
+    get:
+      tags:
+        - Metrics
+      summary: Get usage metrics
+      description: |
+        Retrieve aggregated usage metrics for user interactions over a specified time period.
+        Includes page views, feature usage, unique user counts, and event distributions.
+        
+        **Admin Only**: Requires Databricks workspace admin privileges.
+      operationId: getUsageMetrics
+      parameters:
+        - name: time_range
+          in: query
+          description: Time range for metrics (24h, 7d, 30d, 90d)
+          required: false
+          schema:
+            type: string
+            enum: [24h, 7d, 30d, 90d]
+            default: 24h
+        - name: event_type
+          in: query
+          description: Filter by specific event type (optional)
+          required: false
+          schema:
+            type: string
+            enum: [page_view, button_click, form_submit, query_executed, model_invoked, preference_changed, data_source_selected, schema_detected]
+      responses:
+        '200':
+          description: Usage metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageMetricsResponse'
+              example:
+                time_range: "24h"
+                start_time: "2025-10-17T00:00:00Z"
+                end_time: "2025-10-18T00:00:00Z"
+                metrics:
+                  total_events: 45678
+                  unique_users: 123
+                  active_users_current_hour: 12
+                event_distribution:
+                  page_view: 15234
+                  button_click: 23456
+                  query_executed: 3456
+                  model_invoked: 2345
+                  form_submit: 1187
+                page_views:
+                  /metrics: 234
+                  /lakebase/sources: 5678
+                  /model-inference: 3456
+                  /user-preferences: 890
+        '401':
+          description: Unauthorized - missing or invalid authentication token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - user does not have admin privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service Unavailable - admin privilege check failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - DatabricksAuth: []
+
+  /metrics/time-series:
+    get:
+      tags:
+        - Metrics
+      summary: Get time-series metrics data
+      description: |
+        Retrieve metrics data grouped by time intervals for visualization in charts.
+        Returns hourly data points for the specified time range.
+        
+        **Admin Only**: Requires Databricks workspace admin privileges.
+      operationId: getTimeSeriesMetrics
+      parameters:
+        - name: time_range
+          in: query
+          description: Time range for metrics (24h, 7d, 30d, 90d)
+          required: false
+          schema:
+            type: string
+            enum: [24h, 7d, 30d, 90d]
+            default: 24h
+        - name: metric_type
+          in: query
+          description: Type of metrics to retrieve
+          required: true
+          schema:
+            type: string
+            enum: [performance, usage, both]
+      responses:
+        '200':
+          description: Time-series metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeSeriesMetricsResponse'
+              example:
+                time_range: "24h"
+                interval: "hourly"
+                data_points:
+                  - timestamp: "2025-10-18T00:00:00Z"
+                    avg_response_time_ms: 145.3
+                    total_requests: 634
+                    error_rate: 0.0031
+                    total_events: 1890
+                    unique_users: 23
+                  - timestamp: "2025-10-18T01:00:00Z"
+                    avg_response_time_ms: 132.1
+                    total_requests: 589
+                    error_rate: 0.0017
+                    total_events: 1654
+                    unique_users: 19
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - DatabricksAuth: []
+
+  /metrics/usage-events:
+    post:
+      tags:
+        - Metrics
+      summary: Submit usage events (batch)
+      description: |
+        Submit a batch of usage events from the frontend. Events are processed asynchronously.
+        This endpoint accepts arrays of events to reduce API overhead.
+        
+        **Note**: This endpoint does NOT require admin privileges - any authenticated user can submit their own usage events.
+      operationId: submitUsageEvents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsageEventBatchRequest'
+            example:
+              events:
+                - event_type: page_view
+                  page_name: /metrics
+                  timestamp: "2025-10-18T12:34:56Z"
+                - event_type: button_click
+                  page_name: /lakebase/sources
+                  element_id: "add-source-btn"
+                  success: true
+                  timestamp: "2025-10-18T12:35:02Z"
+                - event_type: query_executed
+                  page_name: /lakebase/sources
+                  success: true
+                  metadata:
+                    query: "SELECT * FROM my_table LIMIT 10"
+                    execution_time_ms: 234
+                  timestamp: "2025-10-18T12:35:15Z"
+      responses:
+        '202':
+          description: Events accepted and queued for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageEventBatchResponse'
+              example:
+                message: "Events accepted"
+                events_received: 3
+                status: "processing"
+        '400':
+          description: Bad Request - invalid event data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Validation Error"
+                message: "Invalid event_type: 'invalid_type'"
+                status_code: 400
+        '401':
+          description: Unauthorized - missing authentication token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - DatabricksAuth: []
+
+components:
+  schemas:
+    PerformanceMetricsResponse:
+      type: object
+      required:
+        - time_range
+        - start_time
+        - end_time
+        - metrics
+        - endpoints
+      properties:
+        time_range:
+          type: string
+          description: Requested time range
+          example: "24h"
+        start_time:
+          type: string
+          format: date-time
+          description: Start of time range (ISO 8601)
+        end_time:
+          type: string
+          format: date-time
+          description: End of time range (ISO 8601)
+        metrics:
+          type: object
+          description: Aggregated performance metrics
+          required:
+            - avg_response_time_ms
+            - total_requests
+            - error_rate
+            - p50_response_time_ms
+            - p95_response_time_ms
+            - p99_response_time_ms
+          properties:
+            avg_response_time_ms:
+              type: number
+              format: float
+              description: Average response time in milliseconds
+            total_requests:
+              type: integer
+              description: Total number of requests
+            error_rate:
+              type: number
+              format: float
+              description: Error rate (0.0 to 1.0)
+            p50_response_time_ms:
+              type: number
+              format: float
+              description: 50th percentile response time
+            p95_response_time_ms:
+              type: number
+              format: float
+              description: 95th percentile response time
+            p99_response_time_ms:
+              type: number
+              format: float
+              description: 99th percentile response time
+        endpoints:
+          type: array
+          description: Per-endpoint performance breakdown
+          items:
+            type: object
+            required:
+              - endpoint
+              - method
+              - avg_response_time_ms
+              - request_count
+              - error_count
+            properties:
+              endpoint:
+                type: string
+                description: API endpoint path
+              method:
+                type: string
+                description: HTTP method
+              avg_response_time_ms:
+                type: number
+                format: float
+              request_count:
+                type: integer
+              error_count:
+                type: integer
+
+    UsageMetricsResponse:
+      type: object
+      required:
+        - time_range
+        - start_time
+        - end_time
+        - metrics
+        - event_distribution
+        - page_views
+      properties:
+        time_range:
+          type: string
+          description: Requested time range
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        metrics:
+          type: object
+          required:
+            - total_events
+            - unique_users
+            - active_users_current_hour
+          properties:
+            total_events:
+              type: integer
+              description: Total usage events in time range
+            unique_users:
+              type: integer
+              description: Number of unique users
+            active_users_current_hour:
+              type: integer
+              description: Users active in the last hour
+        event_distribution:
+          type: object
+          description: Count of events by type
+          additionalProperties:
+            type: integer
+        page_views:
+          type: object
+          description: Page view counts by page
+          additionalProperties:
+            type: integer
+
+    TimeSeriesMetricsResponse:
+      type: object
+      required:
+        - time_range
+        - interval
+        - data_points
+      properties:
+        time_range:
+          type: string
+          description: Time range covered
+        interval:
+          type: string
+          description: Time bucket interval (hourly, daily)
+          enum: [hourly, daily]
+        data_points:
+          type: array
+          description: Time-series data points
+          items:
+            type: object
+            required:
+              - timestamp
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+                description: Time bucket timestamp
+              avg_response_time_ms:
+                type: number
+                format: float
+                description: Average response time (performance metrics)
+              total_requests:
+                type: integer
+                description: Total requests (performance metrics)
+              error_rate:
+                type: number
+                format: float
+                description: Error rate (performance metrics)
+              total_events:
+                type: integer
+                description: Total usage events
+              unique_users:
+                type: integer
+                description: Unique users in this time bucket
+
+    UsageEventBatchRequest:
+      type: object
+      required:
+        - events
+      properties:
+        events:
+          type: array
+          description: Array of usage events to submit
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/UsageEvent'
+
+    UsageEvent:
+      type: object
+      required:
+        - event_type
+        - timestamp
+      properties:
+        event_type:
+          type: string
+          description: Type of user interaction
+          enum: [page_view, button_click, form_submit, query_executed, model_invoked, preference_changed, data_source_selected, schema_detected, file_uploaded, export_triggered]
+        page_name:
+          type: string
+          description: Page/route where event occurred
+          maxLength: 255
+          example: /metrics
+        element_id:
+          type: string
+          description: UI element identifier (for clicks)
+          maxLength: 255
+          example: submit-query-btn
+        success:
+          type: boolean
+          description: Whether the action succeeded
+        metadata:
+          type: object
+          description: Additional context (flexible JSON)
+          additionalProperties: true
+        timestamp:
+          type: string
+          format: date-time
+          description: Event timestamp (ISO 8601, UTC)
+
+    UsageEventBatchResponse:
+      type: object
+      required:
+        - message
+        - events_received
+        - status
+      properties:
+        message:
+          type: string
+          description: Status message
+        events_received:
+          type: integer
+          description: Number of events accepted
+        status:
+          type: string
+          description: Processing status
+          enum: [processing, queued]
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+        - status_code
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: "Forbidden"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Administrator privileges required"
+        status_code:
+          type: integer
+          description: HTTP status code
+          example: 403
+        details:
+          type: object
+          description: Additional error details
+          additionalProperties: true
+
+  securitySchemes:
+    DatabricksAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Token
+      description: |
+        Databricks On-Behalf-Of-User (OBO) authentication token.
+        Passed via X-Forwarded-Access-Token header.
+
