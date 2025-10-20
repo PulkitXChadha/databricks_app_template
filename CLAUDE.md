@@ -19,6 +19,7 @@ This is a modern full-stack application template for Databricks Apps, featuring 
 - shadcn/ui components with Tailwind CSS (being phased out)
 - React Query for API state management
 - Bun for package management
+- Recharts for metrics visualization and charting (feature 006-app-metrics)
 
 **Databricks Integrations:**
 - Unity Catalog for lakehouse data access with fine-grained permissions
@@ -282,6 +283,23 @@ Claude understands natural language commands for common development tasks:
 - Error handling: Handles 429 rate limits (exponential backoff), 403 permissions, timeouts
 - See `specs/004-dynamic-endpoint-input-schema/` for complete specification
 
+**Metrics Service** (`server/services/metrics_service.py`):
+- Application usage and performance metrics collection (feature 006-app-metrics)
+- Automatic performance metric collection via FastAPI middleware for all API requests
+- Usage event tracking for user interactions (page views, clicks, feature usage)
+- Hybrid retention: 7 days raw metrics, 90 days aggregated hourly summaries
+- Admin-only dashboard for monitoring application health and user behavior
+- Tables: `performance_metrics`, `usage_events`, `aggregated_metrics`
+- Scheduled aggregation job runs daily at 2 AM to manage data lifecycle
+- See `specs/006-app-metrics/` for complete specification
+
+**Admin Service** (`server/services/admin_service.py`):
+- Admin privilege verification using Databricks Workspace API
+- Checks if user has workspace admin role for metrics dashboard access
+- 5-minute caching to reduce API calls and improve resilience
+- Fail-secure: Returns 503 if API check fails, 403 if not admin
+- Used by metrics endpoints and other admin-only features
+
 **Design Bricks UI Components**:
 - Constitution requirement: ALL UI components must use Design Bricks
 - Component source: https://pulkitxchadha.github.io/DesignBricks
@@ -380,9 +398,12 @@ Claude understands natural language commands for common development tasks:
 ### Key Files
 - `server/app.py` - FastAPI application entry point
 - `server/routers/` - API endpoint routers
+- `server/lib/metrics_middleware.py` - Automatic performance metrics collection middleware
 - `client/src/App.tsx` - React application entry point
 - `client/src/pages/` - React page components
+- `client/src/services/usageTracker.ts` - Frontend usage event tracking with batching
 - `scripts/make_fastapi_client.py` - TypeScript client generator
+- `scripts/aggregate_metrics.py` - Daily metrics aggregation job (scheduled at 2 AM)
 - `pyproject.toml` - Python dependencies and project configuration
 - `client/package.json` - Frontend dependencies and scripts
 - `claude_scripts/` - Test scripts created by Claude for testing functionality
@@ -401,6 +422,12 @@ Claude understands natural language commands for common development tasks:
 - `specs/001-databricks-integrations/data-model.md` - Entity definitions and database schemas
 - `specs/001-databricks-integrations/contracts/` - OpenAPI contract specifications
 - `specs/001-databricks-integrations/quickstart.md` - Testing and verification guide
+- `specs/006-app-metrics/` - App usage and performance metrics feature documentation
+- `specs/006-app-metrics/spec.md` - Metrics collection requirements and admin dashboard
+- `specs/006-app-metrics/research.md` - Metrics architecture and technology choices
+- `specs/006-app-metrics/data-model.md` - Metrics entities and lifecycle management
+- `specs/006-app-metrics/contracts/` - Metrics API contract specifications
+- `specs/006-app-metrics/quickstart.md` - Implementation guide with TDD workflow
 
 ### Documentation Files
 - `docs/product.md` - Product requirements document (created during /dba workflow)
