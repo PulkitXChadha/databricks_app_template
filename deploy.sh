@@ -1,332 +1,920 @@
 #!/bin/bash
 
-# Deploy the Databricks App Template to Databricks.
-# For configuration options see README.md and .env.local.
-# Usage: ./deploy.sh [--verbose] [--create]
+# deploy_all.sh
+# Comprehensive deployment script for Databricks App Template
+# Allows selective deployment of infrastructure, database, and application components
 
 set -e
 
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+NC='\033[0m' # No Color
+
+# Default values
+TARGET="${TARGET:-dev}"
+INTERACTIVE="${INTERACTIVE:-true}"
+VERBOSE="${VERBOSE:-false}"
+
+# Deployment flags (can be set via environment or interactive prompts)
+DEPLOY_BUNDLE="${DEPLOY_BUNDLE:-}"
+DEPLOY_MIGRATIONS="${DEPLOY_MIGRATIONS:-}"
+DEPLOY_SAMPLE_DATA="${DEPLOY_SAMPLE_DATA:-}"
+DEPLOY_APP="${DEPLOY_APP:-}"
+CREATE_APP="${CREATE_APP:-false}"
+
+# Helper functions
+log_info() {
+    echo -e "${BLUE}ℹ ${NC}$1"
+}
+
+log_success() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}⚠${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}✗${NC} $1"
+}
+
+log_step() {
+    echo -e "${CYAN}▶${NC} $1"
+}
+
+print_timing() {
+    if [ "$VERBOSE" = "true" ]; then
+        echo -e "${MAGENTA}⏱${NC}  $(date '+%H:%M:%S') - $1"
+    fi
+}
+
+print_banner() {
+    echo ""
+    echo "=============================================="
+    echo "  Databricks App Template"
+    echo "  Comprehensive Deployment Tool"
+    echo "=============================================="
+    echo ""
+}
+
+print_summary() {
+    echo ""
+    echo "=============================================="
+    echo "  Deployment Plan Summary"
+    echo "=============================================="
+    echo "Target Environment:      $TARGET"
+    echo "Deploy Bundle:           $DEPLOY_BUNDLE"
+    echo "Deploy Migrations:       $DEPLOY_MIGRATIONS"
+    echo "Deploy Sample Data:      $DEPLOY_SAMPLE_DATA"
+    echo "Deploy App:              $DEPLOY_APP"
+    if [ "$DEPLOY_APP" = "yes" ]; then
+        echo "Create App (if needed):  $CREATE_APP"
+    fi
+    echo "=============================================="
+    echo ""
+}
+
 # Parse command line arguments
-VERBOSE=false
-CREATE_APP=false
-for arg in "$@"; do
-  case $arg in
-    --verbose)
-      VERBOSE=true
-      echo "🔍 Verbose mode enabled"
-      ;;
-    --create)
-      CREATE_APP=true
-      echo "🔧 App creation mode enabled"
-      ;;
-    *)
-      echo "Unknown argument: $arg"
-      echo "Usage: ./deploy.sh [--verbose] [--create]"
-      exit 1
-      ;;
-  esac
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --target)
+            TARGET="$2"
+            shift 2
+            ;;
+        --verbose)
+            VERBOSE="true"
+            shift
+            ;;
+        --non-interactive)
+            INTERACTIVE="false"
+            shift
+            ;;
+        --all)
+            DEPLOY_BUNDLE="yes"
+            DEPLOY_MIGRATIONS="yes"
+            DEPLOY_SAMPLE_DATA="yes"
+            DEPLOY_APP="yes"
+            shift
+            ;;
+        --bundle-only)
+            DEPLOY_BUNDLE="yes"
+            DEPLOY_MIGRATIONS="no"
+            DEPLOY_SAMPLE_DATA="no"
+            DEPLOY_APP="no"
+            INTERACTIVE="false"
+            shift
+            ;;
+        --app-only)
+            DEPLOY_BUNDLE="no"
+            DEPLOY_MIGRATIONS="no"
+            DEPLOY_SAMPLE_DATA="no"
+            DEPLOY_APP="yes"
+            INTERACTIVE="false"
+            shift
+            ;;
+        --create)
+            CREATE_APP="true"
+            shift
+            ;;
+        --help)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --target ENV          Target environment (dev or prod, default: dev)"
+            echo "  --verbose             Enable verbose output"
+            echo "  --non-interactive     Skip interactive prompts, use defaults"
+            echo "  --all                 Deploy everything (bundle, migrations, data, app)"
+            echo "  --bundle-only         Deploy only infrastructure bundle"
+            echo "  --app-only            Deploy only the application"
+            echo "  --create              Create app if it doesn't exist"
+            echo "  --help                Show this help message"
+            echo ""
+            echo "Environment Variables:"
+            echo "  TARGET                Target environment (dev or prod)"
+            echo "  DEPLOY_BUNDLE         Deploy infrastructure (yes/no)"
+            echo "  DEPLOY_MIGRATIONS     Run database migrations (yes/no)"
+            echo "  DEPLOY_SAMPLE_DATA    Create sample data (yes/no)"
+            echo "  DEPLOY_APP            Deploy application (yes/no)"
+            echo "  VERBOSE               Enable verbose output (true/false)"
+            echo ""
+            echo "Examples:"
+            echo "  $0 --all --target dev              # Deploy everything to dev"
+            echo "  $0 --bundle-only --target prod     # Deploy only infrastructure to prod"
+            echo "  $0 --app-only --create             # Deploy only app, create if needed"
+            echo "  DEPLOY_BUNDLE=yes $0               # Deploy bundle with env var"
+            exit 0
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
 done
 
-# Function to print timing info
-print_timing() {
-  if [ "$VERBOSE" = true ]; then
-    echo "⏱️  $(date '+%H:%M:%S') - $1"
-  fi
-}
+# Print banner
+print_banner
 
-# Load environment variables from .env.local if it exists.
-print_timing "Loading environment variables"
-if [ -f .env.local ]
-then
-  set -a
-  source .env.local
-  set +a
-fi
-
-# Validate required configuration
-if [ -z "$DBA_SOURCE_CODE_PATH" ]
-then
-  echo "❌ DBA_SOURCE_CODE_PATH is not set. Please run ./setup.sh first."
-  exit 1
-fi
-
-if [ -z "$DATABRICKS_APP_NAME" ]
-then
-  echo "❌ DATABRICKS_APP_NAME is not set. Please run ./setup.sh first."
-  exit 1
-fi
-
-if [ -z "$DATABRICKS_AUTH_TYPE" ]
-then
-  echo "❌ DATABRICKS_AUTH_TYPE is not set. Please run ./setup.sh first."
-  exit 1
-fi
-
-# Handle authentication based on type
-print_timing "Starting authentication"
-echo "🔐 Authenticating with Databricks..."
-
-if [ "$DATABRICKS_AUTH_TYPE" = "pat" ]; then
-  # PAT Authentication
-  if [ -z "$DATABRICKS_HOST" ] || [ -z "$DATABRICKS_TOKEN" ]; then
-    echo "❌ PAT authentication requires DATABRICKS_HOST and DATABRICKS_TOKEN. Please run ./setup.sh first."
-    exit 1
-  fi
-  
-  echo "Using Personal Access Token authentication"
-  export DATABRICKS_HOST="$DATABRICKS_HOST"
-  export DATABRICKS_TOKEN="$DATABRICKS_TOKEN"
-  
-  # Test connection
-  if ! databricks current-user me >/dev/null 2>&1; then
-    echo "❌ PAT authentication failed. Please check your credentials."
-    echo "💡 Try running: databricks auth login --host $DATABRICKS_HOST"
-    echo "💡 Or run ./setup.sh to reconfigure authentication"
-    exit 1
-  fi
-  
-elif [ "$DATABRICKS_AUTH_TYPE" = "databricks-cli" ]; then
-  # Profile Authentication
-  if [ -z "$DATABRICKS_CONFIG_PROFILE" ]; then
-    echo "❌ Profile authentication requires DATABRICKS_CONFIG_PROFILE. Please run ./setup.sh first."
-    exit 1
-  fi
-  
-  echo "Using profile authentication: $DATABRICKS_CONFIG_PROFILE"
-  
-  # Test connection
-  if ! databricks current-user me --profile "$DATABRICKS_CONFIG_PROFILE" >/dev/null 2>&1; then
-    echo "❌ Profile authentication failed. Please check your profile configuration."
-    echo "💡 Try running: databricks auth login --host <your-host> --profile $DATABRICKS_CONFIG_PROFILE"
-    echo "💡 Or run ./setup.sh to reconfigure authentication"
-    exit 1
-  fi
-  
-else
-  echo "❌ Invalid DATABRICKS_AUTH_TYPE: $DATABRICKS_AUTH_TYPE. Must be 'pat' or 'databricks-cli'."
-  exit 1
-fi
-
-echo "✅ Databricks authentication successful"
-print_timing "Authentication completed"
-
-# Function to display app info
-display_app_info() {
-  echo ""
-  echo "📱 App Name: $DATABRICKS_APP_NAME"
-  
-  # Get app URL
-  if [ "$DATABRICKS_AUTH_TYPE" = "databricks-cli" ]; then
-    APP_URL=$(databricks apps get "$DATABRICKS_APP_NAME" --profile "$DATABRICKS_CONFIG_PROFILE" --output json 2>/dev/null | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    print(data.get('url', 'URL not available'))
-except: 
-    print('URL not available')
-" 2>/dev/null)
-  else
-    APP_URL=$(databricks apps get "$DATABRICKS_APP_NAME" --output json 2>/dev/null | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    print(data.get('url', 'URL not available'))
-except: 
-    print('URL not available')
-" 2>/dev/null)
-  fi
-  
-  echo "🌐 App URL: $APP_URL"
-  echo ""
-}
-
-# Display initial app info
-display_app_info
-
-# Check if app needs to be created
-if [ "$CREATE_APP" = true ]; then
-  print_timing "Starting app creation check"
-  echo "🔍 Checking if app '$DATABRICKS_APP_NAME' exists..."
-  
-  # Check if app exists
-  if [ "$DATABRICKS_AUTH_TYPE" = "databricks-cli" ]; then
-    APP_EXISTS=$(databricks apps list --profile "$DATABRICKS_CONFIG_PROFILE" 2>/dev/null | grep -c "^$DATABRICKS_APP_NAME " 2>/dev/null || echo "0")
-  else
-    APP_EXISTS=$(databricks apps list 2>/dev/null | grep -c "^$DATABRICKS_APP_NAME " 2>/dev/null || echo "0")
-  fi
-  
-  # Clean up the variable (remove any whitespace/newlines)
-  APP_EXISTS=$(echo "$APP_EXISTS" | head -1 | tr -d '\n')
-  
-  if [ "$APP_EXISTS" -eq 0 ]; then
-    echo "❌ App '$DATABRICKS_APP_NAME' does not exist. Creating it..."
-    echo "⏳ This may take several minutes..."
+# Interactive prompts if needed
+if [ "$INTERACTIVE" = "true" ]; then
+    echo "This script will help you deploy components of your Databricks app."
+    echo ""
     
-    if [ "$DATABRICKS_AUTH_TYPE" = "databricks-cli" ]; then
-      if [ "$VERBOSE" = true ]; then
-        databricks apps create "$DATABRICKS_APP_NAME" --profile "$DATABRICKS_CONFIG_PROFILE"
-      else
-        databricks apps create "$DATABRICKS_APP_NAME" --profile "$DATABRICKS_CONFIG_PROFILE" > /dev/null 2>&1
-      fi
-    else
-      if [ "$VERBOSE" = true ]; then
-        databricks apps create "$DATABRICKS_APP_NAME"
-      else
-        databricks apps create "$DATABRICKS_APP_NAME" > /dev/null 2>&1
-      fi
+    # Target environment
+    if [ -z "$TARGET" ]; then
+        echo -n "Target environment (dev/prod) [dev]: "
+        read -r TARGET
+        TARGET="${TARGET:-dev}"
     fi
     
-    echo "✅ App '$DATABRICKS_APP_NAME' created successfully"
+    echo ""
+    echo "Select components to deploy:"
+    echo ""
     
-    # Verify creation
-    if [ "$DATABRICKS_AUTH_TYPE" = "databricks-cli" ]; then
-      APP_EXISTS=$(databricks apps list --profile "$DATABRICKS_CONFIG_PROFILE" | grep -c "^$DATABRICKS_APP_NAME " || echo "0")
-    else
-      APP_EXISTS=$(databricks apps list | grep -c "^$DATABRICKS_APP_NAME " || echo "0")
+    # Infrastructure bundle
+    if [ -z "$DEPLOY_BUNDLE" ]; then
+        echo -n "Deploy infrastructure bundle (SQL Warehouse, Lakebase, etc.)? (y/n) [y]: "
+        read -r response
+        response="${response:-y}"
+        DEPLOY_BUNDLE=$([[ "$response" =~ ^[Yy] ]] && echo "yes" || echo "no")
     fi
     
-    if [ "$APP_EXISTS" -eq 0 ]; then
-      echo "❌ Failed to create app '$DATABRICKS_APP_NAME'"
-      exit 1
+    # Database migrations
+    if [ -z "$DEPLOY_MIGRATIONS" ]; then
+        echo -n "Run database migrations? (y/n) [y]: "
+        read -r response
+        response="${response:-y}"
+        DEPLOY_MIGRATIONS=$([[ "$response" =~ ^[Yy] ]] && echo "yes" || echo "no")
     fi
-  else
-    echo "✅ App '$DATABRICKS_APP_NAME' already exists"
-  fi
-  
-  print_timing "App creation check completed"
+    
+    # Sample data
+    if [ -z "$DEPLOY_SAMPLE_DATA" ]; then
+        echo -n "Create sample data? (y/n) [n]: "
+        read -r response
+        response="${response:-n}"
+        DEPLOY_SAMPLE_DATA=$([[ "$response" =~ ^[Yy] ]] && echo "yes" || echo "no")
+    fi
+    
+    # Application
+    if [ -z "$DEPLOY_APP" ]; then
+        echo -n "Deploy application? (y/n) [y]: "
+        read -r response
+        response="${response:-y}"
+        DEPLOY_APP=$([[ "$response" =~ ^[Yy] ]] && echo "yes" || echo "no")
+    fi
+    
+    # Create app option
+    if [ "$DEPLOY_APP" = "yes" ] && [ "$CREATE_APP" = "false" ]; then
+        echo -n "Create app if it doesn't exist? (y/n) [n]: "
+        read -r response
+        response="${response:-n}"
+        CREATE_APP=$([[ "$response" =~ ^[Yy] ]] && echo "true" || echo "false")
+    fi
+    
+    echo ""
 fi
 
-mkdir -p build
-
-# Generate requirements.txt from pyproject.toml without editable installs
-print_timing "Starting requirements generation"
-echo "📦 Generating requirements.txt..."
-if [ "$VERBOSE" = true ]; then
-  echo "Using custom script to avoid editable installs..."
-  uv run python scripts/generate_semver_requirements.py
-else
-  uv run python scripts/generate_semver_requirements.py
+# Validate target
+if [[ ! "$TARGET" =~ ^(dev|prod)$ ]]; then
+    log_error "Invalid target: $TARGET. Must be 'dev' or 'prod'"
+    exit 1
 fi
-print_timing "Requirements generation completed"
 
-# Build frontend
-print_timing "Starting frontend build"
-echo "🏗️  Building frontend..."
-cd client
-if [ "$VERBOSE" = true ]; then
-  bun run build
-else
-  bun run build > /dev/null 2>&1
+# Set defaults if still empty
+DEPLOY_BUNDLE="${DEPLOY_BUNDLE:-yes}"
+DEPLOY_MIGRATIONS="${DEPLOY_MIGRATIONS:-yes}"
+DEPLOY_SAMPLE_DATA="${DEPLOY_SAMPLE_DATA:-no}"
+DEPLOY_APP="${DEPLOY_APP:-yes}"
+
+# Print deployment plan
+print_summary
+
+if [ "$INTERACTIVE" = "true" ]; then
+    echo -n "Proceed with deployment? (y/n) [y]: "
+    read -r response
+    response="${response:-y}"
+    if [[ ! "$response" =~ ^[Yy] ]]; then
+        echo "Deployment cancelled."
+        exit 0
+    fi
+    echo ""
 fi
-cd ..
-echo "✅ Frontend build complete"
-print_timing "Frontend build completed"
 
-# Create workspace directory and upload source
-print_timing "Starting workspace setup"
-echo "📂 Creating workspace directory..."
-if [ "$DATABRICKS_AUTH_TYPE" = "databricks-cli" ]; then
-  databricks workspace mkdirs "$DBA_SOURCE_CODE_PATH" --profile "$DATABRICKS_CONFIG_PROFILE"
-else
-  databricks workspace mkdirs "$DBA_SOURCE_CODE_PATH"
-fi
-echo "✅ Workspace directory created"
-
-echo "📤 Syncing source code to workspace..."
-# Use databricks sync to properly update all files including requirements.txt
-if [ "$DATABRICKS_AUTH_TYPE" = "databricks-cli" ]; then
-  databricks sync . "$DBA_SOURCE_CODE_PATH" --profile "$DATABRICKS_CONFIG_PROFILE"
-else
-  databricks sync . "$DBA_SOURCE_CODE_PATH"
-fi
-echo "✅ Source code uploaded"
-print_timing "Workspace setup completed"
-
-# Deploy to Databricks
-print_timing "Starting Databricks deployment"
-echo "🚀 Deploying to Databricks..."
-
-if [ "$DATABRICKS_AUTH_TYPE" = "databricks-cli" ]; then
-  if [ "$VERBOSE" = true ]; then
-    databricks apps deploy "$DATABRICKS_APP_NAME" --source-code-path "$DBA_SOURCE_CODE_PATH" --debug --profile "$DATABRICKS_CONFIG_PROFILE"
-  else
-    databricks apps deploy "$DATABRICKS_APP_NAME" --source-code-path "$DBA_SOURCE_CODE_PATH" --profile "$DATABRICKS_CONFIG_PROFILE"
-  fi
-else
-  if [ "$VERBOSE" = true ]; then
-    databricks apps deploy "$DATABRICKS_APP_NAME" --source-code-path "$DBA_SOURCE_CODE_PATH" --debug
-  else
-    databricks apps deploy "$DATABRICKS_APP_NAME" --source-code-path "$DBA_SOURCE_CODE_PATH"
-  fi
-fi
-print_timing "Databricks deployment completed"
-
-echo ""
-echo "✅ Deployment complete!"
+# Start deployment
+log_step "Starting deployment process..."
 echo ""
 
-# Get the actual app URL from the apps list
-echo "🔍 Getting app URL..."
-if [ "$DATABRICKS_AUTH_TYPE" = "databricks-cli" ]; then
-  APP_URL=$(databricks apps list --profile "$DATABRICKS_CONFIG_PROFILE" --output json 2>/dev/null | python3 -c "
+# ============================================
+# PHASE 1: Prerequisites Validation
+# ============================================
+log_step "Phase 1: Validating prerequisites..."
+print_timing "Prerequisites validation started"
+
+# Check required tools
+MISSING_TOOLS=""
+
+if ! command -v databricks &> /dev/null; then
+    MISSING_TOOLS="$MISSING_TOOLS databricks-cli"
+fi
+
+if ! command -v uv &> /dev/null; then
+    MISSING_TOOLS="$MISSING_TOOLS uv"
+fi
+
+if ! command -v bun &> /dev/null && [ "$DEPLOY_APP" = "yes" ]; then
+    MISSING_TOOLS="$MISSING_TOOLS bun"
+fi
+
+if [ -n "$MISSING_TOOLS" ]; then
+    log_error "Missing required tools:$MISSING_TOOLS"
+    echo "Please install missing tools and try again."
+    exit 1
+fi
+
+log_success "All required tools installed"
+
+# Load environment variables
+if [ -f .env.local ]; then
+    set -a
+    source .env.local
+    set +a
+    log_success "Environment variables loaded from .env.local"
+else
+    log_warning ".env.local not found, will use environment variables"
+fi
+
+# Check authentication
+if ! databricks auth env &> /dev/null; then
+    log_error "Not authenticated with Databricks"
+    echo "Run: databricks auth login --host <your-workspace>"
+    exit 1
+fi
+
+log_success "Databricks authentication verified"
+print_timing "Prerequisites validation completed"
+echo ""
+
+# ============================================
+# PHASE 2: Deploy Infrastructure Bundle
+# ============================================
+if [ "$DEPLOY_BUNDLE" = "yes" ]; then
+    log_step "Phase 2: Deploying infrastructure bundle..."
+    print_timing "Bundle deployment started"
+    
+    # Determine resource names based on target
+    if [ "$TARGET" = "dev" ]; then
+        WAREHOUSE_NAME="databricks-app-warehouse-dev"
+        LAKEBASE_INSTANCE_NAME="databricks-app-lakebase-dev"
+        CATALOG_NAME="lakebase_catalog_dev"
+    else
+        WAREHOUSE_NAME="databricks-app-warehouse"
+        LAKEBASE_INSTANCE_NAME="databricks-app-lakebase"
+        CATALOG_NAME="lakebase_catalog"
+    fi
+    
+    # Check for existing resources
+    log_info "Checking for existing resources..."
+    
+    # Check if catalog exists
+    CATALOG_EXISTS=$(databricks catalogs list --output json 2>/dev/null | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
-    if isinstance(data, list):
-        apps = data
+    catalogs = data.get('catalogs', data) if isinstance(data, dict) else data
+    for c in catalogs:
+        if c.get('name') == '$CATALOG_NAME':
+            print('yes')
+            break
     else:
-        apps = data.get('apps', [])
+        print('no')
+except:
+    print('no')
+" 2>/dev/null)
+    
+    # Check if database instance exists
+    DB_INSTANCE_EXISTS=$(databricks database list-database-instances --output json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    instances = data if isinstance(data, list) else data.get('instances', [])
+    for inst in instances:
+        if inst.get('name') == '$LAKEBASE_INSTANCE_NAME':
+            print('yes')
+            break
+    else:
+        print('no')
+except:
+    print('no')
+" 2>/dev/null)
+    
+    if [ "$CATALOG_EXISTS" = "yes" ]; then
+        log_warning "Catalog '$CATALOG_NAME' already exists - will be reused"
+        
+        # Check if database exists within the catalog
+        DATABASE_NAME="app_database"
+        DATABASE_EXISTS=$(databricks catalogs list-schemas --catalog-name "$CATALOG_NAME" --output json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    schemas = data.get('schemas', data) if isinstance(data, dict) else data
+    for s in schemas:
+        if s.get('name') == '$DATABASE_NAME':
+            print('yes')
+            break
+    else:
+        print('no')
+except:
+    print('no')
+" 2>/dev/null || echo "no")
+        
+        if [ "$DATABASE_EXISTS" = "yes" ]; then
+            log_warning "Database '$DATABASE_NAME' within catalog already exists - will be reused"
+        else
+            log_info "Database '$DATABASE_NAME' will be created within existing catalog"
+        fi
+    fi
+    
+    if [ "$DB_INSTANCE_EXISTS" = "yes" ]; then
+        log_warning "Database instance '$LAKEBASE_INSTANCE_NAME' already exists - will be reused"
+    fi
+    
+    # Check for inconsistent state
+    if [ "$CATALOG_EXISTS" = "yes" ] && [ "$DB_INSTANCE_EXISTS" = "no" ]; then
+        log_error "Inconsistent state detected:"
+        log_error "  - Catalog '$CATALOG_NAME' exists"
+        log_error "  - Database instance '$LAKEBASE_INSTANCE_NAME' does not exist"
+        echo ""
+        log_error "The catalog references a database instance that doesn't exist."
+        log_info "Options to resolve:"
+        echo "  1. Delete the existing catalog: databricks catalogs delete $CATALOG_NAME"
+        echo "  2. Create the database instance manually first"
+        echo "  3. Update databricks.yml to use a different catalog name"
+        echo ""
+        if [ "$INTERACTIVE" = "true" ]; then
+            echo -n "Would you like to delete the existing catalog and recreate it? (y/n) [n]: "
+            read -r response
+            response="${response:-n}"
+            if [[ "$response" =~ ^[Yy] ]]; then
+                log_info "Deleting catalog '$CATALOG_NAME'..."
+                databricks catalogs delete "$CATALOG_NAME" --force
+                log_success "Catalog deleted"
+                CATALOG_EXISTS="no"
+            else
+                log_error "Cannot proceed with inconsistent state. Exiting."
+                exit 1
+            fi
+        else
+            exit 1
+        fi
+    fi
+    
+    # Validate bundle
+    log_info "Validating bundle configuration..."
+    if ! databricks bundle validate --target "$TARGET" &> /dev/null; then
+        log_error "Bundle validation failed"
+        databricks bundle validate --target "$TARGET"
+        exit 1
+    fi
+    log_success "Bundle configuration valid"
+    
+    # Deploy bundle
+    log_info "Deploying bundle (this may take 5-10 minutes)..."
+    DEPLOY_OUTPUT=$(mktemp)
+    if [ "$VERBOSE" = "true" ]; then
+        databricks bundle deploy --target "$TARGET" 2>&1 | tee "$DEPLOY_OUTPUT"
+        DEPLOY_STATUS=${PIPESTATUS[0]}
+    else
+        databricks bundle deploy --target "$TARGET" > "$DEPLOY_OUTPUT" 2>&1
+        DEPLOY_STATUS=$?
+    fi
+    
+    # Check if deployment failed due to existing resources or known issues
+    if [ $DEPLOY_STATUS -ne 0 ]; then
+        # Check for specific errors we can handle
+        CATALOG_EXISTS_ERROR=$(grep -c "already exists" "$DEPLOY_OUTPUT" || echo "0")
+        INCONSISTENT_RESULT_ERROR=$(grep -c "Provider produced inconsistent result" "$DEPLOY_OUTPUT" || echo "0")
+        BUDGET_POLICY_ERROR=$(grep -c "budget_policy_id" "$DEPLOY_OUTPUT" || echo "0")
+        
+        if [ "$CATALOG_EXISTS_ERROR" -gt 0 ] && [ "$INCONSISTENT_RESULT_ERROR" -eq 0 ]; then
+            log_warning "Some resources already exist - continuing with existing resources"
+            # Resources exist, this is expected, continue
+        elif [ "$INCONSISTENT_RESULT_ERROR" -gt 0 ] && [ "$BUDGET_POLICY_ERROR" -gt 0 ]; then
+            log_warning "Terraform provider reported inconsistent result (known provider issue)"
+            log_info "Checking if resources were actually created..."
+            
+            # Verify the resources were created despite the error
+            sleep 5
+            VERIFY_WAREHOUSE=$(databricks warehouses list --output json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    warehouses = data.get('warehouses', data) if isinstance(data, dict) else data
+    for w in warehouses:
+        if w.get('name') == '$WAREHOUSE_NAME':
+            print('yes')
+            sys.exit(0)
+except: pass
+print('no')
+" 2>/dev/null)
+            
+            if [ "$VERIFY_WAREHOUSE" = "yes" ]; then
+                log_success "Resources verified - deployment successful despite provider warning"
+            else
+                log_error "Bundle deployment failed and resources were not created"
+                cat "$DEPLOY_OUTPUT"
+                rm -f "$DEPLOY_OUTPUT"
+                exit 1
+            fi
+        elif [ "$CATALOG_EXISTS_ERROR" -gt 0 ] && [ "$INCONSISTENT_RESULT_ERROR" -gt 0 ]; then
+            log_warning "Resources exist and Terraform reported inconsistencies"
+            log_info "This is expected when redeploying - continuing with existing resources"
+        else
+            log_error "Bundle deployment failed"
+            cat "$DEPLOY_OUTPUT"
+            rm -f "$DEPLOY_OUTPUT"
+            exit 1
+        fi
+    fi
+    
+    rm -f "$DEPLOY_OUTPUT"
+    log_success "Bundle deployed successfully"
+    
+    # Log resource status
+    echo ""
+    log_info "Resource deployment summary:"
+    if [ "$CATALOG_EXISTS" = "yes" ]; then
+        echo "  📦 Catalog:           ✓ Reused existing '$CATALOG_NAME'"
+    else
+        echo "  📦 Catalog:           ✓ Created '$CATALOG_NAME'"
+    fi
+    
+    if [ "$DB_INSTANCE_EXISTS" = "yes" ]; then
+        echo "  🗄️  Database Instance: ✓ Reused existing '$LAKEBASE_INSTANCE_NAME'"
+    else
+        echo "  🗄️  Database Instance: ✓ Created '$LAKEBASE_INSTANCE_NAME'"
+    fi
+    
+    if [ -n "$DATABASE_EXISTS" ] && [ "$DATABASE_EXISTS" = "yes" ]; then
+        echo "  💾 Database:          ✓ Reused existing '$DATABASE_NAME'"
+    else
+        echo "  💾 Database:          ✓ Created '$DATABASE_NAME'"
+    fi
+    echo ""
+    
+    # Wait for resources to be ready
+    log_info "Waiting for resources to be ready (30 seconds for DNS propagation)..."
+    sleep 30
+    log_success "Resources ready"
+    
+    # Get warehouse ID
+    log_info "Retrieving SQL Warehouse ID..."
+    
+    # Try to get warehouse ID with better error handling
+    WAREHOUSE_LIST_OUTPUT=$(mktemp)
+    databricks warehouses list --output json > "$WAREHOUSE_LIST_OUTPUT" 2>&1
+    WAREHOUSE_LIST_STATUS=$?
+    
+    if [ $WAREHOUSE_LIST_STATUS -eq 0 ]; then
+        WAREHOUSE_ID=$(python3 -c "
+import json, sys
+try:
+    with open('$WAREHOUSE_LIST_OUTPUT', 'r') as f:
+        data = json.load(f)
+    warehouses = data.get('warehouses', data) if isinstance(data, dict) else data
+    for w in warehouses:
+        if w.get('name') == '$WAREHOUSE_NAME':
+            print(w.get('id', ''))
+            sys.exit(0)
+except Exception as e:
+    print(f'Error: {e}', file=sys.stderr)
+    sys.exit(1)
+" 2>/dev/null)
+    fi
+    
+    rm -f "$WAREHOUSE_LIST_OUTPUT"
+    
+    if [ -n "$WAREHOUSE_ID" ]; then
+        log_success "Found warehouse ID: $WAREHOUSE_ID"
+    else
+        log_warning "Could not retrieve warehouse ID automatically"
+        if [ "$VERBOSE" = "true" ]; then
+            log_info "Please check warehouse name: $WAREHOUSE_NAME"
+            log_info "List all warehouses with: databricks warehouses list"
+        fi
+    fi
+    
+    # Get Lakebase host
+    log_info "Retrieving Lakebase host..."
+    
+    # Try to get database instance details with better error handling  
+    DB_INSTANCE_OUTPUT=$(mktemp)
+    databricks database list-database-instances --output json > "$DB_INSTANCE_OUTPUT" 2>&1
+    DB_INSTANCE_STATUS=$?
+    
+    if [ $DB_INSTANCE_STATUS -eq 0 ]; then
+        LAKEBASE_HOST=$(python3 -c "
+import json, sys
+try:
+    with open('$DB_INSTANCE_OUTPUT', 'r') as f:
+        content = f.read()
+        if not content.strip():
+            print('', file=sys.stderr)
+            sys.exit(1)
+        data = json.loads(content)
+    
+    # Handle both list and dict formats
+    instances = data if isinstance(data, list) else data.get('instances', data.get('database_instances', []))
+    
+    for inst in instances:
+        if inst.get('name') == '$LAKEBASE_INSTANCE_NAME':
+            host = inst.get('host', inst.get('hostname', ''))
+            if host:
+                print(host)
+                sys.exit(0)
+    
+    print('', file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(f'Error parsing: {e}', file=sys.stderr)
+    sys.exit(1)
+" 2>/dev/null)
+    else
+        if [ "$VERBOSE" = "true" ]; then
+            log_warning "Failed to list database instances:"
+            cat "$DB_INSTANCE_OUTPUT"
+        fi
+    fi
+    
+    rm -f "$DB_INSTANCE_OUTPUT"
+    
+    if [ -n "$LAKEBASE_HOST" ]; then
+        log_success "Found Lakebase host: $LAKEBASE_HOST"
+    else
+        log_warning "Could not retrieve Lakebase host automatically"
+        if [ "$VERBOSE" = "true" ]; then
+            log_info "Please check database instance name: $LAKEBASE_INSTANCE_NAME"
+            log_info "List all instances with: databricks database list-database-instances"
+        fi
+        log_info "You can manually set LAKEBASE_HOST in .env.local"
+    fi
+    
+    # Update .env.local if values were found
+    if [ -n "$WAREHOUSE_ID" ] || [ -n "$LAKEBASE_HOST" ]; then
+        log_info "Updating .env.local with deployed resource values..."
+        ENV_FILE=".env.local"
+        
+        # Create backup
+        if [ -f "$ENV_FILE" ]; then
+            cp "$ENV_FILE" "$ENV_FILE.backup"
+        else
+            touch "$ENV_FILE"
+        fi
+        
+        # Function to update or add env var
+        update_env_var() {
+            local key=$1
+            local value=$2
+            
+            if grep -q "^${key}=" "$ENV_FILE"; then
+                if [[ "$OSTYPE" == "darwin"* ]]; then
+                    sed -i '' "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+                else
+                    sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+                fi
+            else
+                echo "${key}=${value}" >> "$ENV_FILE"
+            fi
+        }
+        
+        [ -n "$WAREHOUSE_ID" ] && update_env_var "DATABRICKS_WAREHOUSE_ID" "$WAREHOUSE_ID"
+        [ -n "$LAKEBASE_HOST" ] && update_env_var "LAKEBASE_HOST" "$LAKEBASE_HOST"
+        [ -n "$LAKEBASE_HOST" ] && update_env_var "PGHOST" "$LAKEBASE_HOST"
+        update_env_var "LAKEBASE_PORT" "5432"
+        update_env_var "LAKEBASE_DATABASE" "app_database"
+        update_env_var "LAKEBASE_INSTANCE_NAME" "$LAKEBASE_INSTANCE_NAME"
+        
+        # Reload environment
+        set -a
+        source "$ENV_FILE"
+        set +a
+        
+        log_success "Environment variables updated"
+    fi
+    
+    # Test Lakebase connectivity (only if host is available)
+    if [ -n "$LAKEBASE_HOST" ]; then
+        log_info "Testing Lakebase connectivity..."
+        RETRY_COUNT=0
+        MAX_RETRIES=5
+        RETRY_DELAY=10
+        
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if uv run python -c "from server.lib.database import get_engine; get_engine().connect()" &> /dev/null; then
+                log_success "Lakebase connection successful"
+                break
+            else
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                    log_warning "Connection failed, retrying in ${RETRY_DELAY}s (attempt $RETRY_COUNT/$MAX_RETRIES)..."
+                    sleep $RETRY_DELAY
+                else
+                    log_warning "Could not connect to Lakebase after $MAX_RETRIES attempts"
+                    log_info "This may be normal - Lakebase instance might still be initializing"
+                    log_info "You can test connectivity later with: uv run python -c 'from server.lib.database import get_engine; get_engine().connect()'"
+                fi
+            fi
+        done
+    else
+        log_warning "Skipping Lakebase connectivity test (host not available)"
+        log_info "Once you set LAKEBASE_HOST, test with: uv run python -c 'from server.lib.database import get_engine; get_engine().connect()'"
+    fi
+    
+    print_timing "Bundle deployment completed"
+    echo ""
+else
+    log_info "Skipping infrastructure bundle deployment"
+    echo ""
+fi
+
+# ============================================
+# PHASE 3: Run Database Migrations
+# ============================================
+if [ "$DEPLOY_MIGRATIONS" = "yes" ]; then
+    log_step "Phase 3: Running database migrations..."
+    print_timing "Migrations started"
+    
+    # Check if alembic is available
+    if command -v alembic &> /dev/null; then
+        ALEMBIC_CMD="alembic"
+    else
+        ALEMBIC_CMD="uv run alembic"
+    fi
+    
+    # Show current migration status
+    log_info "Current migration status:"
+    $ALEMBIC_CMD current || log_warning "No migrations applied yet"
+    
+    # Run migrations
+    log_info "Applying migrations..."
+    if [ "$VERBOSE" = "true" ]; then
+        $ALEMBIC_CMD upgrade head
+    else
+        $ALEMBIC_CMD upgrade head > /dev/null 2>&1
+    fi
+    log_success "Migrations completed"
+    
+    # Show final migration status
+    log_info "Final migration status:"
+    $ALEMBIC_CMD current
+    
+    # Verify tables
+    log_info "Verifying tables..."
+    TABLES=$(uv run python -c "
+from server.lib.database import get_engine
+from sqlalchemy import inspect
+engine = get_engine()
+inspector = inspect(engine)
+tables = inspector.get_table_names()
+print(','.join(tables))
+" 2>/dev/null)
+    
+    if [ -n "$TABLES" ]; then
+        IFS=',' read -ra TABLE_ARRAY <<< "$TABLES"
+        log_success "Tables verified (${#TABLE_ARRAY[@]} tables created)"
+        if [ "$VERBOSE" = "true" ]; then
+            for table in "${TABLE_ARRAY[@]}"; do
+                echo "  - $table"
+            done
+        fi
+    else
+        log_warning "Could not verify tables"
+    fi
+    
+    print_timing "Migrations completed"
+    echo ""
+else
+    log_info "Skipping database migrations"
+    echo ""
+fi
+
+# ============================================
+# PHASE 4: Create Sample Data
+# ============================================
+if [ "$DEPLOY_SAMPLE_DATA" = "yes" ]; then
+    log_step "Phase 4: Creating sample data..."
+    print_timing "Sample data creation started"
+    
+    log_info "Creating sample data in Unity Catalog and Lakebase..."
+    if [ "$VERBOSE" = "true" ]; then
+        uv run python scripts/setup_sample_data.py create-all
+    else
+        uv run python scripts/setup_sample_data.py create-all > /dev/null 2>&1
+    fi
+    log_success "Sample data created"
+    
+    print_timing "Sample data creation completed"
+    echo ""
+else
+    log_info "Skipping sample data creation"
+    echo ""
+fi
+
+# ============================================
+# PHASE 5: Deploy Application
+# ============================================
+if [ "$DEPLOY_APP" = "yes" ]; then
+    log_step "Phase 5: Deploying application..."
+    print_timing "Application deployment started"
+    
+    # Validate required configuration
+    if [ -z "$DBA_SOURCE_CODE_PATH" ]; then
+        log_error "DBA_SOURCE_CODE_PATH is not set. Please run ./setup.sh first."
+        exit 1
+    fi
+    
+    if [ -z "$DATABRICKS_APP_NAME" ]; then
+        log_error "DATABRICKS_APP_NAME is not set. Please run ./setup.sh first."
+        exit 1
+    fi
+    
+    # Determine auth parameters
+    AUTH_PROFILE_FLAG=""
+    if [ -n "$DATABRICKS_CONFIG_PROFILE" ]; then
+        AUTH_PROFILE_FLAG="--profile $DATABRICKS_CONFIG_PROFILE"
+    fi
+    
+    # Check if app exists and create if needed
+    if [ "$CREATE_APP" = "true" ]; then
+        log_info "Checking if app exists..."
+        APP_EXISTS=$(databricks apps list $AUTH_PROFILE_FLAG 2>/dev/null | grep -c "^$DATABRICKS_APP_NAME " 2>/dev/null || echo "0")
+        
+        if [ "$APP_EXISTS" -eq 0 ]; then
+            log_info "Creating app '$DATABRICKS_APP_NAME'..."
+            if [ "$VERBOSE" = "true" ]; then
+                databricks apps create "$DATABRICKS_APP_NAME" $AUTH_PROFILE_FLAG
+            else
+                databricks apps create "$DATABRICKS_APP_NAME" $AUTH_PROFILE_FLAG > /dev/null 2>&1
+            fi
+            log_success "App created"
+            sleep 5  # Wait for app to be fully created
+        else
+            log_success "App already exists"
+        fi
+    fi
+    
+    # Generate requirements.txt
+    log_info "Generating requirements.txt..."
+    uv run python scripts/generate_semver_requirements.py
+    log_success "Requirements generated"
+    
+    # Build frontend
+    log_info "Building frontend..."
+    cd client
+    if [ "$VERBOSE" = "true" ]; then
+        bun run build
+    else
+        bun run build > /dev/null 2>&1
+    fi
+    cd ..
+    log_success "Frontend built"
+    
+    # Create workspace directory
+    log_info "Creating workspace directory..."
+    databricks workspace mkdirs "$DBA_SOURCE_CODE_PATH" $AUTH_PROFILE_FLAG
+    log_success "Workspace directory ready"
+    
+    # Sync source code
+    log_info "Syncing source code to workspace..."
+    if [ "$VERBOSE" = "true" ]; then
+        databricks sync . "$DBA_SOURCE_CODE_PATH" $AUTH_PROFILE_FLAG
+    else
+        databricks sync . "$DBA_SOURCE_CODE_PATH" $AUTH_PROFILE_FLAG > /dev/null 2>&1
+    fi
+    log_success "Source code synced"
+    
+    # Deploy app
+    log_info "Deploying app to Databricks..."
+    if [ "$VERBOSE" = "true" ]; then
+        databricks apps deploy "$DATABRICKS_APP_NAME" --source-code-path "$DBA_SOURCE_CODE_PATH" --debug $AUTH_PROFILE_FLAG
+    else
+        databricks apps deploy "$DATABRICKS_APP_NAME" --source-code-path "$DBA_SOURCE_CODE_PATH" $AUTH_PROFILE_FLAG
+    fi
+    log_success "App deployed"
+    
+    # Get app URL
+    log_info "Retrieving app URL..."
+    APP_URL=$(databricks apps list --output json $AUTH_PROFILE_FLAG 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    apps = data if isinstance(data, list) else data.get('apps', [])
     for app in apps:
-        if app.get('name') == '"'"'$DATABRICKS_APP_NAME'"'"':
+        if app.get('name') == '$DATABRICKS_APP_NAME':
             print(app.get('url', ''))
             break
 except: pass
 " 2>/dev/null)
+    
+    print_timing "Application deployment completed"
+    echo ""
 else
-  APP_URL=$(databricks apps list --output json 2>/dev/null | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    if isinstance(data, list):
-        apps = data
-    else:
-        apps = data.get('apps', [])
-    for app in apps:
-        if app.get('name') == '"'"'$DATABRICKS_APP_NAME'"'"':
-            print(app.get('url', ''))
-            break
-except: pass
-" 2>/dev/null)
+    log_info "Skipping application deployment"
+    echo ""
 fi
 
-if [ -n "$APP_URL" ]; then
-  echo "Your app is available at:"
-  echo "$APP_URL"
-  echo ""
-  echo "📊 Monitor deployment logs at (visit in browser):"
-  echo "$APP_URL/logz"
-else
-  # Fallback to workspace URL if we can't get the app URL
-  if [ "$DATABRICKS_AUTH_TYPE" = "databricks-cli" ]; then
-    WORKSPACE_URL=$(databricks workspace current --profile "$DATABRICKS_CONFIG_PROFILE" 2>/dev/null | grep -o 'https://[^/]*' || echo "https://<your-databricks-workspace>")
-  else
-    WORKSPACE_URL="$DATABRICKS_HOST"
-  fi
-  echo "Your app should be available at:"
-  echo "$WORKSPACE_URL/apps/$DATABRICKS_APP_NAME"
-  echo ""
-  echo "📊 Monitor deployment logs at (visit in browser):"
-  echo "Check 'databricks apps list' for the actual app URL, then add /logz"
+# ============================================
+# Final Summary
+# ============================================
+echo ""
+echo "=============================================="
+echo "  Deployment Complete!"
+echo "=============================================="
+echo ""
+echo "Target Environment:  $TARGET"
+echo ""
+
+if [ "$DEPLOY_BUNDLE" = "yes" ]; then
+    echo "✓ Infrastructure deployed"
+    [ -n "$WAREHOUSE_ID" ] && echo "  SQL Warehouse ID:  $WAREHOUSE_ID"
+    [ -n "$LAKEBASE_HOST" ] && echo "  Lakebase Host:     $LAKEBASE_HOST"
+fi
+
+if [ "$DEPLOY_MIGRATIONS" = "yes" ]; then
+    echo "✓ Database migrations applied"
+    [ -n "$TABLES" ] && echo "  Tables:            ${#TABLE_ARRAY[@]}"
+fi
+
+if [ "$DEPLOY_SAMPLE_DATA" = "yes" ]; then
+    echo "✓ Sample data created"
+fi
+
+if [ "$DEPLOY_APP" = "yes" ]; then
+    echo "✓ Application deployed"
+    if [ -n "$APP_URL" ]; then
+        echo "  App URL:           $APP_URL"
+        echo "  Logs:              $APP_URL/logz"
+    else
+        echo "  App Name:          $DATABRICKS_APP_NAME"
+        echo "  Check URL with:    databricks apps list"
+    fi
 fi
 
 echo ""
-if [ "$DATABRICKS_AUTH_TYPE" = "databricks-cli" ]; then
-  echo "To check the status:"
-  echo "databricks apps list --profile $DATABRICKS_CONFIG_PROFILE"
-else
-  echo "To check the status:"
-  echo "databricks apps list"
+echo "Next steps:"
+if [ "$DEPLOY_APP" = "yes" ] && [ -n "$APP_URL" ]; then
+    echo "  1. Visit your app:     $APP_URL"
+    echo "  2. Check logs:         $APP_URL/logz (in browser)"
+fi
+echo "  3. Check status:       databricks apps list"
+if [ "$TARGET" = "dev" ]; then
+    echo "  4. Local development:  ./watch.sh"
 fi
 echo ""
-echo "💡 If the app fails to start, visit the /logz endpoint in your browser for installation issues."
-echo "💡 The /logz endpoint requires browser authentication (OAuth) and cannot be accessed via curl."
+
+log_success "All deployment tasks completed successfully!"

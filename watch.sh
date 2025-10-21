@@ -8,10 +8,29 @@ PID_FILE="/tmp/databricks-app-watch.pid"
 
 # Parse command line arguments
 PROD_MODE=false
-if [[ "$1" == "--prod" ]]; then
-  PROD_MODE=true
-  echo "🚀 Production mode enabled"
-fi
+NO_FORMAT=false
+
+for arg in "$@"; do
+  case $arg in
+    --prod)
+      PROD_MODE=true
+      echo "🚀 Production mode enabled"
+      ;;
+    --no-format)
+      NO_FORMAT=true
+      ;;
+    --help|-h)
+      echo "Usage: ./watch.sh [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  --prod        Build frontend for production (served by FastAPI)"
+      echo "  --no-format   Disable colorized log formatting"
+      echo "  --help, -h    Show this help message"
+      echo ""
+      exit 0
+      ;;
+  esac
+done
 
 # Kill any existing processes from previous watch.sh runs
 echo "🧹 Cleaning up any existing watch.sh processes..."
@@ -32,7 +51,14 @@ set -m
 echo $$ > "$PID_FILE"
 
 # Redirect all output to log file while still showing on terminal
-exec > >(tee "$LOG_FILE") 2>&1
+if [ "$NO_FORMAT" = false ] && [ -f "scripts/format_logs.py" ]; then
+  # Write raw logs to file, format output to terminal
+  # Using separate file descriptors to avoid buffering issues
+  exec > >(tee "$LOG_FILE" | PYTHONUNBUFFERED=1 python3 scripts/format_logs.py) 2>&1
+else
+  # Standard behavior: raw logs to both file and terminal
+  exec > >(tee "$LOG_FILE") 2>&1
+fi
 
 echo "Starting Databricks App development servers..."
 echo "=============================================="

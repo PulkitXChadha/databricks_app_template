@@ -351,13 +351,33 @@ The setup script uses a modular design with individual dependency checkers in th
 ### 2. Start Development
 
 ```bash
+# Start with formatted, colored logs (default)
 ./watch.sh
+
+# Or without formatting
+./watch.sh --no-format
+
+# Production mode
+./watch.sh --prod
 ```
 
 This runs both servers in the background:
 - **Frontend**: http://localhost:5173
 - **Backend**: http://localhost:8000
 - **API Docs**: http://localhost:8000/docs
+
+Logs are automatically formatted with colors and structure for better readability!
+
+**View Logs Later:**
+```bash
+# Follow logs in real-time with formatting
+./view_logs.sh -f
+
+# View last 100 lines
+./view_logs.sh -n 100
+```
+
+See [docs/LOG_VIEWING.md](docs/LOG_VIEWING.md) for detailed log viewing options.
 
 ### 3. View Your App
 
@@ -391,7 +411,8 @@ See `CLAUDE.md` for the complete development guide.
 | Command | Description | Flags |
 |---------|-------------|-------|
 | `./setup.sh` | Interactive environment setup | `--auto-close` |
-| `./watch.sh` | Start dev servers (background) | `--prod` |
+| `./watch.sh` | Start dev servers (formatted logs by default) | `--prod`, `--no-format` |
+| `./view_logs.sh` | View logs with colors and formatting | `-f`, `-n N` |
 | `./fix.sh` | Format code (Python + TypeScript) | None |
 | `./deploy.sh` | Deploy to Databricks Apps | `--verbose`, `--create` |
 | `./app_status.sh` | Check deployed app status | `--verbose` |
@@ -402,6 +423,9 @@ See `CLAUDE.md` for the complete development guide.
 #### Core Development Scripts
 - **`./setup.sh`** - Configures authentication, installs dependencies, sets up environment
 - **`./watch.sh`** - Starts both frontend and backend with hot reloading and auto-client generation
+  - Automatically formats logs with colors (use `--no-format` to disable)
+  - `--prod` - Production mode (builds frontend, serves via FastAPI)
+- **`./view_logs.sh`** - View logs with colors and formatting (`-f` to follow, `-n N` for last N lines)
 - **`./fix.sh`** - Formats Python (ruff) and TypeScript (prettier) code
 
 #### Deployment & Monitoring
@@ -546,6 +570,17 @@ The deployment script automatically:
 - **Missing files**: Check with `./app_status.sh --verbose`
 - **Authentication**: Verify `.env.local` configuration
 - **CLI outdated**: Since we use `databricks`, the CLI is always up-to-date
+- **"Catalog already exists"**: The deployment script now handles existing resources gracefully. See [Resource Reuse Guide](docs/DEPLOYMENT_RESOURCE_REUSE.md) for details
+
+#### Resource Reuse During Deployment
+
+The deployment script intelligently handles existing Databricks resources (catalogs, database instances, databases):
+- ✅ **Reuses existing resources** when all components are present
+- ✅ **Creates missing resources** while preserving existing ones
+- ✅ **Detects inconsistent states** (e.g., catalog exists but instance doesn't)
+- ✅ **Provides clear resolution options** when conflicts arise
+
+See the complete [Resource Reuse Guide](docs/DEPLOYMENT_RESOURCE_REUSE.md) for detailed information and troubleshooting steps.
 
 ## 📝 Customization
 
@@ -560,7 +595,10 @@ The deployment script automatically:
 
 #### Check Development Server Status
 ```bash
-# View logs
+# View logs with formatting (recommended)
+./view_logs.sh -f
+
+# View raw logs
 tail -f /tmp/databricks-app-watch.log
 
 # Check running processes
@@ -655,9 +693,20 @@ source .env.local && databricks workspace list "$DBA_SOURCE_CODE_PATH"
 - **React Query DevTools**: Available in development mode
 
 #### Log Files
-- **Development**: `/tmp/databricks-app-watch.log`
+- **Development**: `/tmp/databricks-app-watch.log` - View with `./view_logs.sh -f` for formatted output
 - **Local App Test**: `/tmp/local-app-test.log`
 - **Deployment**: Visit app URL + `/logz` in browser
+
+For better log readability, use the formatted log viewer:
+```bash
+# Follow logs in real-time with colors
+./view_logs.sh -f
+
+# View last 100 lines
+./view_logs.sh -n 100
+```
+
+See [docs/LOG_VIEWING.md](docs/LOG_VIEWING.md) for complete log viewing guide.
 
 ### Reset Everything
 ```bash
@@ -695,6 +744,12 @@ This template includes comprehensive documentation in the `/docs` directory:
   - Unity Catalog permission enforcement
   - Database access with user-level security
   - Troubleshooting common authentication issues
+
+- **[Log Viewing Guide](docs/LOG_VIEWING.md)** - Formatted log viewing with colors and filters
+  - Using `./watch_formatted.sh` for colored real-time logs
+  - Viewing existing logs with `./view_logs.sh`
+  - Understanding log formats and color coding
+  - Advanced filtering and troubleshooting techniques
 
 - **[Databricks APIs](docs/databricks_apis/)** - Integration guides for Databricks services
 - **[Deployment Checklist](docs/DEPLOYMENT_CHECKLIST.md)** - Pre-deployment validation steps
