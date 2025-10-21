@@ -1,5 +1,4 @@
-"""
-Admin privilege checking service for Databricks workspace admin verification.
+"""Admin privilege checking service for Databricks workspace admin verification.
 
 This service calls the Databricks Workspace API to verify if a user has
 workspace admin privileges. Results are cached for 5 minutes to reduce API calls.
@@ -21,9 +20,8 @@ _admin_cache: dict[str, dict] = {}
 
 
 def _get_admin_group_names() -> set[str]:
-    """
-    Get the list of admin group names from environment variable.
-    
+    """Get the list of admin group names from environment variable.
+
     Returns:
         Set of admin group names (lowercase for case-insensitive comparison)
     """
@@ -35,24 +33,23 @@ def _get_admin_group_names() -> set[str]:
 
 
 async def is_workspace_admin(user_token: str, user_id: str) -> bool:
-    """
-    Check if user has Databricks workspace admin privileges.
-    
+    """Check if user has Databricks workspace admin privileges.
+
     This function calls the Databricks Workspace API to check if the user
     is a member of any admin groups. Results are cached for 5 minutes.
-    
+
     Args:
         user_token: Databricks On-Behalf-Of-User (OBO) token
         user_id: User identifier (email or username)
-        
+
     Returns:
         True if user is a workspace admin, False otherwise
-        
+
     Raises:
         HTTPException: 503 Service Unavailable if API call fails
     """
     cache_key = f'admin_check:{user_id}'
-    
+
     # Check cache first
     if cache_key in _admin_cache:
         cached_result = _admin_cache[cache_key]
@@ -64,16 +61,16 @@ async def is_workspace_admin(user_token: str, user_id: str) -> bool:
         else:
             # Cache expired, remove it
             del _admin_cache[cache_key]
-    
+
     # Call Databricks API
     try:
         logger.info(f'Checking admin status for user {user_id}')
         client = WorkspaceClient(token=user_token)
         current_user = client.current_user.me()
-        
+
         # Get admin group names from environment
         admin_group_names = _get_admin_group_names()
-        
+
         # Check if user has workspace admin role
         # Use 'display' field from groups array (case-insensitive)
         user_groups = current_user.groups or []
@@ -82,19 +79,19 @@ async def is_workspace_admin(user_token: str, user_id: str) -> bool:
             for group in user_groups
             if group.display
         )
-        
+
         # Cache result for 5 minutes
         _admin_cache[cache_key] = {
             'is_admin': is_admin,
             'expires_at': datetime.utcnow() + timedelta(minutes=5),
         }
-        
+
         logger.info(
             f'Admin check for user {user_id}: {is_admin} '
             f'(groups: {[g.display for g in user_groups if g.display]})'
         )
         return is_admin
-        
+
     except Exception as e:
         logger.error(
             f'Failed to check admin status for user {user_id}: {e}',
@@ -110,19 +107,18 @@ async def is_workspace_admin(user_token: str, user_id: str) -> bool:
         ) from e
 
 
-def is_workspace_admin(user_info: dict) -> bool:
-    """
-    Check if user has workspace admin privileges based on user info dict.
-    
+def is_workspace_admin_sync(user_info: dict) -> bool:
+    """Check if user has workspace admin privileges based on user info dict.
+
     This is a synchronous helper function primarily for testing.
-    For production use, prefer the async is_workspace_admin_async() function.
-    
+    For production use, prefer the async is_workspace_admin() function.
+
     Args:
         user_info: User info dict from Databricks API (with 'groups' field)
-        
+
     Returns:
         True if user is a workspace admin, False otherwise
-        
+
     Example user_info structure:
         {
             "id": "12345",
@@ -134,10 +130,10 @@ def is_workspace_admin(user_info: dict) -> bool:
     """
     # Get admin group names from environment
     admin_group_names = _get_admin_group_names()
-    
+
     # Extract groups from user info
     groups = user_info.get('groups', [])
-    
+
     # Check if user has any admin group (case-insensitive)
     return any(
         group.get('display', '').lower() in admin_group_names
@@ -146,24 +142,23 @@ def is_workspace_admin(user_info: dict) -> bool:
 
 
 async def is_workspace_admin_async(user_token: str, user_id: str) -> bool:
-    """
-    Async version: Check if user has Databricks workspace admin privileges.
-    
+    """Async version: Check if user has Databricks workspace admin privileges.
+
     This function calls the Databricks Workspace API to check if the user
     is a member of any admin groups. Results are cached for 5 minutes.
-    
+
     Args:
         user_token: Databricks On-Behalf-Of-User (OBO) token
         user_id: User identifier (email or username)
-        
+
     Returns:
         True if user is a workspace admin, False otherwise
-        
+
     Raises:
         HTTPException: 503 Service Unavailable if API call fails
     """
     cache_key = f'admin_check:{user_id}'
-    
+
     # Check cache first
     if cache_key in _admin_cache:
         cached_result = _admin_cache[cache_key]
@@ -175,13 +170,13 @@ async def is_workspace_admin_async(user_token: str, user_id: str) -> bool:
         else:
             # Cache expired, remove it
             del _admin_cache[cache_key]
-    
+
     # Call Databricks API
     try:
         logger.info(f'Checking admin status for user {user_id}')
         client = WorkspaceClient(token=user_token)
         current_user = client.current_user.me()
-        
+
         # Convert to dict format for is_workspace_admin helper
         user_info = {
             'id': current_user.id,
@@ -192,22 +187,22 @@ async def is_workspace_admin_async(user_token: str, user_id: str) -> bool:
                 if group.display
             ]
         }
-        
+
         # Use synchronous helper to check admin status
         is_admin = is_workspace_admin(user_info)
-        
+
         # Cache result for 5 minutes
         _admin_cache[cache_key] = {
             'is_admin': is_admin,
             'expires_at': datetime.utcnow() + timedelta(minutes=5),
         }
-        
+
         logger.info(
             f'Admin check for user {user_id}: {is_admin} '
             f'(groups: {[g["display"] for g in user_info["groups"]]})'
         )
         return is_admin
-        
+
     except Exception as e:
         logger.error(
             f'Failed to check admin status for user {user_id}: {e}',
@@ -224,9 +219,8 @@ async def is_workspace_admin_async(user_token: str, user_id: str) -> bool:
 
 
 def clear_admin_cache(user_id: Optional[str] = None) -> None:
-    """
-    Clear admin cache for a specific user or all users.
-    
+    """Clear admin cache for a specific user or all users.
+
     Args:
         user_id: User ID to clear cache for. If None, clears entire cache.
     """

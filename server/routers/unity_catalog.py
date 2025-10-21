@@ -1,17 +1,18 @@
-"""Unity Catalog API Router
+"""Unity Catalog API Router.
 
 FastAPI endpoints for Unity Catalog table querying.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel, Field
 from typing import Any
 
-from server.services.unity_catalog_service import UnityCatalogService
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from server.lib.auth import get_current_user_id, get_user_token
+from server.lib.structured_logger import StructuredLogger
 from server.models.data_source import DataSource
 from server.models.query_result import QueryResult
-from server.lib.structured_logger import StructuredLogger
-from server.lib.auth import get_current_user_id, get_user_token
+from server.services.unity_catalog_service import UnityCatalogService
 
 router = APIRouter()
 logger = StructuredLogger(__name__)
@@ -20,71 +21,71 @@ logger = StructuredLogger(__name__)
 # Request/Response models
 class QueryTableRequest(BaseModel):
     """Request body for table query."""
-    catalog: str = Field(..., description="Catalog name")
-    schema_name: str = Field(..., description="Schema name", alias="schema")
-    table: str = Field(..., description="Table name")
-    limit: int = Field(default=100, ge=1, le=1000, description="Maximum rows")
-    offset: int = Field(default=0, ge=0, description="Row offset for pagination")
-    filters: dict[str, Any] | None = Field(default=None, description="Optional column filters")
-    
+    catalog: str = Field(..., description='Catalog name')
+    schema_name: str = Field(..., description='Schema name', alias='schema')
+    table: str = Field(..., description='Table name')
+    limit: int = Field(default=100, ge=1, le=1000, description='Maximum rows')
+    offset: int = Field(default=0, ge=0, description='Row offset for pagination')
+    filters: dict[str, Any] | None = Field(default=None, description='Optional column filters')
+
     model_config = {
-        "populate_by_name": True  # Allow both 'schema_name' and 'schema' alias
+        'populate_by_name': True  # Allow both 'schema_name' and 'schema' alias
     }
 
 
-@router.get("/catalogs", response_model=list[str])
+@router.get('/catalogs', response_model=list[str])
 async def list_catalogs(
     request: Request,
     user_id: str = Depends(get_current_user_id),
     user_token: str = Depends(get_user_token)
 ):
     """List accessible Unity Catalog catalogs with OBO authentication.
-    
+
     Requires X-Forwarded-Access-Token header with valid user access token.
-    
+
     Returns:
         List of catalog names the user has access to
-        
+
     Raises:
         401: Authentication required (missing or invalid token)
         403: Permission denied (EC-004)
         503: Database unavailable (EC-002)
     """
     logger.info(
-        "Listing Unity Catalog catalogs",
+        'Listing Unity Catalog catalogs',
         user_id=user_id
     )
-    
+
     try:
         service = UnityCatalogService(user_token=user_token)
         catalogs = await service.list_catalogs(user_id=user_id)
-        
+
         logger.info(
-            f"Retrieved {len(catalogs)} catalogs",
+            f'Retrieved {len(catalogs)} catalogs',
             user_id=user_id,
             catalog_count=len(catalogs)
         )
-        
+
         return catalogs
-        
+
     except Exception as e:
         logger.error(
-            f"Error listing catalogs: {str(e)}",
+            f'Error listing catalogs: {str(e)}',
             exc_info=True,
             user_id=user_id
         )
         raise HTTPException(
             status_code=503,
             detail={
-                "error_code": "DATABASE_UNAVAILABLE",
-                "message": "Database service temporarily unavailable.",
-                "technical_details": {"error_type": type(e).__name__},
-                "retry_after": 10
+                'error_code': 'DATABASE_UNAVAILABLE',
+                'message': 'Database service temporarily unavailable.',
+                'technical_details': {'error_type': type(e).__name__},
+                'retry_after': 10
             }
         )
 
 
-@router.get("/schemas", response_model=list[str])
+@router.get('/schemas', response_model=list[str])
 async def list_schemas(
     request: Request,
     catalog: str,
@@ -92,74 +93,74 @@ async def list_schemas(
     user_token: str = Depends(get_user_token)
 ):
     """List schemas in a Unity Catalog catalog.
-    
+
     Query Parameters:
         catalog: Catalog name
-        
+
     Returns:
         List of schema names in the catalog
-        
+
     Raises:
         401: Authentication required (EC-003)
         403: Permission denied (EC-004)
         503: Database unavailable (EC-002)
     """
     logger.info(
-        "Listing Unity Catalog schemas",
+        'Listing Unity Catalog schemas',
         user_id=user_id,
         catalog=catalog
     )
-    
+
     try:
         service = UnityCatalogService(user_token=user_token)
         schemas = await service.list_schemas(
             catalog=catalog,
             user_id=user_id
         )
-        
+
         logger.info(
-            f"Retrieved {len(schemas)} schemas from catalog",
+            f'Retrieved {len(schemas)} schemas from catalog',
             user_id=user_id,
             catalog=catalog,
             schema_count=len(schemas)
         )
-        
+
         return schemas
-        
+
     except PermissionError as e:
         logger.error(
-            f"Permission denied: {str(e)}",
+            f'Permission denied: {str(e)}',
             user_id=user_id,
             catalog=catalog
         )
         raise HTTPException(
             status_code=403,
             detail={
-                "error_code": "CATALOG_PERMISSION_DENIED",
-                "message": "You don't have access to this catalog.",
-                "technical_details": {
-                    "catalog": catalog
+                'error_code': 'CATALOG_PERMISSION_DENIED',
+                'message': "You don't have access to this catalog.",
+                'technical_details': {
+                    'catalog': catalog
                 }
             }
         )
     except Exception as e:
         logger.error(
-            f"Error listing schemas: {str(e)}",
+            f'Error listing schemas: {str(e)}',
             exc_info=True,
             user_id=user_id
         )
         raise HTTPException(
             status_code=503,
             detail={
-                "error_code": "DATABASE_UNAVAILABLE",
-                "message": "Database service temporarily unavailable.",
-                "technical_details": {"error_type": type(e).__name__},
-                "retry_after": 10
+                'error_code': 'DATABASE_UNAVAILABLE',
+                'message': 'Database service temporarily unavailable.',
+                'technical_details': {'error_type': type(e).__name__},
+                'retry_after': 10
             }
         )
 
 
-@router.get("/table-names", response_model=list[str])
+@router.get('/table-names', response_model=list[str])
 async def list_table_names(
     request: Request,
     catalog: str,
@@ -168,26 +169,26 @@ async def list_table_names(
     user_token: str = Depends(get_user_token)
 ):
     """List table names in a Unity Catalog schema.
-    
+
     Query Parameters:
         catalog: Catalog name
         schema: Schema name
-        
+
     Returns:
         List of table names in the schema
-        
+
     Raises:
         401: Authentication required (EC-003)
         403: Permission denied (EC-004)
         503: Database unavailable (EC-002)
     """
     logger.info(
-        "Listing Unity Catalog table names",
+        'Listing Unity Catalog table names',
         user_id=user_id,
         catalog=catalog,
         schema=schema
     )
-    
+
     try:
         service = UnityCatalogService(user_token=user_token)
         table_names = await service.list_table_names(
@@ -195,20 +196,20 @@ async def list_table_names(
             schema=schema,
             user_id=user_id
         )
-        
+
         logger.info(
-            f"Retrieved {len(table_names)} tables from schema",
+            f'Retrieved {len(table_names)} tables from schema',
             user_id=user_id,
             catalog=catalog,
             schema=schema,
             table_count=len(table_names)
         )
-        
+
         return table_names
-        
+
     except PermissionError as e:
         logger.error(
-            f"Permission denied: {str(e)}",
+            f'Permission denied: {str(e)}',
             user_id=user_id,
             catalog=catalog,
             schema=schema
@@ -216,32 +217,32 @@ async def list_table_names(
         raise HTTPException(
             status_code=403,
             detail={
-                "error_code": "CATALOG_PERMISSION_DENIED",
-                "message": "You don't have access to this catalog/schema.",
-                "technical_details": {
-                    "catalog": catalog,
-                    "schema": schema
+                'error_code': 'CATALOG_PERMISSION_DENIED',
+                'message': "You don't have access to this catalog/schema.",
+                'technical_details': {
+                    'catalog': catalog,
+                    'schema': schema
                 }
             }
         )
     except Exception as e:
         logger.error(
-            f"Error listing table names: {str(e)}",
+            f'Error listing table names: {str(e)}',
             exc_info=True,
             user_id=user_id
         )
         raise HTTPException(
             status_code=503,
             detail={
-                "error_code": "DATABASE_UNAVAILABLE",
-                "message": "Database service temporarily unavailable.",
-                "technical_details": {"error_type": type(e).__name__},
-                "retry_after": 10
+                'error_code': 'DATABASE_UNAVAILABLE',
+                'message': 'Database service temporarily unavailable.',
+                'technical_details': {'error_type': type(e).__name__},
+                'retry_after': 10
             }
         )
 
 
-@router.get("/tables", response_model=list[DataSource])
+@router.get('/tables', response_model=list[DataSource])
 async def list_tables(
     request: Request,
     catalog: str | None = None,
@@ -250,14 +251,14 @@ async def list_tables(
     user_token: str = Depends(get_user_token)
 ):
     """List accessible Unity Catalog tables.
-    
+
     Query Parameters:
         catalog: Catalog name filter (optional)
         schema: Schema name filter (optional)
-        
+
     Returns:
         List of DataSource objects with table metadata
-        
+
     Raises:
         401: Authentication required (EC-003)
         403: Permission denied (EC-004)
@@ -271,10 +272,10 @@ async def list_tables(
             user_id=user_id
         )
         return tables
-        
+
     except PermissionError as e:
         logger.error(
-            f"Permission denied: {str(e)}",
+            f'Permission denied: {str(e)}',
             user_id=user_id,
             catalog=catalog,
             schema=schema
@@ -282,32 +283,32 @@ async def list_tables(
         raise HTTPException(
             status_code=403,
             detail={
-                "error_code": "CATALOG_PERMISSION_DENIED",
-                "message": "You don't have access to this catalog/schema.",
-                "technical_details": {
-                    "catalog": catalog,
-                    "schema": schema
+                'error_code': 'CATALOG_PERMISSION_DENIED',
+                'message': "You don't have access to this catalog/schema.",
+                'technical_details': {
+                    'catalog': catalog,
+                    'schema': schema
                 }
             }
         )
     except Exception as e:
         logger.error(
-            f"Error listing tables: {str(e)}",
+            f'Error listing tables: {str(e)}',
             exc_info=True,
             user_id=user_id
         )
         raise HTTPException(
             status_code=503,
             detail={
-                "error_code": "DATABASE_UNAVAILABLE",
-                "message": "Database service temporarily unavailable.",
-                "technical_details": {"error_type": type(e).__name__},
-                "retry_after": 10
+                'error_code': 'DATABASE_UNAVAILABLE',
+                'message': 'Database service temporarily unavailable.',
+                'technical_details': {'error_type': type(e).__name__},
+                'retry_after': 10
             }
         )
 
 
-@router.get("/query", response_model=QueryResult)
+@router.get('/query', response_model=QueryResult)
 async def query_table_get(
     request: Request,
     catalog: str,
@@ -319,17 +320,17 @@ async def query_table_get(
     user_token: str = Depends(get_user_token)
 ):
     """Execute SELECT query on Unity Catalog table (GET method).
-    
+
     Query Parameters:
         catalog: Catalog name
         schema: Schema name
         table: Table name
         limit: Maximum rows (1-1000, default: 100)
         offset: Row offset for pagination (default: 0)
-        
+
     Returns:
         QueryResult with data and execution metadata
-        
+
     Raises:
         400: Invalid query parameters
         403: Permission denied (EC-004)
@@ -337,13 +338,13 @@ async def query_table_get(
         503: Database unavailable (EC-002)
     """
     logger.info(
-        "Querying Unity Catalog table",
+        'Querying Unity Catalog table',
         user_id=user_id,
-        table=f"{catalog}.{schema}.{table}",
+        table=f'{catalog}.{schema}.{table}',
         limit=limit,
         offset=offset
     )
-    
+
     try:
         service = UnityCatalogService(user_token=user_token)
         result = await service.query_table(
@@ -354,78 +355,78 @@ async def query_table_get(
             offset=offset,
             user_id=user_id
         )
-        
+
         logger.info(
-            f"Query completed: {result.row_count} rows returned",
+            f'Query completed: {result.row_count} rows returned',
             user_id=user_id,
-            table=f"{catalog}.{schema}.{table}",
+            table=f'{catalog}.{schema}.{table}',
             row_count=result.row_count,
             execution_time_ms=result.execution_time_ms
         )
-        
+
         return result
-        
+
     except ValueError as e:
         # Invalid parameters
         logger.warning(
-            f"Invalid query parameters: {str(e)}",
+            f'Invalid query parameters: {str(e)}',
             user_id=user_id
         )
         raise HTTPException(
             status_code=400,
             detail={
-                "error_code": "INVALID_QUERY",
-                "message": str(e)
+                'error_code': 'INVALID_QUERY',
+                'message': str(e)
             }
         )
-    
+
     except PermissionError as e:
         logger.error(
-            f"Permission denied: {str(e)}",
+            f'Permission denied: {str(e)}',
             user_id=user_id,
-            table=f"{catalog}.{schema}.{table}"
+            table=f'{catalog}.{schema}.{table}'
         )
         raise HTTPException(
             status_code=403,
             detail={
-                "error_code": "CATALOG_PERMISSION_DENIED",
-                "message": "You don't have access to this table.",
-                "technical_details": {
-                    "catalog": catalog,
-                    "schema": schema,
-                    "table": table
+                'error_code': 'CATALOG_PERMISSION_DENIED',
+                'message': "You don't have access to this table.",
+                'technical_details': {
+                    'catalog': catalog,
+                    'schema': schema,
+                    'table': table
                 }
             }
         )
-    
+
     except Exception as e:
         # Check if table not found
-        if "not found" in str(e).lower() or "does not exist" in str(e).lower():
+        if 'not found' in str(e).lower() or 'does not exist' in str(e).lower():
             raise HTTPException(
                 status_code=404,
                 detail={
-                    "error_code": "TABLE_NOT_FOUND",
-                    "message": f"Table {catalog}.{schema}.{table} not found."
+                    'error_code': 'TABLE_NOT_FOUND',
+                    'message': f'Table {catalog}.{schema}.{table} not found.'
                 }
             )
-        
+
         logger.error(
-            f"Error querying table: {str(e)}",
+            f'Error querying table: {str(e)}',
             exc_info=True,
             user_id=user_id
         )
         raise HTTPException(
             status_code=503,
             detail={
-                "error_code": "DATABASE_UNAVAILABLE",
-                "message": "Database service temporarily unavailable.",
-                "technical_details": {"error_type": type(e).__name__},
-                "retry_after": 10
+                'error_code': 'DATABASE_UNAVAILABLE',
+                'message': 'Database service temporarily unavailable.',
+                'technical_details': {'error_type': type(e).__name__},
+                'retry_after': 10
             }
         )
 
 
-@router.post("/query", response_model=QueryResult)
+@router.post('/query', response_model=QueryResult)
 async def query_table_post(
     http_request: Request,
     request: QueryTableRequest,
@@ -433,7 +434,7 @@ async def query_table_post(
     user_token: str = Depends(get_user_token)
 ):
     """Execute SELECT query on Unity Catalog table (POST method).
-    
+
     Request Body:
         catalog: Catalog name
         schema: Schema name
@@ -441,10 +442,10 @@ async def query_table_post(
         limit: Maximum rows (1-1000, default: 100)
         offset: Row offset for pagination (default: 0)
         filters: Optional column filters
-        
+
     Returns:
         QueryResult with data and execution metadata
-        
+
     Raises:
         400: Invalid query parameters
         403: Permission denied (EC-004)
@@ -452,13 +453,13 @@ async def query_table_post(
         503: Database unavailable (EC-002)
     """
     logger.info(
-        "Querying Unity Catalog table (POST)",
+        'Querying Unity Catalog table (POST)',
         user_id=user_id,
-        table=f"{request.catalog}.{request.schema_name}.{request.table}",
+        table=f'{request.catalog}.{request.schema_name}.{request.table}',
         limit=request.limit,
         offset=request.offset
     )
-    
+
     try:
         service = UnityCatalogService(user_token=user_token)
         result = await service.query_table(
@@ -469,72 +470,72 @@ async def query_table_post(
             offset=request.offset,
             user_id=user_id
         )
-        
+
         logger.info(
-            f"Query completed: {result.row_count} rows returned",
+            f'Query completed: {result.row_count} rows returned',
             user_id=user_id,
-            table=f"{request.catalog}.{request.schema_name}.{request.table}",
+            table=f'{request.catalog}.{request.schema_name}.{request.table}',
             row_count=result.row_count,
             execution_time_ms=result.execution_time_ms
         )
-        
+
         return result
-        
+
     except ValueError as e:
         # Invalid parameters
         logger.warning(
-            f"Invalid query parameters: {str(e)}",
+            f'Invalid query parameters: {str(e)}',
             user_id=user_id
         )
         raise HTTPException(
             status_code=400,
             detail={
-                "error_code": "INVALID_QUERY",
-                "message": str(e)
+                'error_code': 'INVALID_QUERY',
+                'message': str(e)
             }
         )
-    
+
     except PermissionError as e:
         logger.error(
-            f"Permission denied: {str(e)}",
+            f'Permission denied: {str(e)}',
             user_id=user_id,
-            table=f"{request.catalog}.{request.schema_name}.{request.table}"
+            table=f'{request.catalog}.{request.schema_name}.{request.table}'
         )
         raise HTTPException(
             status_code=403,
             detail={
-                "error_code": "CATALOG_PERMISSION_DENIED",
-                "message": "You don't have access to this table.",
-                "technical_details": {
-                    "catalog": request.catalog,
-                    "schema": request.schema_name,
-                    "table": request.table
+                'error_code': 'CATALOG_PERMISSION_DENIED',
+                'message': "You don't have access to this table.",
+                'technical_details': {
+                    'catalog': request.catalog,
+                    'schema': request.schema_name,
+                    'table': request.table
                 }
             }
         )
-    
+
     except Exception as e:
         # Check if table not found
-        if "not found" in str(e).lower() or "does not exist" in str(e).lower():
+        if 'not found' in str(e).lower() or 'does not exist' in str(e).lower():
             raise HTTPException(
                 status_code=404,
                 detail={
-                    "error_code": "TABLE_NOT_FOUND",
-                    "message": f"Table {request.catalog}.{request.schema_name}.{request.table} not found."
+                    'error_code': 'TABLE_NOT_FOUND',
+                    'message': f'Table {request.catalog}.{request.schema_name}.{request.table} not found.'
                 }
             )
-        
+
         logger.error(
-            f"Error querying table: {str(e)}",
+            f'Error querying table: {str(e)}',
             exc_info=True,
             user_id=user_id
         )
         raise HTTPException(
             status_code=503,
             detail={
-                "error_code": "DATABASE_UNAVAILABLE",
-                "message": "Database service temporarily unavailable.",
-                "technical_details": {"error_type": type(e).__name__},
-                "retry_after": 10
+                'error_code': 'DATABASE_UNAVAILABLE',
+                'message': 'Database service temporarily unavailable.',
+                'technical_details': {'error_type': type(e).__name__},
+                'retry_after': 10
             }
         )

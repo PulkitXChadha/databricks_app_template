@@ -1,15 +1,15 @@
-"""
-Metrics API endpoints for performance and usage metrics.
+"""Metrics API endpoints for performance and usage metrics.
 
 All metrics retrieval endpoints require administrator privileges.
 Usage event submission requires authentication but not admin.
 """
 
 import logging
-from typing import Optional, List
-from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy.orm import Session
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.orm import Session
 
 from server.lib.auth import get_admin_user, get_user_token
 from server.lib.database import get_db_session, is_lakebase_configured
@@ -39,13 +39,12 @@ class UsageEventBatchRequest(BaseModel):
         min_length=1,
         description='Array of usage events (max 1000 per batch)'
     )
-    
+
     @field_validator('events')
     @classmethod
     def validate_batch_size(cls, v):
-        """
-        Enforce FR-012: Maximum batch size of 1000 events.
-        
+        """Enforce FR-012: Maximum batch size of 1000 events.
+
         Raises ValueError with specific message that will be caught by
         custom exception handler (FR-013) and converted to 413 status code.
         """
@@ -87,19 +86,18 @@ async def get_performance_metrics(
     endpoint: Optional[str] = None,
     db: Session = Depends(get_db_session)
 ):
-    """
-    Get performance metrics (admin only).
-    
+    """Get performance metrics (admin only).
+
     Retrieves aggregated performance metrics for API requests over the
     specified time period. Automatically routes to raw metrics (<7 days)
     or aggregated metrics (8-90 days).
-    
+
     Args:
         admin_user: Admin user info (from dependency)
         time_range: Time range ("24h", "7d", "30d", "90d")
         endpoint: Optional endpoint path filter
         db: Database session
-        
+
     Returns:
         Dictionary with performance metrics
     """
@@ -109,12 +107,12 @@ async def get_performance_metrics(
             status_code=503,
             detail='Metrics service unavailable: Lakebase database not configured'
         )
-    
+
     logger.info(
         f'Performance metrics requested by admin user {admin_user["user_id"]} '
         f'(time_range={time_range}, endpoint={endpoint})'
     )
-    
+
     metrics_service = MetricsService(db)
     return metrics_service.get_performance_metrics(time_range, endpoint)
 
@@ -126,18 +124,17 @@ async def get_usage_metrics(
     event_type: Optional[str] = None,
     db: Session = Depends(get_db_session)
 ):
-    """
-    Get usage metrics (admin only).
-    
+    """Get usage metrics (admin only).
+
     Retrieves aggregated usage metrics for user interactions over the
     specified time period.
-    
+
     Args:
         admin_user: Admin user info (from dependency)
         time_range: Time range ("24h", "7d", "30d", "90d")
         event_type: Optional event type filter
         db: Database session
-        
+
     Returns:
         Dictionary with usage metrics
     """
@@ -147,12 +144,12 @@ async def get_usage_metrics(
             status_code=503,
             detail='Metrics service unavailable: Lakebase database not configured'
         )
-    
+
     logger.info(
         f'Usage metrics requested by admin user {admin_user["user_id"]} '
         f'(time_range={time_range}, event_type={event_type})'
     )
-    
+
     metrics_service = MetricsService(db)
     return metrics_service.get_usage_metrics(time_range, event_type)
 
@@ -163,17 +160,16 @@ async def submit_usage_events(
     user_token: str = Depends(get_user_token),  # Authenticated, not admin-only
     db: Session = Depends(get_db_session)
 ):
-    """
-    Submit batch usage events (any authenticated user).
-    
+    """Submit batch usage events (any authenticated user).
+
     Accepts a batch of usage events from the frontend. Events are processed
     asynchronously to avoid blocking the response.
-    
+
     Args:
         request: Batch of usage events
         user_token: User authentication token
         db: Database session
-        
+
     Returns:
         Confirmation with count of events received
     """
@@ -183,23 +179,23 @@ async def submit_usage_events(
             status_code=503,
             detail='Metrics service unavailable: Lakebase database not configured'
         )
-    
+
     from databricks.sdk import WorkspaceClient
-    
+
     # Get user ID from token
     client = WorkspaceClient(token=user_token)
     user = client.current_user.me()
     user_id = user.user_name
-    
+
     logger.info(f'Received {len(request.events)} usage events from user {user_id}')
-    
+
     # Record events
     metrics_service = MetricsService(db)
     events_count = metrics_service.record_usage_events_batch(
         [event.model_dump() for event in request.events],
         user_id
     )
-    
+
     return UsageEventBatchResponse(
         message='Events accepted',
         events_received=events_count,
@@ -213,17 +209,16 @@ async def get_usage_count(
     time_range: str = Query('24h', pattern='^(24h|7d|30d|90d)$'),
     db: Session = Depends(get_db_session)
 ):
-    """
-    Get usage event count for authenticated user (T082.6, T082.7).
-    
+    """Get usage event count for authenticated user (T082.6, T082.7).
+
     Used by frontend UsageTracker to reconcile sent event count with
     backend persisted count for data loss validation (<0.1% threshold).
-    
+
     Args:
         user_token: User authentication token
         time_range: Time range ("24h", "7d", "30d", "90d")
         db: Database session
-        
+
     Returns:
         Dictionary with event count and time range details
     """
@@ -233,17 +228,19 @@ async def get_usage_count(
             status_code=503,
             detail='Metrics service unavailable: Lakebase database not configured'
         )
-    
-    from databricks.sdk import WorkspaceClient
-    from server.models.usage_event import UsageEvent
+
     from datetime import datetime, timedelta
+
+    from databricks.sdk import WorkspaceClient
     from sqlalchemy import and_
-    
+
+    from server.models.usage_event import UsageEvent
+
     # Get user ID from token
     client = WorkspaceClient(token=user_token)
     user = client.current_user.me()
     user_id = user.user_name
-    
+
     # Parse time range
     end_time = datetime.utcnow()
     if time_range == '24h':
@@ -256,7 +253,7 @@ async def get_usage_count(
         start_time = end_time - timedelta(days=90)
     else:
         start_time = end_time - timedelta(hours=24)
-    
+
     # Query usage events count for this user
     count = db.query(UsageEvent).filter(
         and_(
@@ -265,9 +262,9 @@ async def get_usage_count(
             UsageEvent.timestamp <= end_time
         )
     ).count()
-    
+
     logger.info(f'Usage count query for user {user_id}: {count} events in {time_range}')
-    
+
     return {
         'count': count,
         'time_range': time_range,
@@ -283,18 +280,17 @@ async def get_time_series_metrics(
     metric_type: str = Query(..., pattern='^(performance|usage|both)$'),
     db: Session = Depends(get_db_session)
 ):
-    """
-    Get time-series metrics data for chart visualization (admin only).
-    
+    """Get time-series metrics data for chart visualization (admin only).
+
     Returns hourly data points for the specified time range and metric type.
     Automatically routes to raw metrics (<7 days) or aggregated metrics (8-90 days).
-    
+
     Args:
         admin_user: Admin user info (from dependency)
         time_range: Time range ("24h", "7d", "30d", "90d")
         metric_type: Type of metrics ("performance", "usage", "both")
         db: Database session
-        
+
     Returns:
         TimeSeriesMetricsResponse with hourly data points
     """
@@ -304,12 +300,12 @@ async def get_time_series_metrics(
             status_code=503,
             detail='Metrics service unavailable: Lakebase database not configured'
         )
-    
+
     logger.info(
         f'Time-series metrics requested by admin user {admin_user["user_id"]} '
         f'(time_range={time_range}, metric_type={metric_type})'
     )
-    
+
     metrics_service = MetricsService(db)
     return metrics_service.get_time_series_metrics(time_range, metric_type)
 

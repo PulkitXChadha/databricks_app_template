@@ -1,18 +1,19 @@
-"""User Session and Authentication Models
+"""User Session and Authentication Models.
 
 Represents authenticated users and their session context.
 """
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
-from datetime import datetime
 from dataclasses import dataclass
-from typing import Optional
+from datetime import datetime
 from enum import Enum
+from typing import Optional
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class UserSession(BaseModel):
     """Authenticated user session model.
-    
+
     Attributes:
         user_id: Unique user identifier from Databricks workspace
         user_name: Display name of the user
@@ -23,16 +24,16 @@ class UserSession(BaseModel):
         created_at: When session was created
         expires_at: When session token expires
     """
-    
-    user_id: str = Field(..., min_length=1, description="Unique user identifier")
-    user_name: str = Field(..., min_length=1, description="Display name")
-    email: EmailStr = Field(..., description="User email address")
-    active: bool = Field(default=True, description="Account active status")
-    session_token: str = Field(..., min_length=10, description="Session authentication token")
-    workspace_url: str = Field(..., description="Databricks workspace URL")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Session creation time")
-    expires_at: datetime = Field(..., description="Token expiration time")
-    
+
+    user_id: str = Field(..., min_length=1, description='Unique user identifier')
+    user_name: str = Field(..., min_length=1, description='Display name')
+    email: EmailStr = Field(..., description='User email address')
+    active: bool = Field(default=True, description='Account active status')
+    session_token: str = Field(..., min_length=10, description='Session authentication token')
+    workspace_url: str = Field(..., description='Databricks workspace URL')
+    created_at: datetime = Field(default_factory=datetime.utcnow, description='Session creation time')
+    expires_at: datetime = Field(..., description='Token expiration time')
+
     @field_validator('workspace_url')
     @classmethod
     def validate_workspace_url(cls, v: str) -> str:
@@ -40,7 +41,7 @@ class UserSession(BaseModel):
         if not v.startswith('https://') or '.databricks.com' not in v:
             raise ValueError('workspace_url must be a valid Databricks workspace URL')
         return v
-    
+
     @field_validator('expires_at')
     @classmethod
     def validate_expiration(cls, v: datetime, info) -> datetime:
@@ -48,18 +49,18 @@ class UserSession(BaseModel):
         if 'created_at' in info.data and v <= info.data['created_at']:
             raise ValueError('expires_at must be after created_at')
         return v
-    
+
     model_config = {
-        "json_schema_extra": {
-            "example": {
-                "user_id": "user@example.com",
-                "user_name": "John Doe",
-                "email": "user@example.com",
-                "active": True,
-                "session_token": "dapi1234567890abcdef",
-                "workspace_url": "https://example.cloud.databricks.com",
-                "created_at": "2025-10-05T12:00:00Z",
-                "expires_at": "2025-10-05T20:00:00Z"
+        'json_schema_extra': {
+            'example': {
+                'user_id': 'user@example.com',
+                'user_name': 'John Doe',
+                'email': 'user@example.com',
+                'active': True,
+                'session_token': 'dapi1234567890abcdef',
+                'workspace_url': 'https://example.cloud.databricks.com',
+                'created_at': '2025-10-05T12:00:00Z',
+                'expires_at': '2025-10-05T20:00:00Z'
             }
         }
     }
@@ -67,12 +68,12 @@ class UserSession(BaseModel):
 
 class AuthenticationErrorCode(str, Enum):
     """Standardized error codes for authentication failures."""
-    AUTH_EXPIRED = "AUTH_EXPIRED"
-    AUTH_INVALID = "AUTH_INVALID"
-    AUTH_MISSING = "AUTH_MISSING"
-    AUTH_USER_IDENTITY_FAILED = "AUTH_USER_IDENTITY_FAILED"
-    AUTH_RATE_LIMITED = "AUTH_RATE_LIMITED"
-    AUTH_MALFORMED = "AUTH_MALFORMED"
+    AUTH_EXPIRED = 'AUTH_EXPIRED'
+    AUTH_INVALID = 'AUTH_INVALID'
+    AUTH_MISSING = 'AUTH_MISSING'
+    AUTH_USER_IDENTITY_FAILED = 'AUTH_USER_IDENTITY_FAILED'
+    AUTH_RATE_LIMITED = 'AUTH_RATE_LIMITED'
+    AUTH_MALFORMED = 'AUTH_MALFORMED'
 
 
 @dataclass
@@ -93,21 +94,21 @@ class UserIdentity(BaseModel):
     Represents the authenticated user's identity information
     retrieved from the Databricks workspace.
     """
-    user_id: EmailStr = Field(..., description="User identifier (email address)")
+    user_id: EmailStr = Field(..., description='User identifier (email address)')
     display_name: str = Field(..., description="User's display name")
-    active: bool = Field(default=True, description="Whether user is active")
+    active: bool = Field(default=True, description='Whether user is active')
     extracted_at: datetime = Field(
         default_factory=datetime.utcnow,
-        description="When identity was extracted"
+        description='When identity was extracted'
     )
 
     model_config = {
-        "json_schema_extra": {
-            "example": {
-                "user_id": "user@example.com",
-                "display_name": "Jane Doe",
-                "active": True,
-                "extracted_at": "2025-10-10T12:34:56Z"
+        'json_schema_extra': {
+            'example': {
+                'user_id': 'user@example.com',
+                'display_name': 'Jane Doe',
+                'active': True,
+                'extracted_at': '2025-10-10T12:34:56Z'
             }
         }
     }
@@ -115,18 +116,18 @@ class UserIdentity(BaseModel):
 
 class UserInfoResponse(BaseModel):
     """Response model for /api/user/me endpoint."""
-    userName: str = Field(..., description="User email address")
+    userName: str = Field(..., description='User email address')
     displayName: str = Field(..., description="User's display name")
-    active: bool = Field(default=True, description="Whether user is active")
-    emails: list[str] = Field(default_factory=list, description="User email addresses")
+    active: bool = Field(default=True, description='Whether user is active')
+    emails: list[str] = Field(default_factory=list, description='User email addresses')
 
     model_config = {
-        "json_schema_extra": {
-            "example": {
-                "userName": "user@example.com",
-                "displayName": "John Doe",
-                "active": True,
-                "emails": ["user@example.com"]
+        'json_schema_extra': {
+            'example': {
+                'userName': 'user@example.com',
+                'displayName': 'John Doe',
+                'active': True,
+                'emails': ['user@example.com']
             }
         }
     }
@@ -134,40 +135,40 @@ class UserInfoResponse(BaseModel):
 
 class WorkspaceInfo(BaseModel):
     """Workspace information."""
-    name: str = Field(..., description="Workspace display name")
-    url: str = Field(..., description="Workspace URL")
+    name: str = Field(..., description='Workspace display name')
+    url: str = Field(..., description='Workspace URL')
 
 
 class UserWorkspaceInfo(BaseModel):
     """User information for workspace response."""
-    userName: str = Field(..., description="User email address")
+    userName: str = Field(..., description='User email address')
     displayName: str = Field(..., description="User's display name")
-    active: bool = Field(default=True, description="Whether user is active")
+    active: bool = Field(default=True, description='Whether user is active')
 
 
 class InternalWorkspaceInfo(BaseModel):
     """Internal model for workspace info from service (used by UserService)."""
-    workspace_id: str = Field(..., description="Workspace identifier")
-    workspace_url: str = Field(..., description="Workspace URL")
-    workspace_name: str = Field(..., description="Workspace display name")
+    workspace_id: str = Field(..., description='Workspace identifier')
+    workspace_url: str = Field(..., description='Workspace URL')
+    workspace_name: str = Field(..., description='Workspace display name')
 
 
 class WorkspaceInfoResponse(BaseModel):
     """Response model for /api/user/me/workspace endpoint."""
-    user: UserWorkspaceInfo = Field(..., description="User information")
-    workspace: WorkspaceInfo = Field(..., description="Workspace information")
+    user: UserWorkspaceInfo = Field(..., description='User information')
+    workspace: WorkspaceInfo = Field(..., description='Workspace information')
 
     model_config = {
-        "json_schema_extra": {
-            "example": {
-                "user": {
-                    "userName": "user@example.com",
-                    "displayName": "John Doe",
-                    "active": True
+        'json_schema_extra': {
+            'example': {
+                'user': {
+                    'userName': 'user@example.com',
+                    'displayName': 'John Doe',
+                    'active': True
                 },
-                "workspace": {
-                    "name": "Production Workspace",
-                    "url": "https://example.cloud.databricks.com"
+                'workspace': {
+                    'name': 'Production Workspace',
+                    'url': 'https://example.cloud.databricks.com'
                 }
             }
         }
@@ -176,18 +177,18 @@ class WorkspaceInfoResponse(BaseModel):
 
 class AuthenticationStatusResponse(BaseModel):
     """Response model for /api/auth/status endpoint."""
-    authenticated: bool = Field(default=True, description="Whether request is authenticated")
+    authenticated: bool = Field(default=True, description='Whether request is authenticated')
     auth_mode: str = Field(..., description="Authentication mode (always 'obo' - OBO-only authentication)")
-    has_user_identity: bool = Field(..., description="Whether user identity is available")
-    user_id: Optional[str] = Field(None, description="User email if available")
+    has_user_identity: bool = Field(..., description='Whether user identity is available')
+    user_id: Optional[str] = Field(None, description='User email if available')
 
     model_config = {
-        "json_schema_extra": {
-            "example": {
-                "authenticated": True,
-                "auth_mode": "obo",
-                "has_user_identity": True,
-                "user_id": "user@example.com"
+        'json_schema_extra': {
+            'example': {
+                'authenticated': True,
+                'auth_mode': 'obo',
+                'has_user_identity': True,
+                'user_id': 'user@example.com'
             }
         }
     }
@@ -195,16 +196,16 @@ class AuthenticationStatusResponse(BaseModel):
 
 class AuthenticationErrorResponse(BaseModel):
     """Error response for authentication failures."""
-    detail: str = Field(..., description="Error message")
-    error_code: AuthenticationErrorCode = Field(..., description="Standardized error code")
-    retry_after: Optional[int] = Field(None, description="Seconds to wait before retry (for rate limiting)")
+    detail: str = Field(..., description='Error message')
+    error_code: AuthenticationErrorCode = Field(..., description='Standardized error code')
+    retry_after: Optional[int] = Field(None, description='Seconds to wait before retry (for rate limiting)')
 
     model_config = {
-        "json_schema_extra": {
-            "example": {
-                "detail": "User access token has expired",
-                "error_code": "AUTH_EXPIRED",
-                "retry_after": None
+        'json_schema_extra': {
+            'example': {
+                'detail': 'User access token has expired',
+                'error_code': 'AUTH_EXPIRED',
+                'retry_after': None
             }
         }
     }

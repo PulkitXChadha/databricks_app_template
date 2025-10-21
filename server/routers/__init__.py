@@ -3,10 +3,10 @@
 
 from fastapi import APIRouter
 
-from .user import router as user_router
-from .unity_catalog import router as unity_catalog_router
 from .lakebase import router as lakebase_router
 from .model_serving import router as model_serving_router
+from .unity_catalog import router as unity_catalog_router
+from .user import router as user_router
 
 router = APIRouter()
 router.include_router(user_router, prefix='/user', tags=['user'])

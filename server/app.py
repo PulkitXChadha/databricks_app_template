@@ -7,19 +7,17 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from server.routers import router
-from server.routers import metrics as metrics_router
-from server.lib.distributed_tracing import set_correlation_id, get_correlation_id
-from server.lib.structured_logger import log_request
-from server.lib.metrics import (
-  record_auth_request,
-  record_request_duration,
-  record_auth_overhead
-)
+from server.lib.distributed_tracing import set_correlation_id
+from server.lib.metrics import record_auth_overhead, record_auth_request, record_request_duration
 from server.lib.metrics_middleware import metrics_collection_middleware
+from server.lib.structured_logger import log_request
+from server.routers import metrics as metrics_router
+from server.routers import router
 
 
 # Load environment variables from .env.local if it exists
@@ -56,9 +54,9 @@ app = FastAPI(
 app.add_middleware(
   CORSMiddleware,
   allow_origins=[
-    'http://localhost:5173', 
+    'http://localhost:5173',
     'http://127.0.0.1:5173',
-    'http://localhost:3000', 
+    'http://localhost:3000',
     'http://127.0.0.1:3000'
   ],
   allow_credentials=True,
@@ -67,7 +65,7 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
+@app.middleware('http')
 async def add_correlation_id(request: Request, call_next):
   """Inject correlation ID and authentication context into request.
 
@@ -89,7 +87,7 @@ async def add_correlation_id(request: Request, call_next):
   # This enables On-Behalf-Of (OBO) authentication
   # Try multiple header variations for robustness
   user_token = (
-    request.headers.get('X-Forwarded-Access-Token') or 
+    request.headers.get('X-Forwarded-Access-Token') or
     request.headers.get('x-forwarded-access-token')
   )
 
@@ -100,7 +98,7 @@ async def add_correlation_id(request: Request, call_next):
     header_keys = list(request.headers.keys())
     has_token = user_token is not None
     debug_logger.info(
-      "Token extraction debug",
+      'Token extraction debug',
       path=request.url.path,
       has_token=has_token,
       header_count=len(header_keys),
@@ -109,50 +107,50 @@ async def add_correlation_id(request: Request, call_next):
 
   # Set authentication context in request state
   request.state.user_token = user_token
-  
+
   # Set auth mode based on token presence
   # OBO: user token is present, service_principal: no user token
   if user_token:
-    request.state.auth_mode = "obo"
+    request.state.auth_mode = 'obo'
     request.state.has_user_token = True
   else:
-    request.state.auth_mode = "service_principal"
+    request.state.auth_mode = 'service_principal'
     request.state.has_user_token = False
-  
+
   # Track request start time
   start_time = time.time()
   auth_start_time = time.time()
-  
+
   # Authentication overhead is minimal at middleware level (just token extraction)
   auth_overhead = time.time() - auth_start_time
-  
+
   # Process request
   response = await call_next(request)
-  
+
   # Calculate duration
   duration_seconds = time.time() - start_time
   duration_ms = duration_seconds * 1000
-  
+
   # Add correlation ID to response headers
   response.headers['X-Correlation-ID'] = correlation_id
-  
+
   # Record metrics (skip health and metrics endpoints to reduce noise)
   if request.url.path not in ['/health', '/metrics']:
     # Record authentication metrics based on actual auth mode
-    auth_status = "success" if 200 <= response.status_code < 400 else "failure"
+    auth_status = 'success' if 200 <= response.status_code < 400 else 'failure'
     auth_mode = getattr(request.state, 'auth_mode', 'obo')  # Default to OBO
     record_auth_request(
       endpoint=request.url.path,
       mode=auth_mode,
       status=auth_status
     )
-    
+
     # Record auth overhead based on actual auth mode
     record_auth_overhead(
       mode=auth_mode,
       overhead_seconds=auth_overhead
     )
-    
+
     # Record overall request duration
     record_request_duration(
       endpoint=request.url.path,
@@ -160,7 +158,7 @@ async def add_correlation_id(request: Request, call_next):
       status=response.status_code,
       duration_seconds=duration_seconds
     )
-    
+
     # Log request with metrics
     log_request(
       endpoint=request.url.path,
@@ -168,7 +166,7 @@ async def add_correlation_id(request: Request, call_next):
       status_code=response.status_code,
       duration_ms=duration_ms
     )
-  
+
   return response
 
 
@@ -188,20 +186,21 @@ async def health_api():
 @app.get('/api/metrics')
 async def metrics_api(request: Request):
   """Prometheus metrics endpoint under /api prefix.
-  
+
   Exposes authentication and performance metrics in Prometheus format.
   Requires user authentication for security.
-  
+
   Raises:
       401: Authentication required (missing or invalid token)
   """
-  from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
   from fastapi.responses import Response
+  from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
   from server.lib.auth import get_user_token
-  
+
   # Require authentication for metrics endpoint
-  user_token = await get_user_token(request)
-  
+  await get_user_token(request)
+
   return Response(
     content=generate_latest(),
     media_type=CONTENT_TYPE_LATEST
@@ -211,20 +210,21 @@ async def metrics_api(request: Request):
 @app.get('/metrics')
 async def metrics_root(request: Request):
   """Prometheus metrics endpoint at root level (for monitoring systems).
-  
+
   Exposes authentication and performance metrics in Prometheus format.
   Requires user authentication for security.
-  
+
   Raises:
       401: Authentication required (missing or invalid token)
   """
-  from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
   from fastapi.responses import Response
+  from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
   from server.lib.auth import get_user_token
-  
+
   # Require authentication for metrics endpoint
-  user_token = await get_user_token(request)
-  
+  await get_user_token(request)
+
   return Response(
     content=generate_latest(),
     media_type=CONTENT_TYPE_LATEST
@@ -235,20 +235,17 @@ async def metrics_root(request: Request):
 # CUSTOM EXCEPTION HANDLERS (FR-013)
 # ============================================================================
 
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 
 @app.exception_handler(RequestValidationError)
 async def custom_validation_exception_handler(request: Request, exc: RequestValidationError):
-    """
-    Custom exception handler for batch size validation (FR-013).
-    
-    Intercepts Pydantic ValidationError and converts batch size errors 
+    """Custom exception handler for batch size validation (FR-013).
+
+    Intercepts Pydantic ValidationError and converts batch size errors
     to 413 Payload Too Large with structured error body.
     """
     # Get error details
     error_dict = exc.errors()
-    
+
     # Look for batch size validation error
     for error in error_dict:
         error_msg = error.get('msg', '')
@@ -257,7 +254,7 @@ async def custom_validation_exception_handler(request: Request, exc: RequestVali
             import re
             match = re.search(r'received: (\d+)', error_msg)
             received_count = int(match.group(1)) if match else None
-            
+
             return JSONResponse(
                 status_code=413,
                 content={
@@ -266,7 +263,7 @@ async def custom_validation_exception_handler(request: Request, exc: RequestVali
                     'received': received_count
                 }
             )
-    
+
     # Not a batch size error - use default validation error response (422)
     return JSONResponse(
         status_code=422,

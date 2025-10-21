@@ -4,15 +4,15 @@ Provides dependency functions for extracting user information from requests,
 including middleware, retry logic, and authentication context management.
 """
 
-import os
-from typing import Optional
-from fastapi import Request, HTTPException
-from datetime import datetime, timedelta
 import contextvars
+from datetime import datetime, timedelta
+from typing import Optional
 
-from server.services.user_service import UserService
+from fastapi import HTTPException, Request
+
 from server.lib.structured_logger import StructuredLogger
 from server.models.user_session import AuthenticationContext
+from server.services.user_service import UserService
 
 logger = StructuredLogger(__name__)
 
@@ -36,16 +36,16 @@ async def get_user_token(request: Request) -> str:
         HTTPException: 401 if token is missing or empty
     """
     user_token = getattr(request.state, 'user_token', None)
-    
+
     if not user_token:
         raise HTTPException(
             status_code=401,
             detail={
-                "error_code": "AUTH_MISSING",
-                "message": "User authentication required. Please provide a valid user access token."
+                'error_code': 'AUTH_MISSING',
+                'message': 'User authentication required. Please provide a valid user access token.'
             }
         )
-    
+
     return user_token
 
 
@@ -76,21 +76,21 @@ async def get_auth_context(request: Request) -> AuthenticationContext:
 
     Returns:
         AuthenticationContext with token and correlation ID
-        
+
     Raises:
         HTTPException: 401 if user_token is missing
     """
     user_token = getattr(request.state, 'user_token', None)
-    
+
     if not user_token:
         raise HTTPException(
             status_code=401,
             detail={
-                "error_code": "AUTH_MISSING",
-                "message": "User authentication required. Please provide a valid user access token."
+                'error_code': 'AUTH_MISSING',
+                'message': 'User authentication required. Please provide a valid user access token.'
             }
         )
-    
+
     return AuthenticationContext(
         user_token=user_token,
         correlation_id=getattr(request.state, 'correlation_id', '')
@@ -99,34 +99,34 @@ async def get_auth_context(request: Request) -> AuthenticationContext:
 
 async def get_current_user_id(request: Request) -> str:
     """Extract user ID (email) from authentication context using OBO-only.
-    
+
     Requires valid user token for authentication. No fallback to service principal.
-    
+
     Args:
         request: FastAPI request object
-        
+
     Returns:
         User email string
-        
+
     Raises:
         HTTPException: 401 if user_token is missing or authentication fails
     """
     # get_user_token will raise 401 if token is missing
     user_token = await get_user_token(request)
-    
+
     # Get user info using UserService with OBO authentication
     service = UserService(user_token=user_token)
     user_identity = await service.get_user_info()
     user_email = user_identity.user_id
-    
+
     logger.info(
-        "Retrieved user information",
+        'Retrieved user information',
         user_id=user_email,
         display_name=user_identity.display_name,
-        auth_method="obo",
+        auth_method='obo',
         path=request.url.path
     )
-    
+
     return user_email
 
 
@@ -154,20 +154,20 @@ class CircuitBreaker:
         self.cooldown_seconds = cooldown_seconds
         self.consecutive_failures = 0
         self.last_failure_time = None
-        self.state = "closed"  # closed, open, half-open
+        self.state = 'closed'  # closed, open, half-open
 
     def record_success(self):
         """Reset circuit breaker on success."""
         if self.consecutive_failures > 0:
             logger.info(
-                "auth.circuit_breaker_state_change",
+                'auth.circuit_breaker_state_change',
                 old_state=self.state,
-                new_state="closed",
+                new_state='closed',
                 consecutive_failures=0,
                 cooldown_seconds=0
             )
         self.consecutive_failures = 0
-        self.state = "closed"
+        self.state = 'closed'
 
     def record_failure(self):
         """Record failure and potentially open circuit."""
@@ -176,22 +176,22 @@ class CircuitBreaker:
 
         if self.consecutive_failures >= self.failure_threshold:
             old_state = self.state
-            self.state = "open"
+            self.state = 'open'
             logger.warning(
-                "auth.circuit_breaker_state_change",
+                'auth.circuit_breaker_state_change',
                 old_state=old_state,
-                new_state="open",
+                new_state='open',
                 consecutive_failures=self.consecutive_failures,
                 cooldown_seconds=self.cooldown_seconds
             )
 
     def is_open(self):
         """Check if circuit should reject requests."""
-        if self.state == "open":
+        if self.state == 'open':
             # Check if cooldown period has passed
             if self.last_failure_time and \
                datetime.now() - self.last_failure_time > timedelta(seconds=self.cooldown_seconds):
-                self.state = "half-open"  # Allow one test request
+                self.state = 'half-open'  # Allow one test request
                 return False
             return True
         return False
@@ -225,7 +225,7 @@ def with_auth_retry(func):
         """Wrapper function with retry logic."""
         # Check circuit breaker state (per-instance only)
         if auth_circuit_breaker.is_open():
-            raise AuthenticationError("Circuit breaker open - too many failures")
+            raise AuthenticationError('Circuit breaker open - too many failures')
 
         max_attempts = 3
         delays = [0.1, 0.2, 0.4]  # 100ms, 200ms, 400ms
@@ -241,19 +241,19 @@ def with_auth_retry(func):
                 # Check if it's a rate limit error (should fail immediately)
                 if hasattr(e, 'status_code') and e.status_code == 429:
                     auth_circuit_breaker.record_failure()
-                    raise RateLimitError("Platform rate limit exceeded") from e
+                    raise RateLimitError('Platform rate limit exceeded') from e
 
                 # Check if error code indicates rate limiting
-                if hasattr(e, 'error_code') and e.error_code == "RESOURCE_EXHAUSTED":
+                if hasattr(e, 'error_code') and e.error_code == 'RESOURCE_EXHAUSTED':
                     auth_circuit_breaker.record_failure()
-                    raise RateLimitError("Platform rate limit exceeded") from e
+                    raise RateLimitError('Platform rate limit exceeded') from e
 
                 # Record failure and check if we should retry
                 auth_circuit_breaker.record_failure()
 
                 # Log the retry attempt
                 logger.warning(
-                    "auth.retry_attempt",
+                    'auth.retry_attempt',
                     error=str(e),
                     attempt=attempt + 1,
                     max_attempts=max_attempts,
@@ -265,44 +265,44 @@ def with_auth_retry(func):
                     await asyncio.sleep(delays[attempt])
                 else:
                     # Last attempt failed, raise the error
-                    raise AuthenticationError(f"Authentication failed after {max_attempts} attempts: {e}") from e
+                    raise AuthenticationError(f'Authentication failed after {max_attempts} attempts: {e}') from e
 
         # Should not reach here, but just in case
-        raise AuthenticationError("Authentication failed - unexpected retry loop exit")
+        raise AuthenticationError('Authentication failed - unexpected retry loop exit')
 
     return wrapper
 
 
 async def get_admin_user(request: Request) -> dict:
-    """
-    FastAPI dependency that enforces admin-only access.
-    
+    """FastAPI dependency that enforces admin-only access.
+
     This function checks if the authenticated user has Databricks workspace
     admin privileges. Non-admin users receive a 403 Forbidden response.
-    
+
     Args:
         request: FastAPI request object
-        
+
     Returns:
         Dictionary with user_id and email if user is admin
-        
+
     Raises:
         HTTPException: 401 if token is missing
         HTTPException: 403 if user is not admin
         HTTPException: 503 if admin check API call fails
     """
     from databricks.sdk import WorkspaceClient
+
     from server.services.admin_service import is_workspace_admin_async
-    
+
     # Extract user token (raises 401 if missing)
     user_token = await get_user_token(request)
-    
+
     try:
         # Get user information
         client = WorkspaceClient(token=user_token)
         user = client.current_user.me()
         user_id = user.user_name
-        
+
         # Check admin status (with 5-minute caching)
         if not await is_workspace_admin_async(user_token, user_id):
             logger.warning(
@@ -317,10 +317,10 @@ async def get_admin_user(request: Request) -> dict:
                     'status_code': 403,
                 }
             )
-        
+
         logger.info(f'Admin access granted for user: {user_id}', path=request.url.path)
         return {'user_id': user_id, 'email': user.user_name}
-        
+
     except HTTPException:
         # Re-raise HTTP exceptions (401, 403, 503)
         raise

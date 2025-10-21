@@ -3,8 +3,7 @@
 Implements NFR-011, NFR-012 from spec.md.
 """
 
-from prometheus_client import Counter, Histogram, Gauge
-
+from prometheus_client import Counter, Gauge, Histogram
 
 # Authentication metrics
 auth_requests_total = Counter(
