@@ -189,7 +189,7 @@ async def is_workspace_admin_async(user_token: str, user_id: str) -> bool:
         }
 
         # Use synchronous helper to check admin status
-        is_admin = is_workspace_admin(user_info)
+        is_admin = is_workspace_admin_sync(user_info)
 
         # Cache result for 5 minutes
         _admin_cache[cache_key] = {

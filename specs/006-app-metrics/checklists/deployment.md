@@ -53,8 +53,9 @@ All items MUST pass before deploying to any environment.
   # Test non-admin returns 403
   curl -H "X-Forwarded-Access-Token: $NON_ADMIN_TOKEN" http://localhost:8000/api/v1/metrics/performance
   ```
-  - **Result**: Endpoints properly secured, authentication working ✓
-  - **Note**: Admin verification returns 503 in local dev (expected without live Databricks workspace connection)
+  - **Result**: Endpoints working correctly ✓ Returns 200 OK with empty metrics data
+  - **Note**: Fixed bug in admin_service.py (line 192: changed `is_workspace_admin` to `is_workspace_admin_sync`)
+  - **Note**: Empty metrics in local dev expected (no historical data)
 
 ### 6. Aggregation Script Testing ✅
 
@@ -137,8 +138,8 @@ Immediately rollback if any of these occur:
 
 ## Deployment Success Criteria ✅
 
-- [ ] All pre-deployment gates passed
-- [ ] All post-deployment validations passed
+- [X] All pre-deployment gates passed
+- [ ] All post-deployment validations passed (run after deployment)
 - [ ] No CRITICAL or ERROR logs in first 60 seconds
 - [ ] Metrics dashboard accessible to admin users
 - [ ] Metrics collection creating database records
@@ -152,6 +153,6 @@ Immediately rollback if any of these occur:
 - **Aggregation job**: First run scheduled for 2 AM UTC next day; test manually if needed
 - **Performance**: Monitor P95 latency remains <185ms (baseline 180ms + 5ms overhead)
 
-**Last Updated**: 2025-10-19  
+**Last Updated**: 2025-10-21  
 **Owner**: Development Team
 
