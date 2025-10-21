@@ -57,6 +57,247 @@ This is a modern full-stack application template for Databricks Apps, featuring 
 - See `docs/OBO_AUTHENTICATION.md` for detailed authentication guide
 - See `specs/003-obo-only-support/` for implementation details
 
+## Metrics System (Feature 006-app-metrics)
+
+**Purpose**: Comprehensive application usage and performance metrics collection with admin-only dashboard.
+
+### Architecture Overview
+
+**Three-table hybrid retention strategy**:
+- **Raw metrics** (7-day retention): `performance_metrics`, `usage_events`
+- **Aggregated metrics** (90-day retention): `aggregated_metrics`
+- **Automatic routing**: Queries <7 days use raw tables, 8-90 days use aggregated table
+
+### Key Components
+
+**Backend Services**:
+- `server/services/admin_service.py` - Workspace admin privilege checking with 5-minute cache
+- `server/services/metrics_service.py` - Metrics collection, retrieval, and query routing
+- `server/lib/metrics_middleware.py` - Automatic performance metric collection (all API requests)
+- `server/routers/metrics.py` - Admin-only metrics API endpoints
+- `scripts/aggregate_metrics.py` - Daily aggregation job (2 AM UTC, Databricks workflow)
+
+**Frontend Components**:
+- `client/src/services/usageTracker.ts` - Usage event batching (10s OR 20 events)
+- `client/src/components/MetricsDashboard.tsx` - Admin dashboard with time range selector
+- `client/src/components/PerformanceChart.tsx` - Response time trends (Recharts)
+- `client/src/components/EndpointBreakdownTable.tsx` - Per-endpoint performance table
+
+### Admin Access Control
+
+**Workspace admin check** (FR-011):
+- Uses Databricks Workspace API: `WorkspaceClient.current_user.me()`
+- Checks group membership: configurable via `ADMIN_GROUPS` env var
+- Default groups: "admins", "workspace_admins", "administrators" (case-insensitive)
+- Caching: 5-minute TTL to reduce API calls
+- Error handling: Returns 503 Service Unavailable if API check fails (fail-secure)
+
+**Usage**:
+```python
+from server.lib.auth import get_admin_user
+
+@router.get("/admin-only-endpoint")
+async def admin_endpoint(admin_user = Depends(get_admin_user)):
+    # admin_user = {"user_id": "email", "email": "email"}
+    # Non-admins receive 403 Forbidden
+    pass
+```
+
+### Metrics Collection Patterns
+
+**Automatic Performance Metrics** (FR-001):
+- Middleware captures ALL API requests automatically
+- Excludes health check endpoints: `/health`, `/ready`, `/ping`, `/internal/*`, `/admin/system/*`
+- Records: endpoint, method, status_code, response_time_ms, user_id, error_type
+- **Lakebase Configuration Check**: MUST check `is_lakebase_configured()` before attempting database operations
+- **Graceful degradation**: Collection failures never impact API responses
+- **Local Development**: Metrics collection automatically skipped if Lakebase not configured (debug log only)
+
+**Manual Usage Events**:
+```typescript
+import { usageTracker } from './services/usageTracker';
+
+// Track user action
+usageTracker.track({
+  event_type: 'button_click',
+  page_name: '/metrics',
+  element_id: 'refresh-button',
+  success: true,
+  metadata: { custom: 'data' }
+});
+
+// Automatic batching (10 seconds OR 20 events)
+// Automatic flush on page unload via navigator.sendBeacon
+```
+
+### Query Routing Logic
+
+**Time-based routing**:
+- Last 7 days (0-7 days ago): Query `performance_metrics` and `usage_events` tables ONLY
+- 8-90 days ago: Query `aggregated_metrics` table ONLY with pre-computed percentiles
+- Boundary handling: Split queries at 7-day cutoff, merge results in application layer
+
+**Implementation**:
+```python
+def get_performance_metrics(time_range: str):
+    start_time, end_time = parse_time_range(time_range)
+    if (datetime.utcnow() - start_time).days <= 7:
+        return _query_raw_performance_metrics()  # High granularity
+    else:
+        return _query_aggregated_performance_metrics()  # Pre-computed
+```
+
+### Data Lifecycle Management
+
+**Daily Aggregation Job** (2 AM UTC):
+1. Aggregate 7-day-old raw metrics into hourly buckets
+2. Pre-compute percentiles (p50, p95, p99) using PostgreSQL `percentile_cont`
+3. Delete processed raw records (atomic transaction)
+4. Cleanup 90-day-old aggregated records
+5. Monitor database size (alert if >1M records)
+
+**Idempotency**: Check-before-insert pattern prevents duplicate aggregations on retry
+
+**Job Configuration** (in `databricks.yml`):
+```yaml
+resources:
+  jobs:
+    metrics_aggregation_job:
+      schedule:
+        quartz_cron_expression: "0 0 2 * * ?"
+        timezone_id: "UTC"
+      python_wheel_task:
+        entry_point: "aggregate_metrics"  # From pyproject.toml [project.scripts]
+```
+
+### Database Schema
+
+**PerformanceMetric** (raw, 7-day retention):
+- Indexed: timestamp, endpoint, user_id
+- Captures: response_time_ms, status_code, method, error_type
+
+**UsageEvent** (raw, 7-day retention):
+- Indexed: timestamp, event_type, user_id
+- Captures: page_name, element_id, success, metadata (JSON)
+
+**AggregatedMetric** (pre-computed, 90-day retention):
+- Indexed: time_bucket, metric_type, endpoint_path, event_type
+- Stores: aggregated_values (JSON with avg, min, max, p50, p95, p99), sample_count
+
+### API Endpoints
+
+**Admin-Only Endpoints**:
+- `GET /api/v1/metrics/performance?time_range=24h&endpoint=/api/v1/lakebase/sources`
+- `GET /api/v1/metrics/usage?time_range=7d&event_type=button_click`
+- `GET /api/v1/metrics/time-series?time_range=30d&metric_type=both`
+
+**Authenticated (Not Admin)**:
+- `POST /api/v1/metrics/usage-events` - Submit batch events (max 1000 per batch)
+- `GET /api/v1/metrics/usage/count?time_range=24h` - Get user's event count for data loss validation
+
+### Terminology Standards
+
+**Consistent usage required across codebase**:
+- **performance metrics** (lowercase): API request timing data - `PerformanceMetric` model
+- **usage events** (lowercase): User interaction data - `UsageEvent` model
+- **aggregated metrics** (lowercase): Pre-computed summaries - `AggregatedMetric` model
+- **metrics collection**: Overall system combining both performance and usage
+- **raw metrics**: Data in 7-day retention tables
+- **Naming convention**: lowercase for concepts, PascalCase for models, snake_case for tables
+
+### Lakebase Configuration
+
+**Local Development Setup**:
+Metrics collection requires Lakebase to be configured. Add these to `.env.local`:
+
+```bash
+# Lakebase Configuration (required for metrics collection)
+PGHOST=instance-xxxxx.database.cloud.databricks.com
+LAKEBASE_DATABASE=app_database
+LAKEBASE_INSTANCE_NAME=databricks-app-lakebase-dev
+LAKEBASE_PORT=443  # Optional, defaults to 5432
+```
+
+**Graceful Degradation**:
+- If Lakebase is not configured, metrics collection is automatically skipped
+- Application continues to work normally without metrics
+- Debug logs: `"Skipping performance metric collection - Lakebase not configured"`
+- Same pattern used by Model Serving for inference logging
+
+**Configuration Check Pattern**:
+```python
+from server.lib.database import is_lakebase_configured
+
+# ALWAYS check before database operations
+if not is_lakebase_configured():
+    logger.debug("Skipping operation - Lakebase not configured")
+    return
+```
+
+### Troubleshooting
+
+**Dashboard shows "No data available"**:
+1. Check if Lakebase is configured: `python -c "from server.lib.database import is_lakebase_configured; print(is_lakebase_configured())"`
+2. Verify environment variables: `PGHOST`, `LAKEBASE_DATABASE`, `LAKEBASE_INSTANCE_NAME`
+3. Check middleware registration in `server/app.py`
+4. Query raw tables directly: `SELECT COUNT(*) FROM performance_metrics;`
+
+**"Database instance is not found" errors**:
+1. Verify `LAKEBASE_INSTANCE_NAME` matches your databricks.yml resource name
+2. Check `PGHOST` is correct Lakebase instance hostname
+3. Ensure you have access to the Lakebase instance in Databricks workspace
+4. Restart development server after adding environment variables
+
+**Admin check always fails (403)**:
+1. Verify user is workspace admin in Databricks
+2. Check `ADMIN_GROUPS` env var matches actual group names
+3. Review admin service logs: `python dba_logz.py | grep "Admin check"`
+4. Test Databricks API manually: `databricks auth token` then `curl https://workspace/api/2.0/preview/scim/v2/Me`
+
+**Aggregation job not running**:
+1. Check Databricks jobs list: `databricks jobs list | grep metrics`
+2. Verify job schedule in `databricks.yml`
+3. Test manually: `uv run aggregate-metrics`
+4. Review job run logs in Databricks workspace
+
+**High dashboard load time (>10s)**:
+1. Check aggregation job is running (reduces raw table size)
+2. Verify indexes exist on timestamp columns
+3. Consider adding LIMIT to initial dashboard load
+4. Review query execution plans for optimization
+
+### Performance Considerations
+
+**Success Criteria**:
+- Middleware overhead: <5ms per request (SC-002)
+- Dashboard load time: <3 seconds (SC-001)
+- 30-day query time: <5 seconds (SC-006)
+- Collection rate: 100% of API requests (SC-004)
+- Update latency: <60 seconds for raw data visibility (SC-003)
+
+**Optimization strategies**:
+- Connection pooling: min=5, max=20 connections
+- Async writes: Metrics recorded asynchronously
+- Batch inserts: Usage events submitted in batches
+- Pre-computed percentiles: Calculated during aggregation for historical data
+- Indexed queries: All time-range queries use indexed timestamp columns
+
+### Testing
+
+**TDD Workflow** (Principle XII):
+1. **RED Phase**: Write failing tests (contract + integration + unit)
+2. **GREEN Phase**: Implement minimal code to pass tests
+3. **REFACTOR Phase**: Improve code quality while keeping tests GREEN
+
+**Test organization**:
+- `tests/contract/test_metrics_api.py` - API endpoint contract tests
+- `tests/integration/test_metrics_collection.py` - Middleware collection tests
+- `tests/integration/test_metrics_aggregation.py` - Aggregation job tests
+- `tests/unit/test_admin_service.py` - Admin privilege checking tests
+- `tests/unit/test_metrics_service.py` - Service layer unit tests
+
+**Run tests**: `pytest tests/ -v --cov`
+
 ## Development Workflow
 
 ### Package Management
@@ -263,7 +504,10 @@ Claude understands natural language commands for common development tasks:
 - Connection string: `postgresql+psycopg2://token:<token>@<host>:<port>/<database>`
 - Connection pooling: QueuePool with 5-10 connections
 - Always filter by `user_id` for data isolation
-- Tables: `user_preferences`, `model_inference_logs`
+- **Configuration check**: ALWAYS call `is_lakebase_configured()` before database operations
+- **Graceful degradation**: Skip operations with debug log if not configured
+- Tables: `user_preferences`, `model_inference_logs`, `performance_metrics`, `usage_events`
+- **Available in local development**: Lakebase CAN be connected from local environment with proper credentials
 
 **Model Serving Integration** (`server/services/model_serving_service.py`):
 - Use Databricks SDK to list and invoke serving endpoints

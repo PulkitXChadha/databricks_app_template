@@ -1,19 +1,21 @@
 <!--
 Sync Impact Report:
-Version: 1.3.0 → 1.4.0 (MINOR bump - new TDD principle added)
+Version: 1.4.0 → 1.4.1 (PATCH bump - Lakebase configuration check clarifications)
 Changes:
-  - Added Principle XII: Test Driven Development (NON-NEGOTIABLE) - mandates TDD for all production code
-  - Enhanced Testing Philosophy section with explicit TDD workflow requirements (RED-GREEN-REFACTOR)
-  - Updated Deployment Validation to include test suite execution as pre-deployment gate
+  - Enhanced Principle II (Lakebase Integration) with mandatory configuration checks
+  - Added graceful degradation requirements for Lakebase-dependent features
+  - Enhanced Principle VIII (Observability) with DEBUG-level logging for skipped operations
+  - Clarified that Lakebase IS available in local development (not just production)
+  - Formalized is_lakebase_configured() pattern already used in Model Serving
 Templates Status:
-  ✅ plan-template.md - Updated Constitution Check with TDD requirements and testing gates
-  ✅ spec-template.md - Updated to emphasize TDD and map acceptance scenarios to test types/locations
-  ✅ tasks-template.md - Updated with explicit RED-GREEN-REFACTOR phases for all user stories
-  ✅ README.md - Testing section already mentions TDD patterns, no changes needed
+  ✅ CLAUDE.md - Updated with Lakebase configuration section and troubleshooting guidance
+  ✅ constitution.md - Updated Principles II and VIII with configuration check requirements
+  ⚠️  METRICS_LAKEBASE_FIX.md - Created detailed fix documentation and setup guide
+  ✅ No template changes needed - this is a clarification of existing patterns
 Follow-up TODOs:
-  - None - all templates updated and aligned with Principle XII
-  - Consider adding test coverage metrics in future PATCH version
-  - Consider documenting TDD best practices in a dedicated guide
+  - None - pattern already implemented in metrics middleware and Model Serving
+  - Consider adding is_lakebase_configured() usage examples to service templates
+  - Document environment variable setup in LOCAL_DEVELOPMENT.md if not already covered
 -->
 
 # Databricks React App Template Constitution
@@ -42,8 +44,11 @@ All persistent data operations MUST use Lakebase (Postgres hosted in Databricks)
 - No external OLTP systems or manual database management
 - Transaction support for data integrity
 - Alembic for database schema migrations and versioning
+- **Configuration Check**: ALWAYS check `is_lakebase_configured()` before database operations
+- **Graceful Degradation**: Applications MUST continue to work when Lakebase is not configured (skip database operations with debug logging)
+- **Local Development**: Lakebase IS available in local development with proper environment variables (`PGHOST`, `LAKEBASE_DATABASE`, `LAKEBASE_INSTANCE_NAME`)
 
-**Rationale:** Lakebase provides integrated, secure, transactional storage within the Databricks platform, eliminating external dependencies.
+**Rationale:** Lakebase provides integrated, secure, transactional storage within the Databricks platform, eliminating external dependencies. Configuration checks enable graceful degradation and better developer experience in environments where Lakebase may not be set up.
 
 ### III. Asset Bundle Deployment (NON-NEGOTIABLE)
 All deployments MUST be managed through Databricks Asset Bundles with validation gates.
@@ -131,7 +136,7 @@ Applications MUST implement comprehensive observability from the start using str
 - **Structured Logging**: All logs in JSON format with timestamp, log level, message, module, function
 - **Correlation IDs**: Every request generates a unique request_id propagated across all operations (using contextvars). Support optional client-provided correlation IDs via X-Correlation-ID header for end-to-end tracing across services. If header present, use client ID; otherwise generate server-side UUID.
 - **Context Enrichment**: Include user_id, duration_ms, and relevant technical details in all logs
-- **Log Levels**: INFO for normal operations, WARNING for retries, ERROR for failures with full context
+- **Log Levels**: INFO for normal operations, WARNING for retries, ERROR for failures with full context, DEBUG for skipped operations (e.g., when dependencies not configured)
 - **Error Logging**: All errors logged with ERROR level including timestamp, error type, message, request context, technical details
 - **Sensitive Data Protection**: Never log tokens, passwords, or PII
 - **Performance Tracking**: Log execution time for all API calls, database queries, and model inferences
@@ -139,8 +144,10 @@ Applications MUST implement comprehensive observability from the start using str
 - **Feature-Level Events**: Log feature-specific operations (schema detection, catalog queries, user interactions) with correlation IDs for debugging
 - **Retention Policy**: 7 days raw metrics/logs, 90 days aggregated data for compliance and audit requirements (spec 002)
 - **User Isolation Logging**: Include user_id in all logs for audit trail and data isolation verification
+- **Configuration-Aware Logging**: Use DEBUG level when skipping operations due to missing configuration (e.g., "Skipping metrics collection - Lakebase not configured")
+- **Graceful Degradation Logging**: Log all fallback behaviors and skipped features for operational visibility
 
-**Rationale:** Observability is essential for debugging production issues, monitoring performance, and understanding user behavior. Structured logs enable automated analysis and alerting. Feature-level logging supports debugging complex user interactions beyond infrastructure events.
+**Rationale:** Observability is essential for debugging production issues, monitoring performance, and understanding user behavior. Structured logs enable automated analysis and alerting. Feature-level logging supports debugging complex user interactions beyond infrastructure events. Configuration-aware logging helps operators understand what features are active without generating error noise.
 
 ### IX. Multi-User Data Isolation
 Applications MUST implement comprehensive data isolation for multi-user scenarios using Unity Catalog access control and Lakebase row-level security.
@@ -402,11 +409,25 @@ Branch 003 (`obo-only-support`) was an intentional breaking change that:
 ### Agent-Specific Guidance
 Runtime development guidance available in `CLAUDE.md` for Claude Code and similar agents. This file provides operational commands and workflows aligned with constitutional principles.
 
-**Version**: 1.4.0 | **Ratified**: 2025-10-04 | **Last Amended**: 2025-10-18
+**Version**: 1.4.1 | **Ratified**: 2025-10-04 | **Last Amended**: 2025-10-21
 
 ---
 
 ## Changelog
+
+### Version 1.4.1 (2025-10-21) - PATCH
+**Changes:**
+- Enhanced Principle II (Lakebase Integration) with configuration check requirements
+- Added rule: ALWAYS check `is_lakebase_configured()` before database operations
+- Added rule: Applications MUST continue to work when Lakebase is not configured (graceful degradation)
+- Added rule: Lakebase IS available in local development with proper environment variables
+- Enhanced Principle VIII (Observability First) with configuration-aware logging guidance
+- Added DEBUG level logging for skipped operations when dependencies not configured
+- Added requirement for graceful degradation logging to provide operational visibility
+
+**Impact:** Clarification of existing patterns. No breaking changes. Applications should check Lakebase configuration before database operations and log at DEBUG level when skipping features. This pattern already exists in Model Serving inference logging and is now formalized.
+
+**Rationale:** The metrics system fix revealed an important pattern: services should gracefully degrade when optional dependencies (like Lakebase) are not configured. This is especially important for local development where Lakebase may not always be set up. DEBUG-level logging provides visibility without creating error noise. This pattern is consistent with existing Model Serving behavior and should be standard across all Lakebase-dependent features.
 
 ### Version 1.4.0 (2025-10-18) - MINOR
 **Changes:**
