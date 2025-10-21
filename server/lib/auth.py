@@ -272,3 +272,62 @@ def with_auth_retry(func):
 
     return wrapper
 
+
+async def get_admin_user(request: Request) -> dict:
+    """
+    FastAPI dependency that enforces admin-only access.
+    
+    This function checks if the authenticated user has Databricks workspace
+    admin privileges. Non-admin users receive a 403 Forbidden response.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        Dictionary with user_id and email if user is admin
+        
+    Raises:
+        HTTPException: 401 if token is missing
+        HTTPException: 403 if user is not admin
+        HTTPException: 503 if admin check API call fails
+    """
+    from databricks.sdk import WorkspaceClient
+    from server.services.admin_service import is_workspace_admin_async
+    
+    # Extract user token (raises 401 if missing)
+    user_token = await get_user_token(request)
+    
+    try:
+        # Get user information
+        client = WorkspaceClient(token=user_token)
+        user = client.current_user.me()
+        user_id = user.user_name
+        
+        # Check admin status (with 5-minute caching)
+        if not await is_workspace_admin_async(user_token, user_id):
+            logger.warning(
+                f'Access denied for non-admin user: {user_id}',
+                path=request.url.path
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    'error': 'Access Denied',
+                    'message': 'Administrator privileges required to access metrics',
+                    'status_code': 403,
+                }
+            )
+        
+        logger.info(f'Admin access granted for user: {user_id}', path=request.url.path)
+        return {'user_id': user_id, 'email': user.user_name}
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions (401, 403, 503)
+        raise
+    except Exception as e:
+        logger.error(f'Admin check failed with unexpected error: {e}', exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail='Service unavailable'
+        ) from e
+

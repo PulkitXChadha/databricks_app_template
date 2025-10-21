@@ -102,6 +102,40 @@ targets:
           name: ${var.app_name}-dev
           description: "Databricks App Template (Development) - FastAPI + React with Unity Catalog, Lakebase, and Model Serving integrations"
           source_code_path: ./
+      
+      # Metrics Aggregation Scheduled Job
+      jobs:
+        metrics-aggregation-job-dev:
+          name: "metrics-aggregation-job-dev"
+          schedule:
+            quartz_cron_expression: "0 0 2 * * ?"  # Daily at 2 AM UTC
+            timezone_id: "UTC"
+          tasks:
+            - task_key: aggregate_metrics
+              python_wheel_task:
+                package_name: "databricks_app_template"
+                entry_point: "aggregate_metrics"
+              new_cluster:
+                spark_version: "13.3.x-scala2.12"
+                node_type_id: "i3.xlarge"
+                num_workers: 0  # Single-node cluster (no workers needed for aggregation)
+                spark_conf:
+                  "spark.databricks.cluster.profile": "singleNode"
+                  "spark.master": "local[*]"
+                custom_tags:
+                  ResourceClass: "SingleNode"
+              libraries:
+                - pypi:
+                    package: "sqlalchemy>=2.0.0"
+                - pypi:
+                    package: "psycopg[binary]>=3.1.0"
+          max_retries: 2
+          retry_on_timeout: true
+          timeout_seconds: 1800  # 30 minutes max execution
+          email_notifications:
+            on_failure:
+              - "admin@workspace.com"  # Replace with actual admin email
+          max_concurrent_runs: 1
   
   # Production environment
   prod:
@@ -146,3 +180,37 @@ targets:
               group_name: admins
             - level: CAN_USE
               group_name: users
+      
+      # Metrics Aggregation Scheduled Job
+      jobs:
+        metrics-aggregation-job-prod:
+          name: "metrics-aggregation-job"
+          schedule:
+            quartz_cron_expression: "0 0 2 * * ?"  # Daily at 2 AM UTC
+            timezone_id: "UTC"
+          tasks:
+            - task_key: aggregate_metrics
+              python_wheel_task:
+                package_name: "databricks_app_template"
+                entry_point: "aggregate_metrics"
+              new_cluster:
+                spark_version: "13.3.x-scala2.12"
+                node_type_id: "i3.xlarge"
+                num_workers: 0  # Single-node cluster (no workers needed for aggregation)
+                spark_conf:
+                  "spark.databricks.cluster.profile": "singleNode"
+                  "spark.master": "local[*]"
+                custom_tags:
+                  ResourceClass: "SingleNode"
+              libraries:
+                - pypi:
+                    package: "sqlalchemy>=2.0.0"
+                - pypi:
+                    package: "psycopg[binary]>=3.1.0"
+          max_retries: 2
+          retry_on_timeout: true
+          timeout_seconds: 1800  # 30 minutes max execution
+          email_notifications:
+            on_failure:
+              - "admin@workspace.com"  # Replace with actual admin email
+          max_concurrent_runs: 1

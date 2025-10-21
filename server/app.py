@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from server.routers import router
+from server.routers import metrics as metrics_router
 from server.lib.distributed_tracing import set_correlation_id, get_correlation_id
 from server.lib.structured_logger import log_request
 from server.lib.metrics import (
@@ -18,6 +19,7 @@ from server.lib.metrics import (
   record_request_duration,
   record_auth_overhead
 )
+from server.lib.metrics_middleware import metrics_collection_middleware
 
 
 # Load environment variables from .env.local if it exists
@@ -229,7 +231,55 @@ async def metrics_root(request: Request):
   )
 
 
+# ============================================================================
+# CUSTOM EXCEPTION HANDLERS (FR-013)
+# ============================================================================
+
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(RequestValidationError)
+async def custom_validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Custom exception handler for batch size validation (FR-013).
+    
+    Intercepts Pydantic ValidationError and converts batch size errors 
+    to 413 Payload Too Large with structured error body.
+    """
+    # Get error details
+    error_dict = exc.errors()
+    
+    # Look for batch size validation error
+    for error in error_dict:
+        error_msg = error.get('msg', '')
+        if 'Batch size exceeds maximum' in error_msg:
+            # Extract received count from error message
+            import re
+            match = re.search(r'received: (\d+)', error_msg)
+            received_count = int(match.group(1)) if match else None
+            
+            return JSONResponse(
+                status_code=413,
+                content={
+                    'detail': 'Batch size exceeds maximum of 1000 events',
+                    'max_batch_size': 1000,
+                    'received': received_count
+                }
+            )
+    
+    # Not a batch size error - use default validation error response (422)
+    return JSONResponse(
+        status_code=422,
+        content={'detail': exc.errors()}
+    )
+
+
+# Include API routers
 app.include_router(router, prefix='/api', tags=['api'])
+app.include_router(metrics_router.router)  # Metrics router (has its own /api/v1/metrics prefix)
+
+# Add metrics collection middleware
+app.middleware('http')(metrics_collection_middleware)
 
 
 # ============================================================================

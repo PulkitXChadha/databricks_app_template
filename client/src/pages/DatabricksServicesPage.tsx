@@ -9,12 +9,13 @@
 
 import React, { useState } from "react";
 import { TopBar, Sidebar, Card, Button, Alert, Typography, Select, type SidebarItem } from "designbricks";
-import { Database, Settings, Brain, Home } from "lucide-react";
+import { Database, Settings, Brain, Home, BarChart } from "lucide-react";
 import { DataTable } from "@/components/ui/DataTable";
 import { PreferencesForm } from "@/components/ui/PreferencesForm";
 import { ModelInvokeForm } from "@/components/ui/ModelInvokeForm";
 import { ModelHistoryTable } from "@/components/ui/ModelHistoryTable";
 import { WelcomePage } from "./WelcomePage";
+import { MetricsPage } from "./MetricsPage";
 import {
   UnityCatalogService,
   LakebaseService,
@@ -23,6 +24,7 @@ import {
   type UserInfoResponse,
   type PreferenceKey,
 } from "@/fastapi_client";
+import { usageTracker } from "@/services/usageTracker";
 
 export function DatabricksServicesPage() {
   const [userInfo, setUserInfo] = React.useState<UserInfoResponse | null>(null);
@@ -70,6 +72,18 @@ export function DatabricksServicesPage() {
     loadEndpoints();
     loadCatalogs();
   }, []);
+
+  // T079: Track page views when activeTab changes
+  React.useEffect(() => {
+    usageTracker.track({
+      event_type: 'page_view',
+      page_name: `/${activeTab}`,
+      metadata: {
+        tab: activeTab,
+        timestamp: new Date().toISOString()
+      }
+    });
+  }, [activeTab]);
 
   // Load catalogs on mount
   const loadCatalogs = async () => {
@@ -318,25 +332,91 @@ export function DatabricksServicesPage() {
       id: "welcome",
       label: "Welcome",
       icon: <Home className="h-4 w-4" />,
-      onClick: () => setActiveTab("welcome"),
+      onClick: () => {
+        // Track navigation click
+        usageTracker.track({
+          event_type: 'button_click',
+          page_name: window.location.pathname,
+          element_id: 'nav-welcome',
+          metadata: {
+            navigation_target: 'welcome',
+            previous_tab: activeTab
+          }
+        });
+        setActiveTab("welcome");
+      },
     },
     {
       id: "unity-catalog",
       label: "Unity Catalog",
       icon: <Database className="h-4 w-4" />,
-      onClick: () => setActiveTab("unity-catalog"),
+      onClick: () => {
+        // Track navigation click
+        usageTracker.track({
+          event_type: 'button_click',
+          page_name: window.location.pathname,
+          element_id: 'nav-unity-catalog',
+          metadata: {
+            navigation_target: 'unity-catalog',
+            previous_tab: activeTab
+          }
+        });
+        setActiveTab("unity-catalog");
+      },
     },
     {
       id: "model-serving",
       label: "Model Serving",
       icon: <Brain className="h-4 w-4" />,
-      onClick: () => setActiveTab("model-serving"),
+      onClick: () => {
+        // Track navigation click
+        usageTracker.track({
+          event_type: 'button_click',
+          page_name: window.location.pathname,
+          element_id: 'nav-model-serving',
+          metadata: {
+            navigation_target: 'model-serving',
+            previous_tab: activeTab
+          }
+        });
+        setActiveTab("model-serving");
+      },
     },
     {
       id: "preferences",
       label: "Preferences",
       icon: <Settings className="h-4 w-4" />,
-      onClick: () => setActiveTab("preferences"),
+      onClick: () => {
+        // Track navigation click
+        usageTracker.track({
+          event_type: 'button_click',
+          page_name: window.location.pathname,
+          element_id: 'nav-preferences',
+          metadata: {
+            navigation_target: 'preferences',
+            previous_tab: activeTab
+          }
+        });
+        setActiveTab("preferences");
+      },
+    },
+    {
+      id: "metrics",
+      label: "Metrics",
+      icon: <BarChart className="h-4 w-4" />,
+      onClick: () => {
+        // Track navigation click
+        usageTracker.track({
+          event_type: 'button_click',
+          page_name: window.location.pathname,
+          element_id: 'nav-metrics',
+          metadata: {
+            navigation_target: 'metrics',
+            previous_tab: activeTab
+          }
+        });
+        setActiveTab("metrics");
+      },
     },
   ];
 
@@ -575,6 +655,9 @@ export function DatabricksServicesPage() {
                 </div>
               </Card>
             )}
+
+            {/* Metrics Section (T032 - FR-009) */}
+            {activeTab === "metrics" && <MetricsPage />}
           </div>
         </div>
       </div>

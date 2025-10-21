@@ -7,6 +7,7 @@
 import React, { useState, useEffect } from "react";
 import { Button, Alert, Typography } from "designbricks";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usageTracker } from "@/services/usageTracker";
 
 interface UserPreference {
   id: number;
@@ -76,6 +77,17 @@ export const PreferencesForm: React.FC<PreferencesFormProps> = ({
       await onSave(selectedKey, parsedValue);
       setSuccessMessage(`Preference "${selectedKey}" saved successfully!`);
 
+      // T081: Track successful form submission
+      usageTracker.track({
+        event_type: 'form_submit',
+        page_name: '/preferences',
+        element_id: `preference-form-${selectedKey}`,
+        success: true,
+        metadata: {
+          preference_key: selectedKey
+        }
+      });
+
       // Clear success message after 3 seconds
       setTimeout(() => setSuccessMessage(null), 3000);
 
@@ -83,6 +95,18 @@ export const PreferencesForm: React.FC<PreferencesFormProps> = ({
     } catch (err) {
       // Error will be handled by parent component
       console.error("Failed to save preference:", err);
+      
+      // T081: Track failed form submission
+      usageTracker.track({
+        event_type: 'form_submit',
+        page_name: '/preferences',
+        element_id: `preference-form-${selectedKey}`,
+        success: false,
+        metadata: {
+          preference_key: selectedKey,
+          error: err instanceof Error ? err.message : 'Unknown error'
+        }
+      });
     } finally {
       setSaving(false);
     }

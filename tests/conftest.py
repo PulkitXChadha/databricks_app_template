@@ -497,3 +497,177 @@ def sample_preferences():
         }
     ]
 
+
+# ============================================================================
+# Metrics Testing Fixtures (Feature: 006-app-metrics)
+# ============================================================================
+
+@pytest.fixture
+def mock_admin_user():
+    """
+    Fixture to mock admin user authentication for metrics tests.
+    
+    Returns a dict representing an authenticated admin user.
+    """
+    return {
+        'user_id': 'admin@example.com',
+        'email': 'admin@example.com',
+        'is_admin': True
+    }
+
+
+@pytest.fixture
+def mock_non_admin_user():
+    """
+    Fixture to mock non-admin user authentication for metrics tests.
+    
+    Returns a dict representing an authenticated non-admin user.
+    """
+    return {
+        'user_id': 'user@example.com',
+        'email': 'user@example.com',
+        'is_admin': False
+    }
+
+
+@pytest.fixture
+def mock_databricks_admin_client():
+    """
+    Fixture to mock Databricks WorkspaceClient for admin users.
+    
+    Provides a fully mocked Databricks SDK client that returns admin user info.
+    """
+    from unittest.mock import patch, MagicMock
+    
+    with patch('databricks.sdk.WorkspaceClient') as mock_client:
+        # Mock user info
+        mock_user = MagicMock()
+        mock_user.user_name = 'admin@example.com'
+        mock_user.id = 'admin-id'
+        mock_user.display_name = 'Admin User'
+        mock_user.groups = [
+            MagicMock(display='admins', value='group-admin-id')
+        ]
+        
+        # Configure client
+        mock_client.return_value.current_user.me.return_value = mock_user
+        
+        yield mock_client
+
+
+@pytest.fixture
+def mock_databricks_non_admin_client():
+    """
+    Fixture to mock Databricks WorkspaceClient for non-admin users.
+    
+    Provides a fully mocked Databricks SDK client that returns non-admin user info.
+    """
+    from unittest.mock import patch, MagicMock
+    
+    with patch('databricks.sdk.WorkspaceClient') as mock_client:
+        # Mock user info
+        mock_user = MagicMock()
+        mock_user.user_name = 'user@example.com'
+        mock_user.id = 'user-id'
+        mock_user.display_name = 'Regular User'
+        mock_user.groups = [
+            MagicMock(display='users', value='group-users-id')
+        ]
+        
+        # Configure client
+        mock_client.return_value.current_user.me.return_value = mock_user
+        
+        yield mock_client
+
+
+@pytest.fixture
+def mock_admin_check_true():
+    """
+    Fixture to mock is_workspace_admin_async returning True.
+    
+    Use this for tests that require admin access.
+    """
+    from unittest.mock import patch
+    
+    async def mock_is_admin(token, user_id):
+        return True
+    
+    with patch('server.services.admin_service.is_workspace_admin_async', side_effect=mock_is_admin):
+        yield
+
+
+@pytest.fixture
+def mock_admin_check_false():
+    """
+    Fixture to mock is_workspace_admin_async returning False.
+    
+    Use this for tests that should deny admin access.
+    """
+    from unittest.mock import patch
+    
+    async def mock_is_not_admin(token, user_id):
+        return False
+    
+    with patch('server.services.admin_service.is_workspace_admin_async', side_effect=mock_is_not_admin):                                                        
+        yield
+
+
+@pytest.fixture
+def mock_db_for_metrics(monkeypatch):
+    """
+    Fixture to mock database session for metrics tests.
+    
+    Prevents actual database connection attempts in contract tests.
+    """
+    from unittest.mock import MagicMock, patch
+    from datetime import datetime, timedelta
+    from sqlalchemy.orm import Session
+    from server.app import app
+    from server.lib.database import get_db_session
+    
+    # Create mock session
+    mock_session = MagicMock(spec=Session)
+    
+    # Mock query results for performance metrics
+    mock_query = MagicMock()
+    mock_query.filter.return_value = mock_query
+    mock_query.all.return_value = []
+    mock_query.count.return_value = 0
+    mock_query.first.return_value = None
+    mock_query.scalar.return_value = 0  # For COUNT(*) queries
+    
+    mock_session.query.return_value = mock_query
+    mock_session.commit.return_value = None
+    mock_session.rollback.return_value = None
+    mock_session.close.return_value = None
+    mock_session.add.return_value = None
+    mock_session.add_all.return_value = None
+    mock_session.bulk_save_objects.return_value = None
+    mock_session.execute.return_value = mock_query
+    
+    # Use FastAPI's dependency override mechanism
+    def mock_get_db_generator():
+        yield mock_session
+    
+    # Override the database dependency in the FastAPI app
+    app.dependency_overrides[get_db_session] = mock_get_db_generator
+    
+    # Patch the metrics service initialization
+    original_metrics_service_init = None
+    try:
+        from server.services import metrics_service
+        original_metrics_service_init = metrics_service.MetricsService.__init__
+        
+        def mock_init(self, db=None):
+            self.db = mock_session
+        
+        with patch.object(metrics_service.MetricsService, '__init__', mock_init):
+            yield mock_session
+    finally:
+        # Clean up dependency override
+        if get_db_session in app.dependency_overrides:
+            del app.dependency_overrides[get_db_session]
+        # Restore original if it was patched
+        if original_metrics_service_init:
+            metrics_service.MetricsService.__init__ = original_metrics_service_init
+

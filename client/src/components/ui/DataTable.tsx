@@ -8,6 +8,7 @@
 import React, { useState, useEffect } from "react";
 import { Button, Alert, Table, Typography, type Column as DBColumn } from "designbricks";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usageTracker, getElementIdentifier } from "@/services/usageTracker";
 
 interface Column {
   name: string;
@@ -46,24 +47,76 @@ export const DataTable: React.FC<DataTableProps> = ({
 
   useEffect(() => {
     if (onPageChange) {
+      // Track query execution
+      usageTracker.track({
+        event_type: 'query_executed',
+        page_name: '/unity-catalog',
+        element_id: 'data-table-pagination',
+        metadata: {
+          catalog,
+          schema,
+          table,
+          page_size: pageSize,
+          page: currentPage,
+          offset
+        }
+      });
+      
       onPageChange(pageSize, offset);
     }
   }, [currentPage, pageSize]);
 
-  const handlePrevPage = () => {
+  const handlePrevPage = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (currentPage > 1) {
+      // Track pagination click
+      usageTracker.track({
+        event_type: 'button_click',
+        page_name: '/unity-catalog',
+        element_id: getElementIdentifier(e.currentTarget),
+        metadata: {
+          button_text: 'Previous',
+          current_page: currentPage,
+          target_page: currentPage - 1
+        }
+      });
+      
       setCurrentPage(currentPage - 1);
     }
   };
 
-  const handleNextPage = () => {
+  const handleNextPage = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (currentPage < totalPages) {
+      // Track pagination click
+      usageTracker.track({
+        event_type: 'button_click',
+        page_name: '/unity-catalog',
+        element_id: getElementIdentifier(e.currentTarget),
+        metadata: {
+          button_text: 'Next',
+          current_page: currentPage,
+          target_page: currentPage + 1
+        }
+      });
+      
       setCurrentPage(currentPage + 1);
     }
   };
 
   const handlePageSizeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setPageSize(Number(e.target.value));
+    const newPageSize = Number(e.target.value);
+    
+    // Track page size change
+    usageTracker.track({
+      event_type: 'preference_changed',
+      page_name: '/unity-catalog',
+      element_id: 'page-size-selector',
+      metadata: {
+        previous_page_size: pageSize,
+        new_page_size: newPageSize
+      }
+    });
+    
+    setPageSize(newPageSize);
     setCurrentPage(1); // Reset to first page when changing page size
   };
 
@@ -194,6 +247,7 @@ export const DataTable: React.FC<DataTableProps> = ({
               size="small"
               disabled={currentPage === 1}
               onClick={handlePrevPage}
+              data-track-id="pagination-prev-button"
             >
               Previous
             </Button>
@@ -203,6 +257,7 @@ export const DataTable: React.FC<DataTableProps> = ({
               size="small"
               disabled={currentPage === totalPages}
               onClick={handleNextPage}
+              data-track-id="pagination-next-button"
             >
               Next
             </Button>

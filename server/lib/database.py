@@ -14,8 +14,11 @@ from typing import Generator
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.core import Config
 from sqlalchemy import create_engine, Engine, event
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker, declarative_base
 from sqlalchemy.pool import QueuePool
+
+# SQLAlchemy declarative base for ORM models
+Base = declarative_base()
 
 
 def _create_workspace_client(user_token: str | None = None) -> WorkspaceClient:

@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SchemaDetectionStatus } from "@/components/SchemaDetectionStatus";
 import { useSchemaCache } from "@/hooks/useSchemaCache";
 import { ModelServingService, type SchemaDetectionResult } from "@/fastapi_client";
+import { usageTracker } from "@/services/usageTracker";
 
 interface ModelEndpoint {
   endpoint_name: string;
@@ -79,9 +80,34 @@ export const ModelInvokeForm: React.FC<ModelInvokeFormProps> = ({
 
       const result = await onInvoke(selectedEndpoint, parsedInputs, timeout);
       setResponse(result);
+      
+      // T081: Track successful model invocation
+      usageTracker.track({
+        event_type: 'model_invoked',
+        page_name: '/model-serving',
+        element_id: 'model-invoke-form',
+        success: result.status === 'SUCCESS',
+        metadata: {
+          endpoint_name: selectedEndpoint,
+          execution_time_ms: result.execution_time_ms,
+          status: result.status
+        }
+      });
     } catch (err: any) {
       setInvocationError(err.message || "Failed to invoke model");
       console.error("Failed to invoke model:", err);
+      
+      // T081: Track failed model invocation
+      usageTracker.track({
+        event_type: 'model_invoked',
+        page_name: '/model-serving',
+        element_id: 'model-invoke-form',
+        success: false,
+        metadata: {
+          endpoint_name: selectedEndpoint,
+          error: err.message || 'Unknown error'
+        }
+      });
     } finally {
       setInvoking(false);
     }
