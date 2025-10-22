@@ -512,6 +512,48 @@ print('no')
     rm -f "$DEPLOY_OUTPUT"
     log_success "Bundle deployed successfully"
     
+    # Verify database exists after deployment
+    log_info "Verifying database was created..."
+    sleep 5  # Give the system time to propagate changes
+    
+    DATABASE_NAME="app_database"
+    DATABASE_EXISTS_FINAL=$(databricks catalogs list-schemas --catalog-name "$CATALOG_NAME" --output json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    schemas = data.get('schemas', data) if isinstance(data, dict) else data
+    for s in schemas:
+        if s.get('name') == '$DATABASE_NAME':
+            print('yes')
+            break
+    else:
+        print('no')
+except:
+    print('no')
+" 2>/dev/null || echo "no")
+    
+    # If database doesn't exist, try to create it
+    if [ "$DATABASE_EXISTS_FINAL" = "no" ]; then
+        log_warning "Database '$DATABASE_NAME' not found in catalog '$CATALOG_NAME'"
+        log_info "Attempting to create database..."
+        
+        # Try to create the database using SQL
+        CREATE_DB_OUTPUT=$(databricks sql-queries execute \
+            --warehouse-id "$WAREHOUSE_ID" \
+            --statement "CREATE DATABASE IF NOT EXISTS \`$CATALOG_NAME\`.\`$DATABASE_NAME\`" 2>&1 || echo "")
+        
+        if [ $? -eq 0 ]; then
+            log_success "Database created successfully"
+            DATABASE_EXISTS_FINAL="yes"
+        else
+            log_warning "Could not create database automatically"
+            log_info "The database should be created by the bundle's create_database_if_not_exists setting"
+            log_info "It may take a few more minutes to appear"
+        fi
+    else
+        log_success "Database verified: '$DATABASE_NAME' exists in catalog '$CATALOG_NAME'"
+    fi
+    
     # Log resource status
     echo ""
     log_info "Resource deployment summary:"
@@ -527,10 +569,10 @@ print('no')
         echo "  🗄️  Database Instance: ✓ Created '$LAKEBASE_INSTANCE_NAME'"
     fi
     
-    if [ -n "$DATABASE_EXISTS" ] && [ "$DATABASE_EXISTS" = "yes" ]; then
-        echo "  💾 Database:          ✓ Reused existing '$DATABASE_NAME'"
+    if [ "$DATABASE_EXISTS_FINAL" = "yes" ]; then
+        echo "  💾 Database:          ✓ Verified '$DATABASE_NAME'"
     else
-        echo "  💾 Database:          ✓ Created '$DATABASE_NAME'"
+        echo "  💾 Database:          ⚠ May still be initializing"
     fi
     echo ""
     
@@ -716,6 +758,14 @@ if [ "$DEPLOY_MIGRATIONS" = "yes" ]; then
     log_step "Phase 3: Running database migrations..."
     print_timing "Migrations started"
     
+    # Verify Lakebase connection is configured
+    if [ -z "$LAKEBASE_HOST" ] && [ -z "$PGHOST" ]; then
+        log_error "Lakebase host not configured. Cannot run migrations."
+        log_info "Please ensure LAKEBASE_HOST or PGHOST is set in .env.local"
+        log_info "You can configure it with: uv run python scripts/configure_lakebase.py"
+        exit 1
+    fi
+    
     # Check if alembic is available
     if command -v alembic &> /dev/null; then
         ALEMBIC_CMD="alembic"
@@ -723,50 +773,126 @@ if [ "$DEPLOY_MIGRATIONS" = "yes" ]; then
         ALEMBIC_CMD="uv run alembic"
     fi
     
+    # Check if tables already exist
+    log_info "Checking if tables already exist..."
+    EXISTING_TABLES=$(uv run python -c "
+from server.lib.database import get_engine
+from sqlalchemy import inspect
+try:
+    engine = get_engine()
+    inspector = inspect(engine)
+    tables = inspector.get_table_names()
+    print(','.join(tables))
+except Exception as e:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$EXISTING_TABLES" ]; then
+        IFS=',' read -ra EXISTING_TABLE_ARRAY <<< "$EXISTING_TABLES"
+        TABLE_COUNT=${#EXISTING_TABLE_ARRAY[@]}
+        log_info "Found $TABLE_COUNT existing table(s)"
+        if [ "$VERBOSE" = "true" ]; then
+            for table in "${EXISTING_TABLE_ARRAY[@]}"; do
+                echo "  - $table"
+            done
+        fi
+    else
+        log_info "No existing tables found"
+    fi
+    
     # Show current migration status
     log_info "Current migration status:"
-    $ALEMBIC_CMD current || log_warning "No migrations applied yet"
-    
-    # Run migrations
-    log_info "Applying migrations..."
-    if [ "$VERBOSE" = "true" ]; then
-        $ALEMBIC_CMD upgrade head
+    CURRENT_MIGRATION=$($ALEMBIC_CMD current 2>&1)
+    if echo "$CURRENT_MIGRATION" | grep -q "head"; then
+        log_success "Database is at latest migration"
+        MIGRATIONS_NEEDED="no"
     else
-        $ALEMBIC_CMD upgrade head > /dev/null 2>&1
+        log_info "Migrations need to be applied"
+        MIGRATIONS_NEEDED="yes"
     fi
-    log_success "Migrations completed"
+    
+    # Run migrations if needed
+    if [ "$MIGRATIONS_NEEDED" = "yes" ] || [ -z "$EXISTING_TABLES" ]; then
+        log_info "Applying migrations..."
+        if [ "$VERBOSE" = "true" ]; then
+            $ALEMBIC_CMD upgrade head
+        else
+            MIGRATION_OUTPUT=$(mktemp)
+            $ALEMBIC_CMD upgrade head > "$MIGRATION_OUTPUT" 2>&1
+            MIGRATION_STATUS=$?
+            
+            if [ $MIGRATION_STATUS -ne 0 ]; then
+                log_error "Migration failed"
+                cat "$MIGRATION_OUTPUT"
+                rm -f "$MIGRATION_OUTPUT"
+                exit 1
+            fi
+            rm -f "$MIGRATION_OUTPUT"
+        fi
+        log_success "Migrations completed"
+    else
+        log_info "Migrations already up to date, skipping"
+    fi
     
     # Show final migration status
     log_info "Final migration status:"
     $ALEMBIC_CMD current
     
-    # Verify tables
+    # Verify tables were created
     log_info "Verifying tables..."
     TABLES=$(uv run python -c "
 from server.lib.database import get_engine
 from sqlalchemy import inspect
-engine = get_engine()
-inspector = inspect(engine)
-tables = inspector.get_table_names()
-print(','.join(tables))
+try:
+    engine = get_engine()
+    inspector = inspect(engine)
+    tables = inspector.get_table_names()
+    print(','.join(tables))
+except Exception as e:
+    print('')
 " 2>/dev/null)
     
     if [ -n "$TABLES" ]; then
         IFS=',' read -ra TABLE_ARRAY <<< "$TABLES"
-        log_success "Tables verified (${#TABLE_ARRAY[@]} tables created)"
+        TABLE_COUNT=${#TABLE_ARRAY[@]}
+        log_success "Tables verified ($TABLE_COUNT tables exist)"
+        
         if [ "$VERBOSE" = "true" ]; then
+            echo ""
+            log_info "Database tables:"
             for table in "${TABLE_ARRAY[@]}"; do
-                echo "  - $table"
+                echo "  ✓ $table"
             done
         fi
+        
+        # Check for expected tables
+        EXPECTED_TABLES=("user_preferences" "model_inference_logs" "schema_detection_events" "alembic_version")
+        MISSING_TABLES=""
+        
+        for expected_table in "${EXPECTED_TABLES[@]}"; do
+            if [[ ! " ${TABLE_ARRAY[@]} " =~ " ${expected_table} " ]]; then
+                MISSING_TABLES="$MISSING_TABLES $expected_table"
+            fi
+        done
+        
+        if [ -n "$MISSING_TABLES" ]; then
+            log_warning "Some expected tables are missing:$MISSING_TABLES"
+            log_info "This may indicate that migrations were not fully applied"
+        else
+            log_success "All expected tables are present"
+        fi
     else
-        log_warning "Could not verify tables"
+        log_error "Could not verify tables"
+        log_info "Tables may not have been created. Check Lakebase connectivity."
+        log_info "Test connection with: uv run python -c 'from server.lib.database import get_engine; get_engine().connect()'"
+        exit 1
     fi
     
     print_timing "Migrations completed"
     echo ""
 else
     log_info "Skipping database migrations"
+    log_warning "Tables may not be created. Run migrations later with: alembic upgrade head"
     echo ""
 fi
 
@@ -914,7 +1040,16 @@ fi
 
 if [ "$DEPLOY_MIGRATIONS" = "yes" ]; then
     echo "✓ Database migrations applied"
-    [ -n "$TABLES" ] && echo "  Tables:            ${#TABLE_ARRAY[@]}"
+    if [ -n "$TABLES" ]; then
+        IFS=',' read -ra TABLE_ARRAY <<< "$TABLES"
+        TABLE_COUNT=${#TABLE_ARRAY[@]}
+        echo "  Tables created:    $TABLE_COUNT"
+        if [ "$VERBOSE" = "true" ]; then
+            for table in "${TABLE_ARRAY[@]}"; do
+                echo "    - $table"
+            done
+        fi
+    fi
 fi
 
 if [ "$DEPLOY_SAMPLE_DATA" = "yes" ]; then
@@ -934,13 +1069,25 @@ fi
 
 echo ""
 echo "Next steps:"
+STEP_NUM=1
 if [ "$DEPLOY_APP" = "yes" ] && [ -n "$APP_URL" ]; then
-    echo "  1. Visit your app:     $APP_URL"
-    echo "  2. Check logs:         $APP_URL/logz (in browser)"
+    echo "  $STEP_NUM. Visit your app:     $APP_URL"
+    STEP_NUM=$((STEP_NUM + 1))
+    echo "  $STEP_NUM. Check logs:         $APP_URL/logz (in browser)"
+    STEP_NUM=$((STEP_NUM + 1))
 fi
-echo "  3. Check status:       databricks apps list"
+if [ "$DEPLOY_MIGRATIONS" = "no" ]; then
+    echo "  $STEP_NUM. Create tables:      alembic upgrade head"
+    STEP_NUM=$((STEP_NUM + 1))
+fi
+echo "  $STEP_NUM. Check status:       databricks apps list"
+STEP_NUM=$((STEP_NUM + 1))
 if [ "$TARGET" = "dev" ]; then
-    echo "  4. Local development:  ./watch.sh"
+    echo "  $STEP_NUM. Local development:  ./watch.sh"
+    STEP_NUM=$((STEP_NUM + 1))
+fi
+if [ "$DEPLOY_BUNDLE" = "yes" ] && [ -z "$LAKEBASE_HOST" ]; then
+    echo "  $STEP_NUM. Configure Lakebase: uv run python scripts/configure_lakebase.py"
 fi
 echo ""
 

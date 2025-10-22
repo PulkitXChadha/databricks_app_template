@@ -262,10 +262,13 @@ database_catalogs:
 #### Deployment Commands
 
 ```bash
-# Deploy to development environment
+# Deploy everything (infrastructure, database, tables, and app)
+./deploy.sh --all
+
+# Deploy to development environment (infrastructure only)
 databricks bundle deploy --target dev
 
-# Deploy to production environment
+# Deploy to production environment (infrastructure only)
 databricks bundle deploy --target prod
 
 # Validate bundle configuration
@@ -274,6 +277,8 @@ databricks bundle validate
 # View deployed resources
 databricks bundle resources list
 ```
+
+**Note**: The `./deploy.sh` script is recommended as it handles the complete deployment workflow including database and table creation. See the [Deployment](#-deployment) section below for all options.
 
 #### Automatic Environment Variables
 
@@ -429,9 +434,14 @@ See `CLAUDE.md` for the complete development guide.
 - **`./fix.sh`** - Formats Python (ruff) and TypeScript (prettier) code
 
 #### Deployment & Monitoring
-- **`./deploy.sh`** - Builds, syncs, and deploys to Databricks Apps
+- **`./deploy.sh`** - Comprehensive deployment tool for infrastructure, database, and app
+  - `--all` - Deploy everything (infrastructure, migrations, app)
+  - `--bundle-only` - Deploy only infrastructure bundle
+  - `--app-only` - Deploy only the application
   - `--create` - Creates app if it doesn't exist
   - `--verbose` - Shows detailed deployment logs
+  - `--non-interactive` - Skip prompts, use defaults
+  - `--target ENV` - Target environment (dev/prod)
 - **`./app_status.sh`** - Shows app status with nice formatting
   - `--verbose` - Includes full JSON response and workspace files
 
@@ -522,27 +532,102 @@ The setup script automatically validates your configuration and tests connectivi
 
 ### Deploy to Databricks Apps
 
+The `deploy.sh` script provides flexible deployment options for infrastructure, database, and application components.
+
+#### Quick Start - Deploy Everything
+
 ```bash
-# Deploy existing app
+# Deploy all components (recommended for first-time deployment)
+./deploy.sh --all
+
+# Or use interactive mode (prompts for each component)
 ./deploy.sh
+```
+
+#### Selective Deployment
+
+```bash
+# Deploy only infrastructure (Lakebase, SQL Warehouse)
+./deploy.sh --bundle-only
+
+# Deploy only the application (assumes infrastructure exists)
+./deploy.sh --app-only
 
 # Create and deploy new app
 ./deploy.sh --create
 
 # Deploy with verbose logging
 ./deploy.sh --verbose
+
+# Non-interactive mode with environment variables
+DEPLOY_BUNDLE=yes DEPLOY_MIGRATIONS=yes DEPLOY_APP=yes ./deploy.sh --non-interactive
+```
+
+#### Deployment Flags
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Deploy everything (infrastructure, migrations, app) |
+| `--bundle-only` | Deploy only infrastructure bundle |
+| `--app-only` | Deploy only the application |
+| `--create` | Create app if it doesn't exist |
+| `--verbose` | Show detailed deployment logs |
+| `--non-interactive` | Skip interactive prompts, use defaults |
+| `--target ENV` | Target environment (dev or prod, default: dev) |
+
+#### Environment Variables
+
+Control deployment components via environment variables:
+
+```bash
+DEPLOY_BUNDLE=yes          # Deploy infrastructure
+DEPLOY_MIGRATIONS=yes      # Run database migrations
+DEPLOY_SAMPLE_DATA=no      # Create sample data
+DEPLOY_APP=yes             # Deploy application
+TARGET=dev                 # Target environment
 ```
 
 ### Deployment Process
 
-The deployment script automatically:
-1. **Authenticates** with Databricks using your `.env.local` configuration
-2. **Creates app** (if using `--create` flag and app doesn't exist)
-3. **Builds frontend** using Vite for production
-4. **Generates requirements.txt** from pyproject.toml (avoids editable installs)
-5. **Syncs source code** to Databricks workspace
-6. **Deploys app** via Databricks CLI
-7. **Verifies deployment** and shows app URL
+The deployment script automatically handles a complete deployment workflow:
+
+#### Phase 1: Prerequisites Validation
+- Checks required tools (databricks CLI, uv, bun)
+- Verifies authentication with Databricks
+- Loads environment variables from `.env.local`
+
+#### Phase 2: Infrastructure Deployment
+- Deploys Databricks bundle (SQL Warehouse, Lakebase instance, catalog)
+- **Verifies database exists** in the catalog
+- **Creates database** if missing (using SQL or bundle settings)
+- Retrieves connection details (warehouse ID, Lakebase host)
+- Updates `.env.local` with deployed resource values
+- Tests Lakebase connectivity with retry logic
+
+#### Phase 3: Database Migrations
+- Checks if Lakebase is configured
+- **Verifies existing tables** to avoid redundant work
+- Checks current migration status
+- **Runs Alembic migrations** to create tables (if needed)
+- **Verifies all expected tables exist**:
+  - `user_preferences`
+  - `model_inference_logs`
+  - `schema_detection_events`
+  - `alembic_version`
+- Warns if any expected tables are missing
+
+#### Phase 4: Sample Data (Optional)
+- Creates sample data in Unity Catalog and Lakebase
+- Only runs if explicitly requested
+
+#### Phase 5: Application Deployment
+- Validates required configuration
+- Creates app if needed (with `--create` flag)
+- Generates `requirements.txt` from `pyproject.toml`
+- Builds frontend using Vite for production
+- Syncs source code to Databricks workspace
+- Deploys app via Databricks CLI
+- Retrieves and displays app URL
 
 ### Monitoring Your App
 
@@ -571,6 +656,9 @@ The deployment script automatically:
 - **Authentication**: Verify `.env.local` configuration
 - **CLI outdated**: Since we use `databricks`, the CLI is always up-to-date
 - **"Catalog already exists"**: The deployment script now handles existing resources gracefully. See [Resource Reuse Guide](docs/DEPLOYMENT_RESOURCE_REUSE.md) for details
+- **Tables not created**: Run `./deploy.sh` with migrations: `DEPLOY_MIGRATIONS=yes ./deploy.sh --bundle-only`
+- **Lakebase connectivity issues**: The script retries connection up to 5 times with 10-second delays
+- **Database doesn't exist**: The script attempts to create it automatically using SQL
 
 #### Resource Reuse During Deployment
 
@@ -581,6 +669,39 @@ The deployment script intelligently handles existing Databricks resources (catal
 - ✅ **Provides clear resolution options** when conflicts arise
 
 See the complete [Resource Reuse Guide](docs/DEPLOYMENT_RESOURCE_REUSE.md) for detailed information and troubleshooting steps.
+
+#### Database and Table Creation
+
+The deployment script now includes comprehensive database and table management:
+- ✅ **Verifies database exists** after bundle deployment
+- ✅ **Creates database automatically** if missing (using SQL or bundle settings)
+- ✅ **Checks for existing tables** before running migrations
+- ✅ **Runs Alembic migrations** to create all required tables
+- ✅ **Verifies table creation** and warns about missing tables
+- ✅ **Skips redundant migrations** if database is already up-to-date
+
+**What gets created:**
+1. **Lakebase Instance**: PostgreSQL database instance in Databricks
+2. **Catalog**: Unity Catalog catalog linked to the Lakebase instance  
+3. **Database**: `app_database` schema within the catalog
+4. **Tables**: All application tables via Alembic migrations
+   - `user_preferences` - User settings and preferences
+   - `model_inference_logs` - ML model inference tracking
+   - `schema_detection_events` - Schema detection history
+   - `alembic_version` - Migration version tracking
+   - Plus any metrics tables defined in migrations
+
+#### Deployment Scenarios
+
+| Scenario | Command | What Happens |
+|----------|---------|--------------|
+| **First-time setup** | `./deploy.sh --all` | Creates all infrastructure, database, tables, and deploys app |
+| **Redeploy after code changes** | `./deploy.sh --app-only` | Only rebuilds and redeploys the application |
+| **Add new tables** | `DEPLOY_MIGRATIONS=yes ./deploy.sh --bundle-only` | Runs migrations to create new tables |
+| **Infrastructure only** | `./deploy.sh --bundle-only` | Creates/updates Lakebase and SQL Warehouse |
+| **Update existing deployment** | `./deploy.sh` (interactive) | Prompts for which components to deploy |
+
+**Pro tip**: For local development after initial deployment, just run `./watch.sh` - the deployment script is only needed for Databricks Apps platform changes.
 
 ## 📝 Customization
 
