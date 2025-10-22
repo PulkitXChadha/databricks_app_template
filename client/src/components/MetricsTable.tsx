@@ -1,9 +1,39 @@
 import React from 'react';
+import { Card, Typography, colors } from 'designbricks';
 
 interface MetricsTableProps {
   performanceData: any;
   usageData: any;
 }
+
+interface MetricCardProps {
+  title: string;
+  value: string | number;
+  description: string;
+  valueColor?: string;
+}
+
+const MetricCard: React.FC<MetricCardProps> = ({ title, value, description, valueColor }) => {
+  return (
+    <Card padding="medium" className="h-full">
+      <div className="flex flex-col space-y-2">
+        <Typography.Text color="secondary" style={{ fontSize: '0.875rem', textTransform: 'uppercase', fontWeight: 500 }}>
+          {title}
+        </Typography.Text>
+        <Typography.Title 
+          level={2} 
+          withoutMargins 
+          style={{ color: valueColor || undefined }}
+        >
+          {value}
+        </Typography.Title>
+        <Typography.Text color="secondary" style={{ fontSize: '0.875rem' }}>
+          {description}
+        </Typography.Text>
+      </div>
+    </Card>
+  );
+};
 
 export const MetricsTable: React.FC<MetricsTableProps> = ({ performanceData, usageData }) => {
   // Calculate active users from both performance and usage data
@@ -15,153 +45,77 @@ export const MetricsTable: React.FC<MetricsTableProps> = ({ performanceData, usa
   const uniqueUsers = usageData?.metrics?.unique_users || 0;
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow">
-      <h2 className="text-xl font-bold mb-4">Summary Metrics</h2>
+    <div>
+      <Typography.Title level={2} style={{ marginBottom: '1.5rem' }}>
+        Summary Metrics
+      </Typography.Title>
       
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                Metric
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                Value
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                Description
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {/* Performance Metrics */}
-            <tr className="hover:bg-gray-50">
-              <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                Average Response Time
-              </td>
-              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                <span className="font-bold text-lg">{avgResponseTime.toFixed(2)} ms</span>
-              </td>
-              <td className="px-4 py-3 text-sm text-gray-500">
-                Mean response time across all API requests
-              </td>
-            </tr>
-            
-            <tr className="hover:bg-gray-50">
-              <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                Error Rate
-              </td>
-              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                <span className={`font-bold text-lg ${errorRate > 0.05 ? 'text-red-600' : 'text-green-600'}`}>
-                  {(errorRate * 100).toFixed(2)}%
-                </span>
-              </td>
-              <td className="px-4 py-3 text-sm text-gray-500">
-                Percentage of requests with 4xx/5xx status codes
-              </td>
-            </tr>
-            
-            <tr className="hover:bg-gray-50">
-              <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                Total Requests
-              </td>
-              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                <span className="font-bold text-lg">{totalRequests.toLocaleString()}</span>
-              </td>
-              <td className="px-4 py-3 text-sm text-gray-500">
-                Total number of API requests processed
-              </td>
-            </tr>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
+        {/* Performance Metrics */}
+        <MetricCard
+          title="Average Response Time"
+          value={`${avgResponseTime.toFixed(2)} ms`}
+          description="Mean response time across all API requests"
+        />
+        
+        <MetricCard
+          title="Error Rate"
+          value={`${(errorRate * 100).toFixed(2)}%`}
+          description="Percentage of requests with 4xx/5xx status codes"
+          valueColor={colors.error[500]}
+        />
+        
+        <MetricCard
+          title="Total Requests"
+          value={totalRequests.toLocaleString()}
+          description="Total number of API requests processed"
+        />
 
-            {/* Usage Metrics */}
-            {usageData && (
-              <>
-                <tr className="bg-blue-50 hover:bg-blue-100">
-                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                    Active Users
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                    <span className="font-bold text-lg">{activeUsers.toLocaleString()}</span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    Unique users with activity in selected time range
-                  </td>
-                </tr>
-                
-                <tr className="hover:bg-gray-50">
-                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                    Total Usage Events
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                    <span className="font-bold text-lg">{totalEvents.toLocaleString()}</span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    Total user interaction events recorded
-                  </td>
-                </tr>
-                
-                <tr className="hover:bg-gray-50">
-                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                    Unique Users
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                    <span className="font-bold text-lg">{uniqueUsers.toLocaleString()}</span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    Distinct users who triggered usage events
-                  </td>
-                </tr>
-              </>
-            )}
+        {/* Usage Metrics */}
+        {usageData && (
+          <>
+            <MetricCard
+              title="Active Users"
+              value={activeUsers.toLocaleString()}
+              description="Unique users with activity in selected time range"
+            />
+            
+            <MetricCard
+              title="Total Usage Events"
+              value={totalEvents.toLocaleString()}
+              description="Total user interaction events recorded"
+            />
+            
+            <MetricCard
+              title="Unique Users"
+              value={uniqueUsers.toLocaleString()}
+              description="Distinct users who triggered usage events"
+            />
+          </>
+        )}
 
-            {/* Percentile metrics if available */}
-            {performanceData?.metrics?.p50_response_time_ms && (
-              <>
-                <tr className="hover:bg-gray-50">
-                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                    P50 Response Time
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                    <span className="font-bold text-lg">
-                      {performanceData.metrics.p50_response_time_ms.toFixed(2)} ms
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    50th percentile (median) response time
-                  </td>
-                </tr>
-                
-                <tr className="hover:bg-gray-50">
-                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                    P95 Response Time
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                    <span className="font-bold text-lg">
-                      {performanceData.metrics.p95_response_time_ms.toFixed(2)} ms
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    95th percentile response time
-                  </td>
-                </tr>
-                
-                <tr className="hover:bg-gray-50">
-                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                    P99 Response Time
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                    <span className="font-bold text-lg">
-                      {performanceData.metrics.p99_response_time_ms.toFixed(2)} ms
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    99th percentile response time
-                  </td>
-                </tr>
-              </>
-            )}
-          </tbody>
-        </table>
+        {/* Percentile metrics if available */}
+        {performanceData?.metrics?.p50_response_time_ms && (
+          <>
+            <MetricCard
+              title="P50 Response Time"
+              value={`${performanceData.metrics.p50_response_time_ms.toFixed(2)} ms`}
+              description="50th percentile (median) response time"
+            />
+            
+            <MetricCard
+              title="P95 Response Time"
+              value={`${performanceData.metrics.p95_response_time_ms.toFixed(2)} ms`}
+              description="95th percentile response time"
+            />
+            
+            <MetricCard
+              title="P99 Response Time"
+              value={`${performanceData.metrics.p99_response_time_ms.toFixed(2)} ms`}
+              description="99th percentile response time"
+            />
+          </>
+        )}
       </div>
       
       <div className="mt-4 text-xs text-gray-500">

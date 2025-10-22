@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { PillControl, type PillOption } from 'designbricks';
 import { MetricsService } from '../fastapi_client';
 import { PerformanceChart } from './PerformanceChart';
 import { EndpointBreakdownTable } from './EndpointBreakdownTable';
@@ -9,6 +10,14 @@ import { usageTracker } from '../services/usageTracker';
 interface MetricsDashboardProps {
   className?: string;
 }
+
+// Time range options for the PillControl
+const timeRangeOptions: PillOption[] = [
+  { value: '24h', label: 'Last 24 Hours' },
+  { value: '7d', label: 'Last 7 Days' },
+  { value: '30d', label: 'Last 30 Days' },
+  { value: '90d', label: 'Last 90 Days' },
+];
 
 export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className }) => {
   const [timeRange, setTimeRange] = useState('24h');
@@ -127,15 +136,13 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className })
 
       {/* Time Range Selector - changing doesn't auto-refresh per clarification */}
       <div className="mb-6">
-        <label htmlFor="time-range" className="block text-sm font-medium mb-2">
+        <label className="block text-sm font-medium mb-2">
           Time Range
         </label>
-        <select
-          id="time-range"
+        <PillControl
+          options={timeRangeOptions}
           value={timeRange}
-          onChange={(e) => {
-            const newTimeRange = e.target.value;
-            
+          onChange={(newTimeRange) => {
             // Track time range change
             usageTracker.track({
               event_type: 'preference_changed',
@@ -149,14 +156,10 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className })
             
             setTimeRange(newTimeRange);
           }}
-          className="px-3 py-2 border rounded-md"
+          size="medium"
           data-track-id="time-range-selector"
-        >
-          <option value="24h">Last 24 Hours</option>
-          <option value="7d">Last 7 Days</option>
-          <option value="30d">Last 30 Days</option>
-          <option value="90d">Last 90 Days</option>
-        </select>
+          style={{ backgroundColor: '#F6F7F9' }}
+        />
         <p className="text-sm text-gray-500 mt-1">
           Select a time range and click "Refresh" to update metrics.
         </p>
