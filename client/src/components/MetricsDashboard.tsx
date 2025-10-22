@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { PillControl, type PillOption, Button } from 'designbricks';
+import { RefreshCw } from 'lucide-react';
 import { MetricsService } from '../fastapi_client';
 import { PerformanceChart } from './PerformanceChart';
 import { EndpointBreakdownTable } from './EndpointBreakdownTable';
@@ -86,7 +87,10 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className })
         </div>
         <div className="mt-4">
           <Button onClick={handleRefresh} variant="secondary" size="medium">
-            Retry
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" }}>
+              <RefreshCw className="h-4 w-4" />
+              <span>Retry</span>
+            </div>
           </Button>
         </div>
       </div>
@@ -116,7 +120,10 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className })
             variant="secondary"
             size="medium"
           >
-            {loading ? 'Refreshing...' : 'Refresh'}
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" }}>
+              <RefreshCw className="h-4 w-4" />
+              <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+            </div>
           </Button>
         </div>
       </div>
@@ -134,7 +141,10 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className })
           variant="secondary"
           size="medium"
         >
-          {loading ? 'Refreshing...' : 'Refresh'}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" }}>
+            <RefreshCw className="h-4 w-4" />
+            <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+          </div>
         </Button>
       </div>
 
