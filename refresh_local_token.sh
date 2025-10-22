@@ -28,79 +28,84 @@ if [ -f "$SCRIPT_DIR/.env.local" ]; then
 fi
 
 # Determine which authentication method to use
-AUTH_CMD="databricks auth token"
 if [ ! -z "$DATABRICKS_CONFIG_PROFILE" ]; then
-  AUTH_CMD="$AUTH_CMD --profile $DATABRICKS_CONFIG_PROFILE"
   print_message "Using profile: $DATABRICKS_CONFIG_PROFILE"
+  AUTH_ARGS="--profile $DATABRICKS_CONFIG_PROFILE"
 elif [ ! -z "$DATABRICKS_HOST" ]; then
-  AUTH_CMD="$AUTH_CMD --host $DATABRICKS_HOST"
   print_message "Using host: $DATABRICKS_HOST"
+  AUTH_ARGS="--host $DATABRICKS_HOST"
+else
+  AUTH_ARGS=""
 fi
 
-# Try to get token, redirect stderr to capture prompts
-# Use temp file to capture output and avoid pipeline interference
+# First, check if we're authenticated and if the session is still valid
+check_auth_valid() {
+  local temp_check=$(mktemp)
+  if [ ! -z "$AUTH_ARGS" ]; then
+    timeout 5 databricks auth describe $AUTH_ARGS > "$temp_check" 2>&1 || true
+  else
+    timeout 5 databricks auth describe > "$temp_check" 2>&1 || true
+  fi
+  local result=$?
+  rm -f "$temp_check"
+  return $result
+}
+
+# If auth is not valid, try to refresh it automatically
+if ! check_auth_valid; then
+  print_message "⚠️  Authentication session expired or invalid, attempting refresh..."
+  
+  # Try to login non-interactively first using existing credentials
+  TEMP_LOGIN=$(mktemp)
+  if [ ! -z "$AUTH_ARGS" ]; then
+    timeout 10 databricks auth login $AUTH_ARGS > "$TEMP_LOGIN" 2>&1 || true
+  else
+    timeout 10 databricks auth login > "$TEMP_LOGIN" 2>&1 || true
+  fi
+  LOGIN_EXIT=$?
+  rm -f "$TEMP_LOGIN"
+  
+  if [ $LOGIN_EXIT -ne 0 ]; then
+    echo "❌ Failed to refresh authentication. Please re-authenticate manually:"
+    if [ ! -z "$AUTH_ARGS" ]; then
+      echo "   databricks auth login $AUTH_ARGS"
+    else
+      echo "   databricks auth login"
+    fi
+    exit 1
+  fi
+  
+  print_message "✅ Authentication refreshed"
+fi
+
+# Now try to get the token with a timeout to prevent hanging
 TEMP_TOKEN_FILE=$(mktemp)
 
-# Run the auth command with explicit stdin/stdout/stderr redirection
-# This prevents hanging when called from watch.sh's log formatting pipeline
-if { true >&3; } 2>/dev/null; then
-  # File descriptor 3 exists (we're running from watch.sh)
-  # Bypass the log formatting pipeline completely by using fd 3 for output
-  eval "$AUTH_CMD" </dev/null > "$TEMP_TOKEN_FILE" 2>&1 || true
-  TOKEN_EXIT_CODE=$?
+if [ ! -z "$AUTH_ARGS" ]; then
+  timeout 10 databricks auth token $AUTH_ARGS > "$TEMP_TOKEN_FILE" 2>&1 || true
 else
-  # Normal execution outside watch.sh
-  eval "$AUTH_CMD" </dev/null > "$TEMP_TOKEN_FILE" 2>&1 || true
-  TOKEN_EXIT_CODE=$?
+  timeout 10 databricks auth token > "$TEMP_TOKEN_FILE" 2>&1 || true
 fi
+TOKEN_EXIT_CODE=$?
 
 TOKEN_OUTPUT=$(cat "$TEMP_TOKEN_FILE")
 rm -f "$TEMP_TOKEN_FILE"
 
 # Check if authentication was successful
 if [ $TOKEN_EXIT_CODE -ne 0 ]; then
-  echo "❌ Failed to get token from Databricks CLI"
+  echo "❌ Failed to get token from Databricks CLI (timeout or error)"
   echo ""
   echo "Error output:"
   echo "$TOKEN_OUTPUT"
   echo ""
-  echo "💡 Please authenticate first:"
-  if [ ! -z "$DATABRICKS_CONFIG_PROFILE" ]; then
-    echo "   databricks auth login --profile $DATABRICKS_CONFIG_PROFILE"
-  elif [ ! -z "$DATABRICKS_HOST" ]; then
-    echo "   databricks auth login --host $DATABRICKS_HOST"
+  echo "💡 Please authenticate manually:"
+  if [ ! -z "$AUTH_ARGS" ]; then
+    echo "   databricks auth login $AUTH_ARGS"
   else
-    echo "   databricks auth login --host https://your-workspace.cloud.databricks.com"
+    echo "   databricks auth login"
   fi
   echo ""
   exit 1
-fi
-
-# Check if we got a prompt instead of a token (authentication needed)
-if echo "$TOKEN_OUTPUT" | grep -q "Databricks host"; then
-  echo "🔐 Authentication required. Please complete the authentication flow..."
-  echo ""
-  
-  # Run the command interactively
-  if [ ! -z "$DATABRICKS_CONFIG_PROFILE" ]; then
-    databricks auth login --profile "$DATABRICKS_CONFIG_PROFILE"
-  elif [ ! -z "$DATABRICKS_HOST" ]; then
-    databricks auth login --host "$DATABRICKS_HOST"
-  else
-    databricks auth login
-  fi
-  
-  # Try again after authentication
-  TEMP_TOKEN_FILE=$(mktemp)
-  eval "$AUTH_CMD" </dev/null > "$TEMP_TOKEN_FILE" 2>&1 || true
-  TOKEN_EXIT_CODE=$?
-  TOKEN_OUTPUT=$(cat "$TEMP_TOKEN_FILE")
-  rm -f "$TEMP_TOKEN_FILE"
-  
-  if [ $TOKEN_EXIT_CODE -ne 0 ]; then
-    echo "❌ Authentication failed"
-    exit 1
-  fi
 fi
 
 # Extract the access_token from JSON output

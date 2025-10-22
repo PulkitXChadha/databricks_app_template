@@ -14,7 +14,7 @@ while true; do
   
   # Check token status
   if [ -x "$SCRIPT_DIR/scripts/check_token_expiry.sh" ]; then
-    TOKEN_STATUS=$("$SCRIPT_DIR/scripts/check_token_expiry.sh")
+    TOKEN_STATUS=$(timeout 5 "$SCRIPT_DIR/scripts/check_token_expiry.sh" 2>&1 || true)
     TOKEN_EXIT_CODE=$?
     
     # Token is expired or expiring soon - auto-refresh it
@@ -25,16 +25,16 @@ while true; do
         echo ""
         echo "🔄 Token expiring soon, automatically refreshing..."
         
-        # Attempt to refresh token
+        # Attempt to refresh token with timeout
         if [ -x "$SCRIPT_DIR/refresh_local_token.sh" ]; then
-          if "$SCRIPT_DIR/refresh_local_token.sh" --quiet > /dev/null 2>&1; then
+          if timeout 30 "$SCRIPT_DIR/refresh_local_token.sh" --quiet > /dev/null 2>&1; then
             # Refresh succeeded
-            NEW_STATUS=$("$SCRIPT_DIR/scripts/check_token_expiry.sh")
+            NEW_STATUS=$(timeout 5 "$SCRIPT_DIR/scripts/check_token_expiry.sh" 2>&1 || true)
             echo "✅ Token automatically refreshed - $NEW_STATUS"
             echo ""
             REFRESH_FAILED=false
           else
-            # Refresh failed - show manual instructions
+            # Refresh failed or timed out - show manual instructions
             REFRESH_FAILED=true
             echo ""
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
