@@ -112,10 +112,14 @@ class MetricsService:
             Number of events successfully recorded
         """
         try:
-            event_objects = [
-                UsageEvent(**{**event, 'user_id': user_id})
-                for event in events
-            ]
+            event_objects = []
+            for event in events:
+                # Map 'metadata' field from frontend to 'event_metadata' for database
+                event_data = {**event, 'user_id': user_id}
+                if 'metadata' in event_data:
+                    event_data['event_metadata'] = event_data.pop('metadata')
+                event_objects.append(UsageEvent(**event_data))
+            
             self.db.bulk_save_objects(event_objects)
             self.db.commit()
             logger.info(f'Recorded {len(event_objects)} usage events for user {user_id}')
@@ -241,8 +245,63 @@ class MetricsService:
         Returns:
             Dictionary with aggregated usage metrics
         """
-        # TODO: Implement in User Story 3
-        return {}
+        try:
+            # Base query
+            query = self.db.query(UsageEvent).filter(
+                and_(
+                    UsageEvent.timestamp >= start_time,
+                    UsageEvent.timestamp <= end_time
+                )
+            )
+
+            if event_type:
+                query = query.filter(UsageEvent.event_type == event_type)
+
+            events = query.all()
+
+            if not events:
+                return self._empty_usage_response(start_time, end_time)
+
+            # Calculate metrics
+            total_events = len(events)
+            unique_users = len(set(event.user_id for event in events))
+            
+            # Active users: users active in the last hour
+            one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+            active_users = len(set(
+                event.user_id for event in events 
+                if event.timestamp >= one_hour_ago
+            ))
+
+            # Event distribution by type
+            event_distribution = {}
+            for event in events:
+                event_type_name = event.event_type
+                event_distribution[event_type_name] = event_distribution.get(event_type_name, 0) + 1
+
+            # Page views by page
+            page_views = {}
+            for event in events:
+                if event.event_type == 'page_view' and event.page_name:
+                    page_name = event.page_name
+                    page_views[page_name] = page_views.get(page_name, 0) + 1
+
+            return {
+                'time_range': self._format_time_range(start_time, end_time),
+                'start_time': start_time.isoformat(),
+                'end_time': end_time.isoformat(),
+                'metrics': {
+                    'total_events': total_events,
+                    'unique_users': unique_users,
+                    'active_users': active_users,
+                },
+                'event_distribution': event_distribution,
+                'page_views': page_views
+            }
+        except Exception as e:
+            # Handle database connection errors gracefully
+            logger.warning(f'Failed to query usage metrics: {e}')
+            return self._empty_usage_response(start_time, end_time)
 
     def _query_aggregated_usage_metrics(
         self,
@@ -260,8 +319,86 @@ class MetricsService:
         Returns:
             Dictionary with aggregated usage metrics
         """
-        # TODO: Implement in User Story 4
-        return {}
+        try:
+            # Query aggregated metrics table
+            query = self.db.query(AggregatedMetric).filter(
+                and_(
+                    AggregatedMetric.metric_type == 'usage',
+                    AggregatedMetric.time_bucket >= start_time,
+                    AggregatedMetric.time_bucket <= end_time
+                )
+            )
+
+            if event_type:
+                # Filter by event_type in aggregated_values JSON
+                query = query.filter(
+                    AggregatedMetric.aggregated_values['event_type'].astext == event_type
+                )
+
+            aggregated_records = query.all()
+
+            if not aggregated_records:
+                return self._empty_usage_response(start_time, end_time)
+
+            # Aggregate the pre-aggregated metrics
+            total_events = 0
+            unique_users_set = set()
+            event_distribution = {}
+            page_views = {}
+            
+            # Track users active in the last hour
+            one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+            active_users_set = set()
+
+            for record in aggregated_records:
+                values = record.aggregated_values
+                
+                # Sum total events
+                total_events += values.get('total_events', 0)
+                
+                # Collect unique users (if stored as list in aggregated_values)
+                if 'unique_users' in values:
+                    if isinstance(values['unique_users'], list):
+                        unique_users_set.update(values['unique_users'])
+                    elif isinstance(values['unique_users'], int):
+                        # If just count is stored, we can't get exact users
+                        # This is a limitation of aggregated data
+                        pass
+                
+                # Check if this bucket is within the last hour for active users
+                if record.time_bucket >= one_hour_ago and 'unique_users' in values:
+                    if isinstance(values['unique_users'], list):
+                        active_users_set.update(values['unique_users'])
+                
+                # Aggregate event distribution
+                if 'event_distribution' in values:
+                    for event_type_name, count in values['event_distribution'].items():
+                        event_distribution[event_type_name] = event_distribution.get(event_type_name, 0) + count
+                
+                # Aggregate page views
+                if 'page_views' in values:
+                    for page_name, count in values['page_views'].items():
+                        page_views[page_name] = page_views.get(page_name, 0) + count
+
+            unique_users = len(unique_users_set)
+            active_users = len(active_users_set)
+
+            return {
+                'time_range': self._format_time_range(start_time, end_time),
+                'start_time': start_time.isoformat(),
+                'end_time': end_time.isoformat(),
+                'metrics': {
+                    'total_events': total_events,
+                    'unique_users': unique_users,
+                    'active_users': active_users,
+                },
+                'event_distribution': event_distribution,
+                'page_views': page_views
+            }
+        except Exception as e:
+            # Handle database connection errors gracefully
+            logger.warning(f'Failed to query aggregated usage metrics: {e}')
+            return self._empty_usage_response(start_time, end_time)
 
     def _percentile(self, data: List[float], p: float) -> float:
         """Calculate percentile of data.
@@ -345,6 +482,33 @@ class MetricsService:
                 'p99_response_time_ms': 0.0,
             },
             'endpoints': []
+        }
+
+    def _empty_usage_response(
+        self,
+        start_time: datetime,
+        end_time: datetime
+    ) -> Dict:
+        """Generate empty usage response structure.
+
+        Args:
+            start_time: Start of time range
+            end_time: End of time range
+
+        Returns:
+            Empty response dictionary
+        """
+        return {
+            'time_range': self._format_time_range(start_time, end_time),
+            'start_time': start_time.isoformat(),
+            'end_time': end_time.isoformat(),
+            'metrics': {
+                'total_events': 0,
+                'unique_users': 0,
+                'active_users': 0,
+            },
+            'event_distribution': {},
+            'page_views': {}
         }
 
     def _format_time_range(self, start_time: datetime, end_time: datetime) -> str:

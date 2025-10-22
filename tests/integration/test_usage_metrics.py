@@ -244,7 +244,7 @@ def test_usage_events_with_metadata(test_db_session):
             ).first()
             
             if stored_event:
-                assert stored_event.metadata is not None
-                assert stored_event.metadata.get("query") == "SELECT * FROM table"
-                assert stored_event.metadata.get("execution_time_ms") == 234
+                assert stored_event.event_metadata is not None
+                assert stored_event.event_metadata.get("query") == "SELECT * FROM table"
+                assert stored_event.event_metadata.get("execution_time_ms") == 234
 

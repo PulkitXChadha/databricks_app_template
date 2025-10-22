@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { PillControl, type PillOption } from 'designbricks';
+import { PillControl, type PillOption, Button } from 'designbricks';
 import { MetricsService } from '../fastapi_client';
 import { PerformanceChart } from './PerformanceChart';
 import { EndpointBreakdownTable } from './EndpointBreakdownTable';
@@ -84,9 +84,11 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className })
         <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded relative" role="alert">
           <span className="block sm:inline">{error}</span>
         </div>
-        <button onClick={handleRefresh} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-          Retry
-        </button>
+        <div className="mt-4">
+          <Button onClick={handleRefresh} variant="secondary" size="medium">
+            Retry
+          </Button>
+        </div>
       </div>
     );
   }
@@ -107,14 +109,15 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className })
           </span>
         </div>
         <div className="mt-4">
-          <button 
+          <Button 
             onClick={handleRefresh} 
             disabled={loading} 
             data-testid="refresh-button"
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
+            variant="secondary"
+            size="medium"
           >
             {loading ? 'Refreshing...' : 'Refresh'}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -124,14 +127,15 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className })
     <div className={className}>
       <div className="mb-6 flex justify-between items-center">
         <h1 className="text-3xl font-bold">Application Metrics</h1>
-        <button 
+        <Button 
           onClick={handleRefresh} 
           disabled={loading}
           data-testid="refresh-button"
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
+          variant="secondary"
+          size="medium"
         >
           {loading ? 'Refreshing...' : 'Refresh'}
-        </button>
+        </Button>
       </div>
 
       {/* Time Range Selector - changing doesn't auto-refresh per clarification */}

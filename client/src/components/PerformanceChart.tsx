@@ -43,15 +43,15 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, timeRa
   return (
     <div className="bg-white p-6 rounded-lg shadow">
       <h2 className="text-xl font-bold mb-4">Response Time Trend ({timeRange})</h2>
-      <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={chartData}>
+      <ResponsiveContainer width="100%" height={380}>
+        <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 80 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis 
             dataKey="timestamp" 
             tick={{ fontSize: 12 }}
             angle={-45}
             textAnchor="end"
-            height={80}
+            height={70}
           />
           <YAxis 
             yAxisId="left"
