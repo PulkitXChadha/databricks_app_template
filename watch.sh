@@ -50,6 +50,9 @@ set -m
 # Store this script's PID for cleanup
 echo $$ > "$PID_FILE"
 
+# Save original stdout and stderr for commands that need to capture output
+exec 3>&1 4>&2
+
 # Redirect all output to log file while still showing on terminal
 if [ "$NO_FORMAT" = false ] && [ -f "scripts/format_logs.py" ]; then
   # Write raw logs to file, format output to terminal

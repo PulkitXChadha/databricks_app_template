@@ -38,8 +38,20 @@ elif [ ! -z "$DATABRICKS_HOST" ]; then
 fi
 
 # Try to get token, redirect stderr to capture prompts
-TOKEN_OUTPUT=$(eval "$AUTH_CMD" 2>&1)
-TOKEN_EXIT_CODE=$?
+# If running from watch.sh with log formatting, use a temp file to avoid pipeline interference
+if { true >&3; } 2>/dev/null; then
+  # File descriptor 3 exists (we're running from watch.sh)
+  # Use temp file to capture output and bypass the log formatting pipeline
+  TEMP_TOKEN_FILE=$(mktemp)
+  eval "$AUTH_CMD" > "$TEMP_TOKEN_FILE" 2>&1 || true
+  TOKEN_EXIT_CODE=$?
+  TOKEN_OUTPUT=$(cat "$TEMP_TOKEN_FILE")
+  rm -f "$TEMP_TOKEN_FILE"
+else
+  # Normal execution outside watch.sh
+  TOKEN_OUTPUT=$(eval "$AUTH_CMD" 2>&1)
+  TOKEN_EXIT_CODE=$?
+fi
 
 # Check if authentication was successful
 if [ $TOKEN_EXIT_CODE -ne 0 ]; then
@@ -75,8 +87,16 @@ if echo "$TOKEN_OUTPUT" | grep -q "Databricks host"; then
   fi
   
   # Try again after authentication
-  TOKEN_OUTPUT=$(eval "$AUTH_CMD" 2>&1)
-  TOKEN_EXIT_CODE=$?
+  if { true >&3; } 2>/dev/null; then
+    TEMP_TOKEN_FILE=$(mktemp)
+    eval "$AUTH_CMD" > "$TEMP_TOKEN_FILE" 2>&1 || true
+    TOKEN_EXIT_CODE=$?
+    TOKEN_OUTPUT=$(cat "$TEMP_TOKEN_FILE")
+    rm -f "$TEMP_TOKEN_FILE"
+  else
+    TOKEN_OUTPUT=$(eval "$AUTH_CMD" 2>&1)
+    TOKEN_EXIT_CODE=$?
+  fi
   
   if [ $TOKEN_EXIT_CODE -ne 0 ]; then
     echo "❌ Authentication failed"
