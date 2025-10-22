@@ -16,6 +16,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { Card, Typography, colors } from 'designbricks';
 
 interface UsageChartProps {
   summaryData: any; // Contains event_distribution and page_views
@@ -88,25 +89,59 @@ export const UsageChart: React.FC<UsageChartProps> = ({ summaryData, timeSeriesD
       </p>
 
       {/* Summary Metrics */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-blue-50 p-4 rounded">
-          <div className="text-sm text-gray-600">Total Events</div>
-          <div className="text-2xl font-bold text-blue-700">
-            {(summaryData.metrics?.total_events || 0).toLocaleString()}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <Card padding="medium" className="h-full">
+          <div className="flex flex-col space-y-2">
+            <Typography.Text color="secondary" style={{ fontSize: '0.875rem', textTransform: 'uppercase', fontWeight: 500 }}>
+              Total Events
+            </Typography.Text>
+            <Typography.Title 
+              level={2} 
+              withoutMargins 
+              style={{ color: colors.info[500] }}
+            >
+              {(summaryData.metrics?.total_events || 0).toLocaleString()}
+            </Typography.Title>
+            <Typography.Text color="secondary" style={{ fontSize: '0.875rem' }}>
+              Total user interaction events recorded
+            </Typography.Text>
           </div>
-        </div>
-        <div className="bg-green-50 p-4 rounded">
-          <div className="text-sm text-gray-600">Unique Users</div>
-          <div className="text-2xl font-bold text-green-700">
-            {(summaryData.metrics?.unique_users || 0).toLocaleString()}
+        </Card>
+        
+        <Card padding="medium" className="h-full">
+          <div className="flex flex-col space-y-2">
+            <Typography.Text color="secondary" style={{ fontSize: '0.875rem', textTransform: 'uppercase', fontWeight: 500 }}>
+              Unique Users
+            </Typography.Text>
+            <Typography.Title 
+              level={2} 
+              withoutMargins 
+              style={{ color: colors.success[500] }}
+            >
+              {(summaryData.metrics?.unique_users || 0).toLocaleString()}
+            </Typography.Title>
+            <Typography.Text color="secondary" style={{ fontSize: '0.875rem' }}>
+              Distinct users who triggered usage events
+            </Typography.Text>
           </div>
-        </div>
-        <div className="bg-purple-50 p-4 rounded">
-          <div className="text-sm text-gray-600">Event Types</div>
-          <div className="text-2xl font-bold text-purple-700">
-            {Object.keys(summaryData.event_distribution || {}).length}
+        </Card>
+        
+        <Card padding="medium" className="h-full">
+          <div className="flex flex-col space-y-2">
+            <Typography.Text color="secondary" style={{ fontSize: '0.875rem', textTransform: 'uppercase', fontWeight: 500 }}>
+              Event Types
+            </Typography.Text>
+            <Typography.Title 
+              level={2} 
+              withoutMargins
+            >
+              {Object.keys(summaryData.event_distribution || {}).length}
+            </Typography.Title>
+            <Typography.Text color="secondary" style={{ fontSize: '0.875rem' }}>
+              Different types of events tracked
+            </Typography.Text>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Time-Series Chart for Usage Trends */}
