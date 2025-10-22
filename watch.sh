@@ -96,9 +96,13 @@ refresh_frontend_token() {
   echo "🔐 Refreshing OAuth token for frontend..."
   
   # Check if token exists and is still valid
+  # Use a temp file to avoid command substitution issues with the log formatting pipeline
   if [ -x "./scripts/check_token_expiry.sh" ]; then
-    TOKEN_STATUS=$(./scripts/check_token_expiry.sh)
+    TOKEN_CHECK_FILE=$(mktemp)
+    ./scripts/check_token_expiry.sh > "$TOKEN_CHECK_FILE" 2>&1
     TOKEN_EXIT_CODE=$?
+    TOKEN_STATUS=$(cat "$TOKEN_CHECK_FILE")
+    rm -f "$TOKEN_CHECK_FILE"
     
     if [ $TOKEN_EXIT_CODE -eq 0 ]; then
       echo "$TOKEN_STATUS"
