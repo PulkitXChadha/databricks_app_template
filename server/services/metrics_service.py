@@ -52,7 +52,8 @@ class MetricsService:
         start_time, end_time = self._parse_time_range(time_range)
 
         # Route query based on time range
-        if (datetime.utcnow() - start_time).days <= 7:
+        from datetime import timezone
+        if (datetime.now(timezone.utc) - start_time).days <= 7:
             return self._query_raw_performance_metrics(start_time, end_time, endpoint)
         else:
             return self._query_aggregated_performance_metrics(start_time, end_time, endpoint)
@@ -73,7 +74,8 @@ class MetricsService:
         """
         start_time, end_time = self._parse_time_range(time_range)
 
-        if (datetime.utcnow() - start_time).days <= 7:
+        from datetime import timezone
+        if (datetime.now(timezone.utc) - start_time).days <= 7:
             return self._query_raw_usage_metrics(start_time, end_time, event_type)
         else:
             return self._query_aggregated_usage_metrics(start_time, end_time, event_type)
@@ -136,9 +138,10 @@ class MetricsService:
             time_range: Time range string ("24h", "7d", "30d", "90d")
 
         Returns:
-            Tuple of (start_time, end_time)
+            Tuple of (start_time, end_time) as timezone-aware UTC datetimes
         """
-        end_time = datetime.utcnow()
+        from datetime import timezone
+        end_time = datetime.now(timezone.utc)
 
         if time_range == '24h':
             start_time = end_time - timedelta(hours=24)
@@ -267,7 +270,8 @@ class MetricsService:
             unique_users = len(set(event.user_id for event in events))
             
             # Active users: users active in the last hour
-            one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+            from datetime import timezone
+            one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
             active_users = len(set(
                 event.user_id for event in events 
                 if event.timestamp >= one_hour_ago
@@ -347,7 +351,8 @@ class MetricsService:
             page_views = {}
             
             # Track users active in the last hour
-            one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+            from datetime import timezone
+            one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
             active_users_set = set()
 
             for record in aggregated_records:
@@ -587,7 +592,8 @@ class MetricsService:
             end_time: End of time range
             interval: Time bucket interval ('5min' or 'hourly')
         """
-        if (datetime.utcnow() - start_time).days <= 7:
+        from datetime import timezone
+        if (datetime.now(timezone.utc) - start_time).days <= 7:
             # Query raw performance_metrics table
             return self._query_raw_performance_time_series(start_time, end_time, interval)
         else:
@@ -605,7 +611,8 @@ class MetricsService:
             end_time: End of time range
             interval: Time bucket interval ('5min' or 'hourly')
         """
-        if (datetime.utcnow() - start_time).days <= 7:
+        from datetime import timezone
+        if (datetime.now(timezone.utc) - start_time).days <= 7:
             # Query raw usage_events table
             return self._query_raw_usage_time_series(start_time, end_time, interval)
         else:
