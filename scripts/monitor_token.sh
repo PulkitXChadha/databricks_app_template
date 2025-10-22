@@ -6,6 +6,28 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECK_INTERVAL=300  # Check every 5 minutes
 REFRESH_THRESHOLD=600  # Auto-refresh when < 10 minutes remaining
 
+# Portable timeout function that works on macOS and Linux
+run_with_timeout() {
+  local timeout=$1
+  shift
+  
+  # Try gtimeout first (GNU coreutils on macOS)
+  if command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$timeout" "$@"
+    return $?
+  fi
+  
+  # Try timeout (Linux)
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$timeout" "$@"
+    return $?
+  fi
+  
+  # Fallback: run without timeout on macOS
+  "$@"
+  return $?
+}
+
 # Track refresh attempts to avoid infinite loops on failure
 REFRESH_FAILED=false
 
@@ -14,7 +36,7 @@ while true; do
   
   # Check token status
   if [ -x "$SCRIPT_DIR/scripts/check_token_expiry.sh" ]; then
-    TOKEN_STATUS=$(timeout 5 "$SCRIPT_DIR/scripts/check_token_expiry.sh" 2>&1 || true)
+    TOKEN_STATUS=$(run_with_timeout 5 "$SCRIPT_DIR/scripts/check_token_expiry.sh" 2>&1 || true)
     TOKEN_EXIT_CODE=$?
     
     # Token is expired or expiring soon - auto-refresh it
@@ -27,9 +49,9 @@ while true; do
         
         # Attempt to refresh token with timeout
         if [ -x "$SCRIPT_DIR/refresh_local_token.sh" ]; then
-          if timeout 30 "$SCRIPT_DIR/refresh_local_token.sh" --quiet > /dev/null 2>&1; then
+          if run_with_timeout 30 "$SCRIPT_DIR/refresh_local_token.sh" --quiet > /dev/null 2>&1; then
             # Refresh succeeded
-            NEW_STATUS=$(timeout 5 "$SCRIPT_DIR/scripts/check_token_expiry.sh" 2>&1 || true)
+            NEW_STATUS=$(run_with_timeout 5 "$SCRIPT_DIR/scripts/check_token_expiry.sh" 2>&1 || true)
             echo "✅ Token automatically refreshed - $NEW_STATUS"
             echo ""
             REFRESH_FAILED=false

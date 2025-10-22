@@ -19,6 +19,32 @@ print_message() {
   fi
 }
 
+# Portable timeout function that works on macOS and Linux
+run_with_timeout() {
+  local timeout=$1
+  shift
+  
+  # Try gtimeout first (GNU coreutils on macOS)
+  if command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$timeout" "$@"
+    return $?
+  fi
+  
+  # Try timeout (Linux)
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$timeout" "$@"
+    return $?
+  fi
+  
+  # Fallback: run command with perl-based timeout
+  perl -e '
+    $SIG{ALRM} = sub { die "timeout\n" };
+    alarm shift @ARGV;
+    exec @ARGV;
+  ' "$timeout" "$@" 2>/dev/null
+  return $?
+}
+
 print_message "🔐 Refreshing Databricks OAuth token for local development..."
 print_message ""
 
@@ -42,9 +68,9 @@ fi
 check_auth_valid() {
   local temp_check=$(mktemp)
   if [ ! -z "$AUTH_ARGS" ]; then
-    timeout 5 databricks auth describe $AUTH_ARGS > "$temp_check" 2>&1 || true
+    run_with_timeout 5 databricks auth describe $AUTH_ARGS > "$temp_check" 2>&1 || true
   else
-    timeout 5 databricks auth describe > "$temp_check" 2>&1 || true
+    run_with_timeout 5 databricks auth describe > "$temp_check" 2>&1 || true
   fi
   local result=$?
   rm -f "$temp_check"
@@ -58,9 +84,9 @@ if ! check_auth_valid; then
   # Try to login non-interactively first using existing credentials
   TEMP_LOGIN=$(mktemp)
   if [ ! -z "$AUTH_ARGS" ]; then
-    timeout 10 databricks auth login $AUTH_ARGS > "$TEMP_LOGIN" 2>&1 || true
+    run_with_timeout 10 databricks auth login $AUTH_ARGS > "$TEMP_LOGIN" 2>&1 || true
   else
-    timeout 10 databricks auth login > "$TEMP_LOGIN" 2>&1 || true
+    run_with_timeout 10 databricks auth login > "$TEMP_LOGIN" 2>&1 || true
   fi
   LOGIN_EXIT=$?
   rm -f "$TEMP_LOGIN"
@@ -82,9 +108,9 @@ fi
 TEMP_TOKEN_FILE=$(mktemp)
 
 if [ ! -z "$AUTH_ARGS" ]; then
-  timeout 10 databricks auth token $AUTH_ARGS > "$TEMP_TOKEN_FILE" 2>&1 || true
+  run_with_timeout 10 databricks auth token $AUTH_ARGS > "$TEMP_TOKEN_FILE" 2>&1 || true
 else
-  timeout 10 databricks auth token > "$TEMP_TOKEN_FILE" 2>&1 || true
+  run_with_timeout 10 databricks auth token > "$TEMP_TOKEN_FILE" 2>&1 || true
 fi
 TOKEN_EXIT_CODE=$?
 

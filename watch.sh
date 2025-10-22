@@ -6,6 +6,28 @@ set -e
 LOG_FILE="/tmp/databricks-app-watch.log"
 PID_FILE="/tmp/databricks-app-watch.pid"
 
+# Portable timeout function that works on macOS and Linux
+run_with_timeout() {
+  local timeout=$1
+  shift
+  
+  # Try gtimeout first (GNU coreutils on macOS)
+  if command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$timeout" "$@"
+    return $?
+  fi
+  
+  # Try timeout (Linux)
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$timeout" "$@"
+    return $?
+  fi
+  
+  # Fallback: run without timeout on macOS (better than failing)
+  "$@"
+  return $?
+}
+
 # Parse command line arguments
 PROD_MODE=false
 NO_FORMAT=false
@@ -99,7 +121,7 @@ refresh_frontend_token() {
   # Use a temp file to avoid command substitution issues with the log formatting pipeline
   if [ -x "./scripts/check_token_expiry.sh" ]; then
     TOKEN_CHECK_FILE=$(mktemp)
-    timeout 5 ./scripts/check_token_expiry.sh > "$TOKEN_CHECK_FILE" 2>&1 || true
+    run_with_timeout 5 ./scripts/check_token_expiry.sh > "$TOKEN_CHECK_FILE" 2>&1 || true
     TOKEN_EXIT_CODE=$?
     TOKEN_STATUS=$(cat "$TOKEN_CHECK_FILE")
     rm -f "$TOKEN_CHECK_FILE"
@@ -113,38 +135,25 @@ refresh_frontend_token() {
   fi
   
   # Token is expired or missing, refresh it
-  # Run with a timeout to prevent hanging
   if [ -x "./refresh_local_token.sh" ]; then
-    echo "⏳ Attempting token refresh (timeout: 30s)..."
+    echo "⏳ Attempting token refresh..."
     REFRESH_OUTPUT=$(mktemp)
     
-    # Run in background with timeout to prevent hanging
-    timeout 30 ./refresh_local_token.sh --quiet > "$REFRESH_OUTPUT" 2>&1 &
-    REFRESH_PID=$!
+    # Run refresh script
+    ./refresh_local_token.sh --quiet > "$REFRESH_OUTPUT" 2>&1
+    REFRESH_EXIT=$?
     
-    # Wait for it to complete or timeout
-    if wait $REFRESH_PID 2>/dev/null; then
-      REFRESH_EXIT=$?
-      if [ $REFRESH_EXIT -eq 0 ]; then
-        cat "$REFRESH_OUTPUT"
-        rm -f "$REFRESH_OUTPUT"
-        echo "✅ Frontend token refreshed successfully"
-        return 0
-      else
-        cat "$REFRESH_OUTPUT"
-        rm -f "$REFRESH_OUTPUT"
-        echo "⚠️  Token refresh failed. You may need to authenticate manually:"
-        echo "   Run: databricks auth login"
-        echo "   Then run: ./refresh_local_token.sh"
-        return 1
-      fi
-    else
-      # Timeout or other error
-      kill $REFRESH_PID 2>/dev/null || true
+    if [ $REFRESH_EXIT -eq 0 ]; then
       cat "$REFRESH_OUTPUT"
       rm -f "$REFRESH_OUTPUT"
-      echo "⚠️  Token refresh timed out, continuing without refresh..."
-      echo "   You can refresh manually later with: ./refresh_local_token.sh"
+      echo "✅ Frontend token refreshed successfully"
+      return 0
+    else
+      cat "$REFRESH_OUTPUT"
+      rm -f "$REFRESH_OUTPUT"
+      echo "⚠️  Token refresh failed. You may need to authenticate manually:"
+      echo "   Run: databricks auth login"
+      echo "   Then run: ./refresh_local_token.sh"
       return 1
     fi
   else
