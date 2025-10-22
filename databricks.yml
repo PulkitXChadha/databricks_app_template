@@ -112,7 +112,7 @@ targets:
                 permission: CAN_QUERY
             - name: sql-warehouse
               sql_warehouse:
-                id: ${var.warehouse_id}
+                id: ${resources.sql_warehouses.databricks-app-template-dev.id}
                 permission: CAN_USE
             - name: database
               database:
