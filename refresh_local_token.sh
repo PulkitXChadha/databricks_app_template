@@ -155,10 +155,21 @@ EOF
 
 print_message "✅ Token saved to $ENV_FILE"
 
+# Restart Vite frontend if it's running to pick up the new token
+# Vite doesn't hot-reload .env.local changes
+if pgrep -f "vite" > /dev/null 2>&1; then
+  print_message "🔄 Restarting Vite frontend to pick up new token..."
+  pkill -f "node.*vite" 2>/dev/null || true
+  sleep 1
+  print_message "✅ Frontend will restart automatically via watch.sh"
+fi
+
 if [ "$QUIET" = false ]; then
   echo ""
   echo "📝 Token will expire in ~1 hour. The watch.sh script will automatically"
-  echo "   detect expiration and prompt you to refresh."
+  echo "   detect expiration and refresh it."
+  echo ""
+  echo "💡 If API calls still fail, try reloading your browser (Cmd+R or Ctrl+R)"
 fi
 
 exit 0
