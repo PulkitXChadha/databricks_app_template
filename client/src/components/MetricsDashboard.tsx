@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { PillControl, type PillOption, Button } from 'designbricks';
 import { RefreshCw } from 'lucide-react';
-import { MetricsService } from '../fastapi_client';
 import { PerformanceChart } from './PerformanceChart';
 import { EndpointBreakdownTable } from './EndpointBreakdownTable';
 import { MetricsTable } from './MetricsTable';
 import { UsageChart } from './UsageChart';
 import { usageTracker } from '../services/usageTracker';
+import { useMetricsCache } from '../hooks/useMetricsCache';
 
 interface MetricsDashboardProps {
   className?: string;
@@ -22,45 +22,9 @@ const timeRangeOptions: PillOption[] = [
 
 export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className }) => {
   const [timeRange, setTimeRange] = useState('24h');
-  const [performanceData, setPerformanceData] = useState<any>(null);
-  const [usageData, setUsageData] = useState<any>(null);
-  const [timeSeriesData, setTimeSeriesData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Load metrics on initial mount only (manual refresh pattern per FR-005)
-  useEffect(() => {
-    loadMetrics();
-  }, []); // Empty dependency array - no auto-refresh on timeRange change
-
-  const loadMetrics = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const [perfData, usageDataResult, timeSeriesResult] = await Promise.all([
-        MetricsService.getPerformanceMetricsApiV1MetricsPerformanceGet(timeRange),
-        MetricsService.getUsageMetricsApiV1MetricsUsageGet(timeRange),
-        MetricsService.getTimeSeriesMetricsApiV1MetricsTimeSeriesGet('both', timeRange)
-      ]);
-      
-      setPerformanceData(perfData);
-      setUsageData(usageDataResult);
-      setTimeSeriesData(timeSeriesResult);
-    } catch (err: any) {
-      // FR-011: Admin access required
-      if (err.status === 403) {
-        setError('Admin access required. Only workspace administrators can view metrics.');
-      } else if (err.status === 401) {
-        setError('Authentication required. Please log in.');
-      } else {
-        setError(`Failed to load metrics: ${err.message || 'Unknown error'}`);
-      }
-      console.error('Failed to load metrics:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  
+  // Use cached metrics with background refresh every 5 minutes
+  const { performanceData, usageData, timeSeriesData, loading, error, refresh } = useMetricsCache(timeRange);
 
   // Manual refresh handler per FR-005
   const handleRefresh = () => {
@@ -75,7 +39,7 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className })
       }
     });
     
-    loadMetrics();
+    refresh();
   };
 
   // Error state
@@ -148,7 +112,7 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className })
         </Button>
       </div>
 
-      {/* Time Range Selector - changing doesn't auto-refresh per clarification */}
+      {/* Time Range Selector - auto-refreshes on change */}
       <div className="mb-6">
         <label className="block text-sm font-medium mb-2">
           Time Range
@@ -175,7 +139,7 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ className })
           style={{ backgroundColor: '#F6F7F9' }}
         />
         <p className="text-sm text-gray-500 mt-1">
-          Select a time range and click "Refresh" to update metrics.
+          Metrics refresh automatically when you change the time range. Cached data appears instantly.
         </p>
       </div>
 
