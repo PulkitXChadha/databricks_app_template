@@ -9,7 +9,7 @@ import { MetricsDashboard } from '../components/MetricsDashboard';
  */
 export const MetricsPage: React.FC = () => {
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
       <MetricsDashboard />
     </div>
   );

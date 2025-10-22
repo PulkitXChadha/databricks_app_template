@@ -462,7 +462,7 @@ export function DatabricksServicesPage() {
 
         {/* Main Content Area */}
         <div className="flex-1 overflow-auto">
-          <div className="container mx-auto px-4 py-8">
+          <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
             {/* Welcome Section */}
             {activeTab === "welcome" && <WelcomePage embedded />}
 
