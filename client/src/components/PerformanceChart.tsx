@@ -28,17 +28,38 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, timeRa
     );
   }
 
+  // Determine interval from data or default based on time range
+  const interval = data.interval || (timeRange === '24h' ? '5min' : 'hourly');
+  const is5MinInterval = interval === '5min';
+
   // Transform data for Recharts format
-  const chartData = data.data_points.map((point: any) => ({
-    timestamp: new Date(point.timestamp).toLocaleTimeString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }),
-    avgResponseTime: point.avg_response_time_ms || 0,
-    errorRate: point.error_rate ? point.error_rate * 100 : 0, // Convert to percentage for display
-  }));
+  const chartData = data.data_points.map((point: any) => {
+    const date = new Date(point.timestamp);
+    let formattedTime;
+    
+    // Format timestamp based on interval
+    if (is5MinInterval) {
+      // For 5-minute intervals, show time only
+      formattedTime = date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } else {
+      // For hourly intervals, show date and time
+      formattedTime = date.toLocaleTimeString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+    
+    return {
+      timestamp: formattedTime,
+      avgResponseTime: point.avg_response_time_ms || 0,
+      errorRate: point.error_rate ? point.error_rate * 100 : 0, // Convert to percentage for display
+    };
+  });
 
   return (
     <div className="bg-white p-6 rounded-lg shadow">
@@ -52,6 +73,7 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, timeRa
             angle={-45}
             textAnchor="end"
             height={70}
+            interval={is5MinInterval ? 'preserveStartEnd' : 'preserveStart'}
           />
           <YAxis 
             yAxisId="left"
@@ -96,7 +118,7 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({ data, timeRa
         </LineChart>
       </ResponsiveContainer>
       <p className="text-xs text-gray-500 mt-2">
-        Response time and error rate trends over time. Data aggregated hourly.
+        Response time and error rate trends over time. Data aggregated {is5MinInterval ? 'every 5 minutes' : 'hourly'}.
       </p>
     </div>
   );

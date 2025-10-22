@@ -33,17 +33,38 @@ export const UsageChart: React.FC<UsageChartProps> = ({ summaryData, timeSeriesD
     );
   }
 
+  // Determine interval from data or default based on time range
+  const interval = timeSeriesData?.interval || (timeRange === '24h' ? '5min' : 'hourly');
+  const is5MinInterval = interval === '5min';
+
   // Transform time-series data for Recharts
-  const timeSeriesChartData = (timeSeriesData?.data_points || []).map((point: any) => ({
-    timestamp: new Date(point.timestamp).toLocaleTimeString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }),
-    totalEvents: point.total_events || 0,
-    uniqueUsers: point.unique_users || 0,
-  }));
+  const timeSeriesChartData = (timeSeriesData?.data_points || []).map((point: any) => {
+    const date = new Date(point.timestamp);
+    let formattedTime;
+    
+    // Format timestamp based on interval
+    if (is5MinInterval) {
+      // For 5-minute intervals, show time only
+      formattedTime = date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } else {
+      // For hourly intervals, show date and time
+      formattedTime = date.toLocaleTimeString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+    
+    return {
+      timestamp: formattedTime,
+      totalEvents: point.total_events || 0,
+      uniqueUsers: point.unique_users || 0,
+    };
+  });
 
   // Colors for different event types
   const eventColors: Record<string, string> = {
@@ -101,6 +122,7 @@ export const UsageChart: React.FC<UsageChartProps> = ({ summaryData, timeSeriesD
                 angle={-45}
                 textAnchor="end"
                 height={80}
+                interval={is5MinInterval ? 'preserveStartEnd' : 'preserveStart'}
               />
               <YAxis 
                 yAxisId="left"

@@ -283,6 +283,31 @@ def test_get_time_series_accepts_metric_type_values(mock_admin_check_true, mock_
         assert response.status_code == 200, f"Should accept metric_type={metric_type}"
 
 
+def test_get_time_series_returns_5min_interval_for_24h(mock_admin_check_true, mock_databricks_admin_client, mock_db_for_metrics):
+    """Test that 24h time range returns 5-minute interval data"""
+    response = client.get(
+        "/api/v1/metrics/time-series?time_range=24h&metric_type=performance",
+        headers={"X-Forwarded-Access-Token": "mock-admin-token"}
+    )
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["interval"] == "5min", "24h range should use 5-minute intervals for higher granularity"
+
+
+def test_get_time_series_returns_hourly_interval_for_7d_and_longer(mock_admin_check_true, mock_databricks_admin_client, mock_db_for_metrics):
+    """Test that 7d, 30d, 90d time ranges return hourly interval data"""
+    for time_range in ["7d", "30d", "90d"]:
+        response = client.get(
+            f"/api/v1/metrics/time-series?time_range={time_range}&metric_type=performance",
+            headers={"X-Forwarded-Access-Token": "mock-admin-token"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["interval"] == "hourly", f"{time_range} range should use hourly intervals"
+
+
 def test_get_time_series_returns_403_for_non_admin(mock_admin_check_false, mock_databricks_non_admin_client):
     """Test that non-admin users receive 403"""
     response = client.get(

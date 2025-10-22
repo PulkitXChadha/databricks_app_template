@@ -538,7 +538,9 @@ class MetricsService:
     def get_time_series_metrics(self, time_range: str = '24h', metric_type: str = 'performance') -> Dict:
         """Retrieve time-series metrics data for chart visualization.
 
-        Returns hourly data points for the specified time range.
+        Returns data points at appropriate intervals based on time range:
+        - 24h: 5-minute intervals
+        - 7d, 30d, 90d: hourly intervals
         Automatically routes to raw vs aggregated tables based on age.
 
         Args:
@@ -552,18 +554,18 @@ class MetricsService:
 
         logger.info(f'Time-series query: {time_range} ({metric_type})')
 
-        # Determine interval (hourly for now)
-        interval = 'hourly'
+        # Determine interval based on time range
+        interval = '5min' if time_range == '24h' else 'hourly'
 
         # Query based on metric type
         if metric_type == 'performance':
-            data_points = self._query_performance_time_series(start_time, end_time)
+            data_points = self._query_performance_time_series(start_time, end_time, interval)
         elif metric_type == 'usage':
-            data_points = self._query_usage_time_series(start_time, end_time)
+            data_points = self._query_usage_time_series(start_time, end_time, interval)
         elif metric_type == 'both':
             # Merge performance and usage data points
-            perf_points = self._query_performance_time_series(start_time, end_time)
-            usage_points = self._query_usage_time_series(start_time, end_time)
+            perf_points = self._query_performance_time_series(start_time, end_time, interval)
+            usage_points = self._query_usage_time_series(start_time, end_time, interval)
             data_points = self._merge_time_series_data(perf_points, usage_points)
         else:
             data_points = []
@@ -574,41 +576,69 @@ class MetricsService:
             'data_points': data_points
         }
 
-    def _query_performance_time_series(self, start_time: datetime, end_time: datetime) -> List[Dict]:
+    def _query_performance_time_series(self, start_time: datetime, end_time: datetime, interval: str = 'hourly') -> List[Dict]:
         """Query performance metrics time-series data.
 
-        Returns hourly data points with performance metrics.
+        Returns data points at specified interval with performance metrics.
         Routes to raw or aggregated tables based on age.
+        
+        Args:
+            start_time: Start of time range
+            end_time: End of time range
+            interval: Time bucket interval ('5min' or 'hourly')
         """
         if (datetime.utcnow() - start_time).days <= 7:
             # Query raw performance_metrics table
-            return self._query_raw_performance_time_series(start_time, end_time)
+            return self._query_raw_performance_time_series(start_time, end_time, interval)
         else:
-            # Query aggregated_metrics table
+            # Query aggregated_metrics table (always hourly for historical data)
             return self._query_aggregated_performance_time_series(start_time, end_time)
 
-    def _query_usage_time_series(self, start_time: datetime, end_time: datetime) -> List[Dict]:
+    def _query_usage_time_series(self, start_time: datetime, end_time: datetime, interval: str = 'hourly') -> List[Dict]:
         """Query usage events time-series data.
 
-        Returns hourly data points with usage metrics.
+        Returns data points at specified interval with usage metrics.
         Routes to raw or aggregated tables based on age.
+        
+        Args:
+            start_time: Start of time range
+            end_time: End of time range
+            interval: Time bucket interval ('5min' or 'hourly')
         """
         if (datetime.utcnow() - start_time).days <= 7:
             # Query raw usage_events table
-            return self._query_raw_usage_time_series(start_time, end_time)
+            return self._query_raw_usage_time_series(start_time, end_time, interval)
         else:
-            # Query aggregated_metrics table
+            # Query aggregated_metrics table (always hourly for historical data)
             return self._query_aggregated_usage_time_series(start_time, end_time)
 
-    def _query_raw_performance_time_series(self, start_time: datetime, end_time: datetime) -> List[Dict]:
-        """Query raw performance metrics grouped by hour.
+    def _query_raw_performance_time_series(self, start_time: datetime, end_time: datetime, interval: str = 'hourly') -> List[Dict]:
+        """Query raw performance metrics grouped by specified interval.
 
-        Uses PostgreSQL date_trunc to bucket by hour.
+        Uses PostgreSQL date_trunc to bucket by interval.
+        
+        Args:
+            start_time: Start of time range
+            end_time: End of time range
+            interval: Time bucket interval ('5min' or 'hourly')
         """
         try:
-            # Query metrics grouped by hour
+            # Determine time bucket expression based on interval
+            if interval == '5min':
+                # Create 5-minute buckets using floor division
+                # Formula: floor timestamp to 5-minute intervals
+                time_bucket_expr = func.to_timestamp(
+                    func.floor(
+                        func.extract('epoch', PerformanceMetric.timestamp) / 300
+                    ) * 300
+                ).label('time_bucket')
+            else:
+                # Default to hourly buckets
+                time_bucket_expr = func.date_trunc('hour', PerformanceMetric.timestamp).label('time_bucket')
+
+            # Query metrics grouped by time bucket
             results = self.db.query(
-                func.date_trunc('hour', PerformanceMetric.timestamp).label('time_bucket'),
+                time_bucket_expr,
                 func.avg(PerformanceMetric.response_time_ms).label('avg_response_time_ms'),
                 func.count(PerformanceMetric.id).label('total_requests'),
                 func.sum(
@@ -641,15 +671,33 @@ class MetricsService:
             logger.warning(f'Failed to query performance time-series: {e}')
             return []
 
-    def _query_raw_usage_time_series(self, start_time: datetime, end_time: datetime) -> List[Dict]:
-        """Query raw usage events grouped by hour.
+    def _query_raw_usage_time_series(self, start_time: datetime, end_time: datetime, interval: str = 'hourly') -> List[Dict]:
+        """Query raw usage events grouped by specified interval.
 
-        Uses PostgreSQL date_trunc to bucket by hour.
+        Uses PostgreSQL date_trunc to bucket by interval.
+        
+        Args:
+            start_time: Start of time range
+            end_time: End of time range
+            interval: Time bucket interval ('5min' or 'hourly')
         """
         try:
-            # Query events grouped by hour
+            # Determine time bucket expression based on interval
+            if interval == '5min':
+                # Create 5-minute buckets using floor division
+                # Formula: floor timestamp to 5-minute intervals
+                time_bucket_expr = func.to_timestamp(
+                    func.floor(
+                        func.extract('epoch', UsageEvent.timestamp) / 300
+                    ) * 300
+                ).label('time_bucket')
+            else:
+                # Default to hourly buckets
+                time_bucket_expr = func.date_trunc('hour', UsageEvent.timestamp).label('time_bucket')
+
+            # Query events grouped by time bucket
             results = self.db.query(
-                func.date_trunc('hour', UsageEvent.timestamp).label('time_bucket'),
+                time_bucket_expr,
                 func.count(UsageEvent.id).label('total_events'),
                 func.count(func.distinct(UsageEvent.user_id)).label('unique_users')
             ).filter(

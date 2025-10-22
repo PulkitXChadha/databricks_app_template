@@ -23,8 +23,58 @@ from server.services.metrics_service import MetricsService
 
 
 # ============================================================================
-# T093: Integration test for time-series data with hourly bucketing
+# T093: Integration test for time-series data with 5-minute and hourly bucketing
 # ============================================================================
+
+def test_time_series_returns_5min_buckets_for_24h_range(test_db_session: Session):
+    """
+    Test that get_time_series_metrics returns 5-minute bucketed data for 24h range.
+    
+    This provides more granular data for recent time periods.
+    """
+    # Create sample performance metrics across multiple hours
+    base_time = datetime.utcnow() - timedelta(hours=12)
+    
+    for hour_offset in range(12):  # 12 hours of data
+        timestamp = base_time + timedelta(hours=hour_offset)
+        
+        # Create multiple metrics per hour
+        for i in range(10):
+            metric = PerformanceMetric(
+                timestamp=timestamp + timedelta(minutes=i*5),
+                endpoint="/api/v1/test",
+                method="GET",
+                status_code=200,
+                response_time_ms=100.0 + hour_offset * 5,
+                user_id="test-user"
+            )
+            test_db_session.add(metric)
+    
+    test_db_session.commit()
+    
+    # Query time-series data for 24h range
+    metrics_service = MetricsService(test_db_session)
+    result = metrics_service.get_time_series_metrics(
+        time_range="24h",
+        metric_type="performance"
+    )
+    
+    # Validate response structure
+    assert "time_range" in result
+    assert "interval" in result
+    assert result["interval"] == "5min", "24h range should use 5-minute intervals"
+    assert "data_points" in result
+    
+    # Validate data points are 5-minute buckets
+    data_points = result["data_points"]
+    assert len(data_points) > 0, "Should return data points"
+    
+    # Each data point should have timestamp and metrics
+    for point in data_points:
+        assert "timestamp" in point
+        assert "avg_response_time_ms" in point
+        assert "total_requests" in point
+
 
 def test_time_series_returns_hourly_buckets_for_7day_range(test_db_session: Session):
     """
