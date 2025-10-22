@@ -437,18 +437,28 @@ except:
     # Check if deployment failed due to existing resources or known issues
     if [ $DEPLOY_STATUS -ne 0 ]; then
         # Check for specific errors we can handle
-        CATALOG_EXISTS_ERROR=$(grep -c "already exists" "$DEPLOY_OUTPUT" || echo "0")
-        INCONSISTENT_RESULT_ERROR=$(grep -c "Provider produced inconsistent result" "$DEPLOY_OUTPUT" || echo "0")
-        BUDGET_POLICY_ERROR=$(grep -c "budget_policy_id" "$DEPLOY_OUTPUT" || echo "0")
+        CATALOG_EXISTS_ERROR=$(grep -c "already exists" "$DEPLOY_OUTPUT" 2>/dev/null | head -1 || echo "0")
+        INCONSISTENT_RESULT_ERROR=$(grep -c "Provider produced inconsistent result" "$DEPLOY_OUTPUT" 2>/dev/null | head -1 || echo "0")
+        BUDGET_POLICY_ERROR=$(grep -c "budget_policy_id" "$DEPLOY_OUTPUT" 2>/dev/null | head -1 || echo "0")
         
-        if [ "$CATALOG_EXISTS_ERROR" -gt 0 ] && [ "$INCONSISTENT_RESULT_ERROR" -eq 0 ]; then
-            log_warning "Some resources already exist - continuing with existing resources"
-            # Resources exist, this is expected, continue
+        # Priority 1: If resources already exist, always continue (common on redeployment)
+        if [ "$CATALOG_EXISTS_ERROR" -gt 0 ]; then
+            if [ "$INCONSISTENT_RESULT_ERROR" -gt 0 ]; then
+                log_warning "Resources already exist and Terraform reported inconsistencies"
+                log_info "This is expected when redeploying - continuing with existing resources"
+            else
+                log_warning "Some resources already exist - continuing with existing resources"
+            fi
+            # Resources exist, this is expected on redeployment, continue
+            
+        # Priority 2: Provider inconsistent result without existing resources
         elif [ "$INCONSISTENT_RESULT_ERROR" -gt 0 ] && [ "$BUDGET_POLICY_ERROR" -gt 0 ]; then
             log_warning "Terraform provider reported inconsistent result (known provider issue)"
+            log_warning "This is a known issue with the budget_policy_id field in the Databricks provider"
             log_info "Checking if resources were actually created..."
             
             # Verify the resources were created despite the error
+            # Check multiple resources since the error might be on any of them
             sleep 5
             VERIFY_WAREHOUSE=$(databricks warehouses list --output json 2>/dev/null | python3 -c "
 import json, sys
@@ -463,17 +473,34 @@ except: pass
 print('no')
 " 2>/dev/null)
             
-            if [ "$VERIFY_WAREHOUSE" = "yes" ]; then
-                log_success "Resources verified - deployment successful despite provider warning"
+            VERIFY_DB_INSTANCE=$(databricks database list-database-instances --output json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    instances = data if isinstance(data, list) else data.get('instances', [])
+    for inst in instances:
+        if inst.get('name') == '$LAKEBASE_INSTANCE_NAME':
+            print('yes')
+            sys.exit(0)
+except: pass
+print('no')
+" 2>/dev/null)
+            
+            if [ "$VERIFY_WAREHOUSE" = "yes" ] && [ "$VERIFY_DB_INSTANCE" = "yes" ]; then
+                log_success "Core resources verified - deployment successful despite provider warning"
+                log_info "The budget_policy_id error can be safely ignored"
+            elif [ "$VERIFY_WAREHOUSE" = "yes" ] || [ "$VERIFY_DB_INSTANCE" = "yes" ]; then
+                log_warning "Some resources were created, but deployment may be incomplete"
+                log_info "Warehouse exists: $VERIFY_WAREHOUSE, DB Instance exists: $VERIFY_DB_INSTANCE"
+                log_info "You may need to create the app resource manually"
             else
                 log_error "Bundle deployment failed and resources were not created"
                 cat "$DEPLOY_OUTPUT"
                 rm -f "$DEPLOY_OUTPUT"
                 exit 1
             fi
-        elif [ "$CATALOG_EXISTS_ERROR" -gt 0 ] && [ "$INCONSISTENT_RESULT_ERROR" -gt 0 ]; then
-            log_warning "Resources exist and Terraform reported inconsistencies"
-            log_info "This is expected when redeploying - continuing with existing resources"
+            
+        # Priority 3: Other errors - fail
         else
             log_error "Bundle deployment failed"
             cat "$DEPLOY_OUTPUT"
