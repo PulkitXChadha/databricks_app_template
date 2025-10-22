@@ -242,6 +242,20 @@ if not is_lakebase_configured():
 3. Check middleware registration in `server/app.py`
 4. Query raw tables directly: `SELECT COUNT(*) FROM performance_metrics;`
 
+**Metrics show 0 for Unique Users / Active Users / Usage data**:
+1. **Frontend Authentication Issue**: Check if frontend has valid token in built JavaScript
+   - Frontend builds bake in `VITE_DATABRICKS_USER_TOKEN` at build time
+   - After token refresh, MUST rebuild frontend: `cd client && bun run build`
+   - Copy new build to production: `cp -r client/build/* build/`
+   - Reload browser to pick up new build (Cmd+R or Ctrl+R)
+2. **Timezone Mismatch Bug**: Database has timezone-aware timestamps but code uses naive datetimes
+   - Symptom: `"can't compare offset-naive and offset-aware datetimes"` warning in logs
+   - Fix: Use `datetime.now(timezone.utc)` instead of `datetime.utcnow()` everywhere
+   - ALWAYS use timezone-aware datetimes when working with Lakebase/Postgres
+3. **Verify events are being sent**: Check browser console for `[UsageTracker]` debug messages
+4. **Test backend manually**: Submit test event with curl to verify API works
+5. **Query database directly**: Check if events exist: `SELECT COUNT(*) FROM usage_events;`
+
 **"Database instance is not found" errors**:
 1. Verify `LAKEBASE_INSTANCE_NAME` matches your databricks.yml resource name
 2. Check `PGHOST` is correct Lakebase instance hostname
@@ -372,6 +386,33 @@ python script.py
 uvicorn server.app:app
 python scripts/make_fastapi_client.py
 ```
+
+### 🚨 TIMEZONE HANDLING RULE 🚨
+
+**ALWAYS use timezone-aware datetimes when working with databases:**
+
+```python
+# ✅ CORRECT - Timezone-aware datetime
+from datetime import datetime, timezone
+now = datetime.now(timezone.utc)
+start_time = now - timedelta(hours=24)
+
+# ❌ WRONG - Naive datetime (will fail with Postgres timestamp comparisons)
+now = datetime.utcnow()  # Deprecated and timezone-naive
+start_time = now - timedelta(hours=24)
+```
+
+**Why this matters:**
+- Lakebase/Postgres stores timestamps as `TIMESTAMP WITH TIME ZONE` (timezone-aware)
+- Comparing naive datetimes with timezone-aware timestamps raises: `"can't compare offset-naive and offset-aware datetimes"`
+- `datetime.utcnow()` is deprecated in Python 3.12+ and returns naive datetimes
+- `datetime.now(timezone.utc)` returns timezone-aware datetimes and is the modern standard
+
+**Rule applies to:**
+- All datetime queries against Lakebase/Postgres
+- Any datetime filtering in SQLAlchemy queries
+- Time range parsing for metrics and reporting
+- Scheduled job timestamps
 
 ### 🚨 DATABRICKS CLI EXECUTION RULE 🚨
 
@@ -560,6 +601,13 @@ Claude understands natural language commands for common development tasks:
 - Client uses Design Bricks components with proper TypeScript configuration
 - Design Bricks installation: `cd client && bun add @databricks/design-bricks`
 - shadcn components (legacy): npx shadcn@latest add <component-name>
+
+**🚨 CRITICAL: Frontend Build and Token Management**:
+- Environment variables (including `VITE_DATABRICKS_USER_TOKEN`) are baked into JavaScript bundle at build time
+- After refreshing authentication token, MUST rebuild frontend: `cd client && bun run build`
+- Production mode: Copy new build to backend: `cp -r client/build/* build/`
+- Users MUST reload browser (Cmd+R or Ctrl+R) to pick up new build
+- Development mode: Vite dev server picks up .env.local changes automatically (no rebuild needed)
 
 ### Testing Methodology
 - Test API endpoints using FastAPI docs interface

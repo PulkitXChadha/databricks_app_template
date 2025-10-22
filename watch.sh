@@ -121,8 +121,11 @@ refresh_frontend_token() {
   # Use a temp file to avoid command substitution issues with the log formatting pipeline
   if [ -x "./scripts/check_token_expiry.sh" ]; then
     TOKEN_CHECK_FILE=$(mktemp)
-    run_with_timeout 5 ./scripts/check_token_expiry.sh > "$TOKEN_CHECK_FILE" 2>&1 || true
+    # Temporarily disable exit-on-error to capture the exit code
+    set +e
+    run_with_timeout 5 ./scripts/check_token_expiry.sh > "$TOKEN_CHECK_FILE" 2>&1
     TOKEN_EXIT_CODE=$?
+    set -e
     TOKEN_STATUS=$(cat "$TOKEN_CHECK_FILE")
     rm -f "$TOKEN_CHECK_FILE"
     

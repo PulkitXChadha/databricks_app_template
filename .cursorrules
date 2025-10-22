@@ -1,0 +1,145 @@
+# Databricks App Template - Cursor Rules
+
+## Critical Python Rules
+
+### Timezone-Aware Datetimes (MANDATORY)
+- **ALWAYS** use `datetime.now(timezone.utc)` instead of `datetime.utcnow()`
+- **NEVER** use naive datetimes when working with Lakebase/Postgres
+- Postgres stores `TIMESTAMP WITH TIME ZONE` (timezone-aware)
+- Comparing naive datetimes with timezone-aware timestamps raises comparison errors
+- `datetime.utcnow()` is deprecated in Python 3.12+ and returns naive datetimes
+
+```python
+# ✅ CORRECT - Timezone-aware datetime
+from datetime import datetime, timezone, timedelta
+now = datetime.now(timezone.utc)
+start_time = now - timedelta(hours=24)
+
+# ❌ WRONG - Naive datetime (will fail with Postgres)
+now = datetime.utcnow()  # Deprecated and timezone-naive
+start_time = now - timedelta(hours=24)
+```
+
+### Python Execution
+- **ALWAYS** use `uv run python` instead of `python` directly
+- **ALWAYS** use `uv run` for all Python scripts and commands
+- Example: `uv run python script.py`, `uv run uvicorn server.app:app`
+
+### Lakebase Configuration Checks
+- **ALWAYS** check `is_lakebase_configured()` before database operations
+- Gracefully skip operations with DEBUG logging when not configured
+- Never fail the application when optional dependencies are missing
+
+```python
+from server.lib.database import is_lakebase_configured
+
+if not is_lakebase_configured():
+    logger.debug("Skipping metrics collection - Lakebase not configured")
+    return
+```
+
+## Frontend Development Rules
+
+### Environment Variables and Build Process
+- Environment variables (including `VITE_DATABRICKS_USER_TOKEN`) are **baked into JavaScript bundle at build time**
+- After token refresh: MUST rebuild frontend with `cd client && bun run build`
+- Production mode: Copy new build: `cp -r client/build/* build/`
+- Users MUST reload browser (Cmd+R / Ctrl+R) to pick up new build
+- Development mode: Vite dev server picks up .env.local changes automatically (no rebuild needed)
+
+### UI Components
+- **ALWAYS** use Design Bricks components (not shadcn/ui) for new features
+- Design Bricks source: https://pulkitxchadha.github.io/DesignBricks
+- Only use shadcn/ui when Design Bricks equivalent doesn't exist
+
+## Development Workflow Rules
+
+### Server Management
+- **NEVER** run `uvicorn` or Python server directly
+- **ALWAYS** start server via `nohup ./watch.sh > /tmp/databricks-app-watch.log 2>&1 &`
+- Check logs: `tail -f /tmp/databricks-app-watch.log`
+- Kill server: `kill $(cat /tmp/databricks-app-watch.pid)` or `pkill -f watch.sh`
+
+### Package Management
+- Python: Use `uv add/remove` (not manual pyproject.toml edits)
+- Frontend: Use `bun add/remove` (not manual package.json edits)
+
+### Code Quality
+- Format before commits: `./fix.sh`
+- Type hints required on all Python functions
+- No `any` types in TypeScript without justification
+
+## Authentication Rules
+
+### On-Behalf-Of (OBO) Authentication
+- **ALL** Databricks API operations require user access token (OBO-only)
+- No service principal fallback for user operations
+- Use `get_user_token()` dependency for authenticated endpoints
+- Lakebase uses app-level credentials but filters by `user_id`
+
+### Token Management
+- Local development: Use `databricks auth token` or `./refresh_local_token.sh`
+- Token passed via `X-Forwarded-Access-Token` header
+- Production frontend builds need token at build time (environment variable)
+
+## Testing Rules (TDD Mandatory)
+
+### Test-Driven Development
+- **ALWAYS** write tests BEFORE implementation (red-green-refactor)
+- Contract tests from OpenAPI specs before endpoint implementation
+- Integration tests before service layer implementation
+- Unit tests before complex business logic
+
+### Test Organization
+- Contract tests: `tests/contract/test_*_contract.py`
+- Integration tests: `tests/integration/test_*.py`
+- Unit tests: `tests/unit/test_*.py`
+
+## Deployment Rules
+
+### Pre-Deployment Validation
+- Run `databricks bundle validate` (must pass)
+- Run full test suite (contract, integration, unit)
+- Type checking must pass (ruff, tsc)
+- Format code with `./fix.sh`
+
+### Post-Deployment Monitoring
+- **IMMEDIATELY** run `uv run python dba_logz.py <app-url> --duration 60`
+- Verify uvicorn startup messages: "Application startup complete"
+- Check for Python exceptions or dependency errors
+- Test endpoints with `dba_client.py`
+- Fix and redeploy immediately if any errors found
+
+## Common Issues & Solutions
+
+### Metrics Show 0 for Usage Data
+1. **Frontend token issue**: Rebuild frontend after token refresh
+2. **Timezone bug**: Check for `datetime.utcnow()` usage - replace with `datetime.now(timezone.utc)`
+3. **Database check**: Verify events exist: `SELECT COUNT(*) FROM usage_events;`
+
+### Frontend Not Updating After Code Changes
+1. In production mode: Rebuild frontend and copy to build directory
+2. Clear browser cache or hard reload (Cmd+Shift+R)
+3. Check if using development server (Vite) vs production build
+
+### Database Connection Errors
+1. Verify environment variables: `PGHOST`, `LAKEBASE_DATABASE`, `LAKEBASE_INSTANCE_NAME`
+2. Check `is_lakebase_configured()` returns True
+3. Restart development server after setting environment variables
+
+## Specification-First Development
+
+### Feature Workflow
+1. Create numbered branch: `###-feature-name`
+2. Create spec directory: `specs/###-feature-name/`
+3. Write `spec.md` with requirements and acceptance criteria
+4. Write tests first (TDD)
+5. Implement to make tests pass
+6. Update documentation
+7. Run validation gates before merge
+
+### Documentation
+- All features require specification before implementation
+- Update `CLAUDE.md` with new patterns and troubleshooting
+- Update constitution for architectural changes
+

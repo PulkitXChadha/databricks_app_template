@@ -116,7 +116,7 @@ API clients MUST be automatically generated from OpenAPI specifications.
 **Rationale:** Hand-written clients diverge from actual APIs; auto-generation ensures frontend-backend contract consistency.
 
 ### VII. Development Tooling Standards
-Modern, fast development tools MUST be used for optimal developer experience.
+Modern, fast development tools MUST be used for optimal developer experience with timezone-aware programming practices.
 
 **Rules:**
 - Python: uv for package management (not pip/poetry)
@@ -126,8 +126,11 @@ Modern, fast development tools MUST be used for optimal developer experience.
 - Code formatting enforced (ruff, prettier)
 - Python 3.11+ required for modern type hints and performance
 - Node.js 18.0+ required for TypeScript 5.2+ and Vite 5.0
+- **Timezone-Aware Datetimes**: MUST use `datetime.now(timezone.utc)` instead of deprecated `datetime.utcnow()` for all database operations
+- **Frontend Build Management**: Environment variables are baked into JavaScript bundle at build time; rebuild required after token refresh in production mode
+- **Token Refresh Workflow**: After token refresh: (1) rebuild frontend, (2) copy build to production directory, (3) reload browser
 
-**Rationale:** Fast tools accelerate iteration; standardization reduces cognitive load and onboarding friction.
+**Rationale:** Fast tools accelerate iteration; standardization reduces cognitive load and onboarding friction. Timezone-aware datetimes prevent subtle bugs with Postgres timestamp comparisons. Frontend build process understanding prevents authentication failures after token refresh.
 
 ### VIII. Observability First
 Applications MUST implement comprehensive observability from the start using structured logging, correlation IDs, and metrics with defined retention policies.
@@ -409,11 +412,24 @@ Branch 003 (`obo-only-support`) was an intentional breaking change that:
 ### Agent-Specific Guidance
 Runtime development guidance available in `CLAUDE.md` for Claude Code and similar agents. This file provides operational commands and workflows aligned with constitutional principles.
 
-**Version**: 1.4.1 | **Ratified**: 2025-10-04 | **Last Amended**: 2025-10-21
+**Version**: 1.4.2 | **Ratified**: 2025-10-04 | **Last Amended**: 2025-10-22
 
 ---
 
 ## Changelog
+
+### Version 1.4.2 (2025-10-22) - PATCH
+**Changes:**
+- Added critical timezone handling requirement: MUST use `datetime.now(timezone.utc)` instead of deprecated `datetime.utcnow()`
+- Enhanced Principle VII (Development Tooling Standards) with timezone-aware datetime requirements
+- Added troubleshooting guidance for metrics showing zero usage data (frontend token and timezone issues)
+- Documented frontend build process requirement when tokens are refreshed (environment variables baked into bundle)
+- Added rule: All datetime operations with Lakebase/Postgres MUST use timezone-aware datetimes
+- Enhanced debugging guidance with specific symptoms and fixes for common metrics issues
+
+**Impact:** Critical fix requirement for all code using datetimes with database queries. Using `datetime.utcnow()` will cause comparison errors with Postgres timezone-aware timestamps. All existing code using naive datetimes must be updated. Frontend builds must be regenerated after token refresh in production mode.
+
+**Rationale:** Investigation of "metrics showing 0 for usage data" revealed two critical issues: (1) Frontend environment variables are baked into JavaScript bundle at build time, requiring rebuild after token refresh, and (2) Python's deprecated `datetime.utcnow()` returns naive datetimes that fail comparison with Postgres `TIMESTAMP WITH TIME ZONE` columns. Modern Python applications must use timezone-aware datetimes exclusively. This pattern prevents subtle timezone bugs and ensures compatibility with Postgres timestamp handling.
 
 ### Version 1.4.1 (2025-10-21) - PATCH
 **Changes:**
