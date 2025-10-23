@@ -32,18 +32,15 @@ env:
   # Unity Catalog Configuration
   - name: DATABRICKS_WAREHOUSE_ID
     value: "4b9b953939869799"
-  - name: DATABRICKS_CATALOG
-    value: "main"
-  - name: DATABRICKS_SCHEMA
-    value: "samples"
+
   
   # Lakebase Configuration (OAuth authentication is automatic)
   - name: LAKEBASE_INSTANCE_NAME
     value: "databricks-app-lakebase-dev"
   - name: LAKEBASE_HOST
-    value: "instance-0fac1568-f318-4b0d-9110-cd868b343908.database.cloud.databricks.com"
+    value: "instance-a8a3c374-0218-48fa-b93a-4eb07b78b9fa.database.cloud.databricks.com"
   - name: PGHOST
-    value: "instance-0fac1568-f318-4b0d-9110-cd868b343908.database.cloud.databricks.com"
+    value: "instance-a8a3c374-0218-48fa-b93a-4eb07b78b9fa.database.cloud.databricks.com"
   - name: LAKEBASE_PORT
     value: "5432"
   - name: LAKEBASE_DATABASE
