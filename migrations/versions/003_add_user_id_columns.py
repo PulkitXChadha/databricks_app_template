@@ -9,7 +9,6 @@ This is a greenfield deployment (first production deployment per spec), so no ex
 production data needs migration. Placeholder email is for local development databases only.
 """
 
-
 import sqlalchemy as sa
 from alembic import op
 

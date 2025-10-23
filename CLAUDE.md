@@ -739,6 +739,21 @@ Claude understands natural language commands for common development tasks:
 - **Local dev**: Set `VITE_API_BASE_URL=http://localhost:8000` in `client/.env.local` for local development only
 - **Production**: Uses empty base URL (relative paths) to call APIs on the same domain
 
+**OAuth token scope errors in Databricks Apps ("Provided OAuth token does not have required scopes")**:
+- **Cause**: WorkspaceClient created with explicit `auth_type='pat'` when using Databricks Apps forwarded tokens
+- **Symptom**: Unity Catalog, Model Serving, and Preferences APIs return 503 with OAuth scope errors
+- **Why it happens**: Databricks Apps forwards user tokens via `X-Forwarded-Access-Token` header. These are special platform-managed tokens, not traditional PATs. Setting `auth_type='pat'` forces the SDK to validate them as OAuth tokens with scopes, causing permission errors.
+- **Solution**: Remove `auth_type='pat'` parameter from `WorkspaceClient()` initialization - let the SDK auto-detect token type
+- **Fixed in**: All services (`UnityCatalogService`, `ModelServingService`, `UserService`, `SchemaDetectionService`)
+- **Correct pattern**:
+  ```python
+  # ✅ CORRECT - Auto-detect token type
+  self.client = WorkspaceClient(host=host, token=user_token)
+  
+  # ❌ WRONG - Forces PAT validation with OAuth scopes
+  self.client = WorkspaceClient(host=host, token=user_token, auth_type='pat')
+  ```
+
 **TypeScript client not found**:
 - Run the client generation script manually
 

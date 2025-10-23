@@ -218,8 +218,7 @@ def test_time_series_validates_date_range_exceeding_90_days(test_db_session: Ses
 
 
 def test_time_series_usage_metrics(test_db_session: Session):
-  """Test that time-series endpoint works for usage metrics as well.
-  """
+  """Test that time-series endpoint works for usage metrics as well."""
   # Create sample usage events
   base_time = datetime.utcnow() - timedelta(hours=12)
 
@@ -250,8 +249,7 @@ def test_time_series_usage_metrics(test_db_session: Session):
 
 
 def test_time_series_both_metrics(test_db_session: Session):
-  """Test that time-series endpoint can return both performance and usage metrics.
-  """
+  """Test that time-series endpoint can return both performance and usage metrics."""
   # Create both performance and usage data
   base_time = datetime.utcnow() - timedelta(hours=6)
 

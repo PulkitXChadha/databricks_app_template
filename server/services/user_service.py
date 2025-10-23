@@ -73,10 +73,11 @@ class UserService:
         },
       )
 
+      # Note: Do not specify auth_type for Databricks Apps tokens
+      # Let the SDK auto-detect the token type to avoid OAuth scope errors
       return WorkspaceClient(
         host=host,
         token=self.user_token,
-        auth_type='pat',  # REQUIRED: Explicit authentication type
       )
     else:
       # Service Principal Authentication (OAuth M2M)

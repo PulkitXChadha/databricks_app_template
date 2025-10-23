@@ -58,10 +58,11 @@ class ModelServingService:
 
     if user_token:
       # On-behalf-of-user (OBO) authorization
+      # Note: Do not specify auth_type for Databricks Apps tokens
+      # Let the SDK auto-detect the token type to avoid OAuth scope errors
       self.client = WorkspaceClient(
         host=databricks_host,
         token=user_token,
-        auth_type='pat',  # Forces token-only auth
       )
       logger.info('Model Serving service initialized with OBO authentication')
     else:

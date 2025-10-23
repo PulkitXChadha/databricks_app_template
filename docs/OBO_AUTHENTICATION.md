@@ -72,7 +72,7 @@ service = UnityCatalogService(user_token="")    # ❌ Raises ValueError
 
 ### 4. WorkspaceClient Configuration
 
-Services create a WorkspaceClient using **ONLY** the user token with explicit `auth_type="pat"`:
+Services create a WorkspaceClient using **ONLY** the user token, letting the SDK auto-detect the token type:
 
 ```python
 # OBO-only pattern - the ONLY way to initialize services
@@ -92,15 +92,22 @@ def __init__(self, user_token: str):
     self.workspace_url = os.getenv('DATABRICKS_HOST')
     
     # Create WorkspaceClient with user token ONLY
+    # IMPORTANT: Do NOT specify auth_type for Databricks Apps tokens
+    # Let the SDK auto-detect the token type to avoid OAuth scope errors
     self.client = WorkspaceClient(
         host=self.workspace_url,
         token=self.user_token,
-        auth_type="pat"  # Forces token-only auth
+        # No auth_type parameter - SDK auto-detects
     )
 ```
 
+**Why not specify `auth_type='pat'`?**
+
+Databricks Apps forwards user tokens via the `X-Forwarded-Access-Token` header. These are special platform-managed tokens, not traditional Personal Access Tokens (PATs). Explicitly setting `auth_type='pat'` forces the SDK to validate them as OAuth tokens with specific scopes, causing "Provided OAuth token does not have required scopes" errors. By omitting the `auth_type` parameter, the SDK correctly auto-detects and uses the token.
+
 **Critical**: 
-- `auth_type="pat"` tells the SDK to use ONLY the token and ignore any OAuth environment variables
+- Do NOT specify `auth_type` parameter when using Databricks Apps tokens - let SDK auto-detect
+- For local development with traditional PATs, `auth_type='pat'` may be needed, but not for Databricks Apps
 - Services no longer support initialization without a user token
 - No service principal fallback exists for Databricks API operations
 
