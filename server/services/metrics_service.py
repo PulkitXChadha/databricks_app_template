@@ -20,820 +20,831 @@ logger = logging.getLogger(__name__)
 
 
 class MetricsService:
-    """Service for metrics collection and retrieval.
+  """Service for metrics collection and retrieval.
 
-    Automatically routes queries to:
-    - Raw tables (performance_metrics, usage_events) for last 7 days
-    - Aggregated table (aggregated_metrics) for 8-90 days ago
+  Automatically routes queries to:
+  - Raw tables (performance_metrics, usage_events) for last 7 days
+  - Aggregated table (aggregated_metrics) for 8-90 days ago
+  """
+
+  def __init__(self, db: Session):
+    """Initialize metrics service.
+
+    Args:
+        db: SQLAlchemy database session
     """
+    self.db = db
 
-    def __init__(self, db: Session):
-        """Initialize metrics service.
+  def get_performance_metrics(
+    self, time_range: str = '24h', endpoint: Optional[str] = None
+  ) -> Dict:
+    """Retrieve aggregated performance metrics.
 
-        Args:
-            db: SQLAlchemy database session
-        """
-        self.db = db
+    Args:
+        time_range: Time range ("24h", "7d", "30d", "90d")
+        endpoint: Optional endpoint filter
 
-    def get_performance_metrics(
-        self,
-        time_range: str = '24h',
-        endpoint: Optional[str] = None
-    ) -> Dict:
-        """Retrieve aggregated performance metrics.
+    Returns:
+        Dictionary with aggregated performance metrics
+    """
+    start_time, end_time = self._parse_time_range(time_range)
 
-        Args:
-            time_range: Time range ("24h", "7d", "30d", "90d")
-            endpoint: Optional endpoint filter
+    # Route query based on time range
+    from datetime import timezone
 
-        Returns:
-            Dictionary with aggregated performance metrics
-        """
-        start_time, end_time = self._parse_time_range(time_range)
+    if (datetime.now(timezone.utc) - start_time).days <= 7:
+      return self._query_raw_performance_metrics(start_time, end_time, endpoint)
+    else:
+      return self._query_aggregated_performance_metrics(start_time, end_time, endpoint)
 
-        # Route query based on time range
-        from datetime import timezone
-        if (datetime.now(timezone.utc) - start_time).days <= 7:
-            return self._query_raw_performance_metrics(start_time, end_time, endpoint)
-        else:
-            return self._query_aggregated_performance_metrics(start_time, end_time, endpoint)
+  def get_usage_metrics(self, time_range: str = '24h', event_type: Optional[str] = None) -> Dict:
+    """Retrieve aggregated usage metrics.
 
-    def get_usage_metrics(
-        self,
-        time_range: str = '24h',
-        event_type: Optional[str] = None
-    ) -> Dict:
-        """Retrieve aggregated usage metrics.
+    Args:
+        time_range: Time range ("24h", "7d", "30d", "90d")
+        event_type: Optional event type filter
 
-        Args:
-            time_range: Time range ("24h", "7d", "30d", "90d")
-            event_type: Optional event type filter
+    Returns:
+        Dictionary with aggregated usage metrics
+    """
+    start_time, end_time = self._parse_time_range(time_range)
 
-        Returns:
-            Dictionary with aggregated usage metrics
-        """
-        start_time, end_time = self._parse_time_range(time_range)
+    from datetime import timezone
 
-        from datetime import timezone
-        if (datetime.now(timezone.utc) - start_time).days <= 7:
-            return self._query_raw_usage_metrics(start_time, end_time, event_type)
-        else:
-            return self._query_aggregated_usage_metrics(start_time, end_time, event_type)
+    if (datetime.now(timezone.utc) - start_time).days <= 7:
+      return self._query_raw_usage_metrics(start_time, end_time, event_type)
+    else:
+      return self._query_aggregated_usage_metrics(start_time, end_time, event_type)
 
-    def record_performance_metric(self, metric_data: Dict) -> None:
-        """Record a single performance metric (async write).
+  def record_performance_metric(self, metric_data: Dict) -> None:
+    """Record a single performance metric (async write).
 
-        Args:
-            metric_data: Dictionary with metric fields
-        """
-        try:
-            metric = PerformanceMetric(**metric_data)
-            self.db.add(metric)
-            self.db.commit()
-            logger.debug(
-                f'Recorded performance metric: {metric.endpoint} - '
-                f'{metric.response_time_ms}ms (status: {metric.status_code})'
-            )
-        except Exception as e:
-            # Suppress verbose logging for database connection errors
-            if 'Database instance is not found' in str(e):
-                logger.debug('Skipping performance metric - database unavailable')
-            else:
-                logger.error(f'Failed to record performance metric: {e}')
-            self.db.rollback()
-            # Don't raise - graceful degradation per FR-007
+    Args:
+        metric_data: Dictionary with metric fields
+    """
+    try:
+      metric = PerformanceMetric(**metric_data)
+      self.db.add(metric)
+      self.db.commit()
+      logger.debug(
+        f'Recorded performance metric: {metric.endpoint} - '
+        f'{metric.response_time_ms}ms (status: {metric.status_code})'
+      )
+    except Exception as e:
+      # Suppress verbose logging for database connection errors
+      error_str = str(e)
+      if any(
+        msg in error_str
+        for msg in [
+          'Database instance is not found',
+          'External authorization failed',
+          'connection failed',
+          'paused instances',
+        ]
+      ):
+        logger.debug(f'Skipping performance metric - database unavailable: {type(e).__name__}')
+      else:
+        logger.error(f'Failed to record performance metric: {e}')
+      self.db.rollback()
+      # Don't raise - graceful degradation per FR-007
 
-    def record_usage_events_batch(self, events: List[Dict], user_id: str) -> int:
-        """Record batch of usage events.
+  def record_usage_events_batch(self, events: List[Dict], user_id: str) -> int:
+    """Record batch of usage events.
 
-        Args:
-            events: List of event dictionaries
-            user_id: User ID for all events
+    Args:
+        events: List of event dictionaries
+        user_id: User ID for all events
 
-        Returns:
-            Number of events successfully recorded
-        """
-        try:
-            event_objects = []
-            for event in events:
-                # Map 'metadata' field from frontend to 'event_metadata' for database
-                event_data = {**event, 'user_id': user_id}
-                if 'metadata' in event_data:
-                    event_data['event_metadata'] = event_data.pop('metadata')
-                event_objects.append(UsageEvent(**event_data))
-            
-            self.db.bulk_save_objects(event_objects)
-            self.db.commit()
-            logger.info(f'Recorded {len(event_objects)} usage events for user {user_id}')
-            return len(event_objects)
-        except Exception as e:
-            logger.error(f'Failed to record usage events batch: {e}', exc_info=True)
-            self.db.rollback()
-            return 0
+    Returns:
+        Number of events successfully recorded
+    """
+    try:
+      event_objects = []
+      for event in events:
+        # Map 'metadata' field from frontend to 'event_metadata' for database
+        event_data = {**event, 'user_id': user_id}
+        if 'metadata' in event_data:
+          event_data['event_metadata'] = event_data.pop('metadata')
+        event_objects.append(UsageEvent(**event_data))
 
-    def _parse_time_range(self, time_range: str) -> tuple[datetime, datetime]:
-        """Parse time range string to start/end datetimes.
+      self.db.bulk_save_objects(event_objects)
+      self.db.commit()
+      logger.info(f'Recorded {len(event_objects)} usage events for user {user_id}')
+      return len(event_objects)
+    except Exception as e:
+      # Suppress verbose logging for database connection errors
+      error_str = str(e)
+      if any(
+        msg in error_str
+        for msg in [
+          'Database instance is not found',
+          'External authorization failed',
+          'connection failed',
+          'paused instances',
+        ]
+      ):
+        logger.debug(f'Skipping usage events - database unavailable: {type(e).__name__}')
+      else:
+        logger.error(f'Failed to record usage events batch: {e}', exc_info=True)
+      self.db.rollback()
+      return 0
 
-        Args:
-            time_range: Time range string ("24h", "7d", "30d", "90d")
+  def _parse_time_range(self, time_range: str) -> tuple[datetime, datetime]:
+    """Parse time range string to start/end datetimes.
 
-        Returns:
-            Tuple of (start_time, end_time) as timezone-aware UTC datetimes
-        """
-        from datetime import timezone
-        end_time = datetime.now(timezone.utc)
+    Args:
+        time_range: Time range string ("24h", "7d", "30d", "90d")
 
-        if time_range == '24h':
-            start_time = end_time - timedelta(hours=24)
-        elif time_range == '7d':
-            start_time = end_time - timedelta(days=7)
-        elif time_range == '30d':
-            start_time = end_time - timedelta(days=30)
-        elif time_range == '90d':
-            start_time = end_time - timedelta(days=90)
-        else:
-            # Default to 24 hours
-            start_time = end_time - timedelta(hours=24)
+    Returns:
+        Tuple of (start_time, end_time) as timezone-aware UTC datetimes
+    """
+    from datetime import timezone
 
-        return start_time, end_time
+    end_time = datetime.now(timezone.utc)
 
-    def _query_raw_performance_metrics(
-        self,
-        start_time: datetime,
-        end_time: datetime,
-        endpoint: Optional[str]
-    ) -> Dict:
-        """Query raw performance metrics table (<7 days old).
+    if time_range == '24h':
+      start_time = end_time - timedelta(hours=24)
+    elif time_range == '7d':
+      start_time = end_time - timedelta(days=7)
+    elif time_range == '30d':
+      start_time = end_time - timedelta(days=30)
+    elif time_range == '90d':
+      start_time = end_time - timedelta(days=90)
+    else:
+      # Default to 24 hours
+      start_time = end_time - timedelta(hours=24)
 
-        Args:
-            start_time: Start of time range
-            end_time: End of time range
-            endpoint: Optional endpoint filter
+    return start_time, end_time
 
-        Returns:
-            Dictionary with aggregated metrics
-        """
-        try:
-            query = self.db.query(PerformanceMetric).filter(
-                and_(
-                    PerformanceMetric.timestamp >= start_time,
-                    PerformanceMetric.timestamp <= end_time
-                )
-            )
+  def _query_raw_performance_metrics(
+    self, start_time: datetime, end_time: datetime, endpoint: Optional[str]
+  ) -> Dict:
+    """Query raw performance metrics table (<7 days old).
 
-            if endpoint:
-                query = query.filter(PerformanceMetric.endpoint == endpoint)
+    Args:
+        start_time: Start of time range
+        end_time: End of time range
+        endpoint: Optional endpoint filter
 
-            metrics = query.all()
+    Returns:
+        Dictionary with aggregated metrics
+    """
+    try:
+      query = self.db.query(PerformanceMetric).filter(
+        and_(PerformanceMetric.timestamp >= start_time, PerformanceMetric.timestamp <= end_time)
+      )
 
-            if not metrics:
-                return self._empty_performance_response(start_time, end_time)
-        except Exception as e:
-            # Handle database connection errors gracefully
-            logger.warning(f'Failed to query performance metrics: {e}')
-            return self._empty_performance_response(start_time, end_time)
+      if endpoint:
+        query = query.filter(PerformanceMetric.endpoint == endpoint)
 
-        # Aggregate in Python
-        response_times = [m.response_time_ms for m in metrics]
-        total_requests = len(metrics)
-        error_count = sum(1 for m in metrics if m.status_code >= 400)
+      metrics = query.all()
 
-        return {
-            'time_range': self._format_time_range(start_time, end_time),
-            'start_time': start_time.isoformat(),
-            'end_time': end_time.isoformat(),
-            'metrics': {
-                'avg_response_time_ms': sum(response_times) / len(response_times),
-                'total_requests': total_requests,
-                'error_rate': error_count / total_requests if total_requests > 0 else 0.0,
-                'p50_response_time_ms': self._percentile(response_times, 0.5),
-                'p95_response_time_ms': self._percentile(response_times, 0.95),
-                'p99_response_time_ms': self._percentile(response_times, 0.99),
-            },
-            'endpoints': self._aggregate_by_endpoint(metrics)
-        }
-
-    def _query_aggregated_performance_metrics(
-        self,
-        start_time: datetime,
-        end_time: datetime,
-        endpoint: Optional[str]
-    ) -> Dict:
-        """Query aggregated metrics table (8-90 days old).
-
-        Args:
-            start_time: Start of time range
-            end_time: End of time range
-            endpoint: Optional endpoint filter
-
-        Returns:
-            Dictionary with aggregated metrics
-        """
-        # TODO: Implement aggregated query in User Story 4
+      if not metrics:
         return self._empty_performance_response(start_time, end_time)
+    except Exception as e:
+      # Handle database connection errors gracefully
+      logger.warning(f'Failed to query performance metrics: {e}')
+      return self._empty_performance_response(start_time, end_time)
 
-    def _query_raw_usage_metrics(
-        self,
-        start_time: datetime,
-        end_time: datetime,
-        event_type: Optional[str]
-    ) -> Dict:
-        """Query raw usage events table (<7 days old).
+    # Aggregate in Python
+    response_times = [m.response_time_ms for m in metrics]
+    total_requests = len(metrics)
+    error_count = sum(1 for m in metrics if m.status_code >= 400)
 
-        Args:
-            start_time: Start of time range
-            end_time: End of time range
-            event_type: Optional event type filter
+    return {
+      'time_range': self._format_time_range(start_time, end_time),
+      'start_time': start_time.isoformat(),
+      'end_time': end_time.isoformat(),
+      'metrics': {
+        'avg_response_time_ms': sum(response_times) / len(response_times),
+        'total_requests': total_requests,
+        'error_rate': error_count / total_requests if total_requests > 0 else 0.0,
+        'p50_response_time_ms': self._percentile(response_times, 0.5),
+        'p95_response_time_ms': self._percentile(response_times, 0.95),
+        'p99_response_time_ms': self._percentile(response_times, 0.99),
+      },
+      'endpoints': self._aggregate_by_endpoint(metrics),
+    }
 
-        Returns:
-            Dictionary with aggregated usage metrics
-        """
-        try:
-            # Base query
-            query = self.db.query(UsageEvent).filter(
-                and_(
-                    UsageEvent.timestamp >= start_time,
-                    UsageEvent.timestamp <= end_time
-                )
-            )
+  def _query_aggregated_performance_metrics(
+    self, start_time: datetime, end_time: datetime, endpoint: Optional[str]
+  ) -> Dict:
+    """Query aggregated metrics table (8-90 days old).
 
-            if event_type:
-                query = query.filter(UsageEvent.event_type == event_type)
+    Args:
+        start_time: Start of time range
+        end_time: End of time range
+        endpoint: Optional endpoint filter
 
-            events = query.all()
+    Returns:
+        Dictionary with aggregated metrics
+    """
+    # TODO: Implement aggregated query in User Story 4
+    return self._empty_performance_response(start_time, end_time)
 
-            if not events:
-                return self._empty_usage_response(start_time, end_time)
+  def _query_raw_usage_metrics(
+    self, start_time: datetime, end_time: datetime, event_type: Optional[str]
+  ) -> Dict:
+    """Query raw usage events table (<7 days old).
 
-            # Calculate metrics
-            total_events = len(events)
-            unique_users = len(set(event.user_id for event in events))
-            
-            # Active users: users active in the last hour
-            from datetime import timezone
-            one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
-            active_users = len(set(
-                event.user_id for event in events 
-                if event.timestamp >= one_hour_ago
-            ))
+    Args:
+        start_time: Start of time range
+        end_time: End of time range
+        event_type: Optional event type filter
 
-            # Event distribution by type
-            event_distribution = {}
-            for event in events:
-                event_type_name = event.event_type
-                event_distribution[event_type_name] = event_distribution.get(event_type_name, 0) + 1
+    Returns:
+        Dictionary with aggregated usage metrics
+    """
+    try:
+      # Base query
+      query = self.db.query(UsageEvent).filter(
+        and_(UsageEvent.timestamp >= start_time, UsageEvent.timestamp <= end_time)
+      )
 
-            # Page views by page
-            page_views = {}
-            for event in events:
-                if event.event_type == 'page_view' and event.page_name:
-                    page_name = event.page_name
-                    page_views[page_name] = page_views.get(page_name, 0) + 1
+      if event_type:
+        query = query.filter(UsageEvent.event_type == event_type)
 
-            return {
-                'time_range': self._format_time_range(start_time, end_time),
-                'start_time': start_time.isoformat(),
-                'end_time': end_time.isoformat(),
-                'metrics': {
-                    'total_events': total_events,
-                    'unique_users': unique_users,
-                    'active_users': active_users,
-                },
-                'event_distribution': event_distribution,
-                'page_views': page_views
-            }
-        except Exception as e:
-            # Handle database connection errors gracefully
-            logger.warning(f'Failed to query usage metrics: {e}')
-            return self._empty_usage_response(start_time, end_time)
+      events = query.all()
 
-    def _query_aggregated_usage_metrics(
-        self,
-        start_time: datetime,
-        end_time: datetime,
-        event_type: Optional[str]
-    ) -> Dict:
-        """Query aggregated usage metrics table (8-90 days old).
+      if not events:
+        return self._empty_usage_response(start_time, end_time)
 
-        Args:
-            start_time: Start of time range
-            end_time: End of time range
-            event_type: Optional event type filter
+      # Calculate metrics
+      total_events = len(events)
+      unique_users = len(set(event.user_id for event in events))
 
-        Returns:
-            Dictionary with aggregated usage metrics
-        """
-        try:
-            # Query aggregated metrics table
-            query = self.db.query(AggregatedMetric).filter(
-                and_(
-                    AggregatedMetric.metric_type == 'usage',
-                    AggregatedMetric.time_bucket >= start_time,
-                    AggregatedMetric.time_bucket <= end_time
-                )
-            )
+      # Active users: users active in the last hour
+      from datetime import timezone
 
-            if event_type:
-                # Filter by event_type in aggregated_values JSON
-                query = query.filter(
-                    AggregatedMetric.aggregated_values['event_type'].astext == event_type
-                )
+      one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+      active_users = len(set(event.user_id for event in events if event.timestamp >= one_hour_ago))
 
-            aggregated_records = query.all()
+      # Event distribution by type
+      event_distribution = {}
+      for event in events:
+        event_type_name = event.event_type
+        event_distribution[event_type_name] = event_distribution.get(event_type_name, 0) + 1
 
-            if not aggregated_records:
-                return self._empty_usage_response(start_time, end_time)
+      # Page views by page
+      page_views = {}
+      for event in events:
+        if event.event_type == 'page_view' and event.page_name:
+          page_name = event.page_name
+          page_views[page_name] = page_views.get(page_name, 0) + 1
 
-            # Aggregate the pre-aggregated metrics
-            total_events = 0
-            unique_users_set = set()
-            event_distribution = {}
-            page_views = {}
-            
-            # Track users active in the last hour
-            from datetime import timezone
-            one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
-            active_users_set = set()
+      return {
+        'time_range': self._format_time_range(start_time, end_time),
+        'start_time': start_time.isoformat(),
+        'end_time': end_time.isoformat(),
+        'metrics': {
+          'total_events': total_events,
+          'unique_users': unique_users,
+          'active_users': active_users,
+        },
+        'event_distribution': event_distribution,
+        'page_views': page_views,
+      }
+    except Exception as e:
+      # Handle database connection errors gracefully
+      logger.warning(f'Failed to query usage metrics: {e}')
+      return self._empty_usage_response(start_time, end_time)
 
-            for record in aggregated_records:
-                values = record.aggregated_values
-                
-                # Sum total events
-                total_events += values.get('total_events', 0)
-                
-                # Collect unique users (if stored as list in aggregated_values)
-                if 'unique_users' in values:
-                    if isinstance(values['unique_users'], list):
-                        unique_users_set.update(values['unique_users'])
-                    elif isinstance(values['unique_users'], int):
-                        # If just count is stored, we can't get exact users
-                        # This is a limitation of aggregated data
-                        pass
-                
-                # Check if this bucket is within the last hour for active users
-                if record.time_bucket >= one_hour_ago and 'unique_users' in values:
-                    if isinstance(values['unique_users'], list):
-                        active_users_set.update(values['unique_users'])
-                
-                # Aggregate event distribution
-                if 'event_distribution' in values:
-                    for event_type_name, count in values['event_distribution'].items():
-                        event_distribution[event_type_name] = event_distribution.get(event_type_name, 0) + count
-                
-                # Aggregate page views
-                if 'page_views' in values:
-                    for page_name, count in values['page_views'].items():
-                        page_views[page_name] = page_views.get(page_name, 0) + count
+  def _query_aggregated_usage_metrics(
+    self, start_time: datetime, end_time: datetime, event_type: Optional[str]
+  ) -> Dict:
+    """Query aggregated usage metrics table (8-90 days old).
 
-            unique_users = len(unique_users_set)
-            active_users = len(active_users_set)
+    Args:
+        start_time: Start of time range
+        end_time: End of time range
+        event_type: Optional event type filter
 
-            return {
-                'time_range': self._format_time_range(start_time, end_time),
-                'start_time': start_time.isoformat(),
-                'end_time': end_time.isoformat(),
-                'metrics': {
-                    'total_events': total_events,
-                    'unique_users': unique_users,
-                    'active_users': active_users,
-                },
-                'event_distribution': event_distribution,
-                'page_views': page_views
-            }
-        except Exception as e:
-            # Handle database connection errors gracefully
-            logger.warning(f'Failed to query aggregated usage metrics: {e}')
-            return self._empty_usage_response(start_time, end_time)
+    Returns:
+        Dictionary with aggregated usage metrics
+    """
+    try:
+      # Query aggregated metrics table
+      query = self.db.query(AggregatedMetric).filter(
+        and_(
+          AggregatedMetric.metric_type == 'usage',
+          AggregatedMetric.time_bucket >= start_time,
+          AggregatedMetric.time_bucket <= end_time,
+        )
+      )
 
-    def _percentile(self, data: List[float], p: float) -> float:
-        """Calculate percentile of data.
+      if event_type:
+        # Filter by event_type in aggregated_values JSON
+        query = query.filter(AggregatedMetric.aggregated_values['event_type'].astext == event_type)
 
-        Args:
-            data: List of numeric values
-            p: Percentile (0.0 to 1.0)
+      aggregated_records = query.all()
 
-        Returns:
-            Percentile value
-        """
-        if not data:
-            return 0.0
-        sorted_data = sorted(data)
-        index = int(len(sorted_data) * p)
-        return sorted_data[min(index, len(sorted_data) - 1)]
+      if not aggregated_records:
+        return self._empty_usage_response(start_time, end_time)
 
-    def _aggregate_by_endpoint(self, metrics: List[PerformanceMetric]) -> List[Dict]:
-        """Aggregate metrics by endpoint and method.
+      # Aggregate the pre-aggregated metrics
+      total_events = 0
+      unique_users_set = set()
+      event_distribution = {}
+      page_views = {}
 
-        Args:
-            metrics: List of PerformanceMetric objects
+      # Track users active in the last hour
+      from datetime import timezone
 
-        Returns:
-            List of per-endpoint statistics sorted by avg_response_time_ms descending
-        """
-        endpoint_groups = {}
-        for m in metrics:
-            key = (m.endpoint, m.method)
-            if key not in endpoint_groups:
-                endpoint_groups[key] = []
-            endpoint_groups[key].append(m)
+      one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+      active_users_set = set()
 
-        endpoint_stats = []
-        for (endpoint, method), group in endpoint_groups.items():
-            response_times = [m.response_time_ms for m in group]
-            error_count = sum(1 for m in group if m.status_code >= 400)
-            request_count = len(group)
+      for record in aggregated_records:
+        values = record.aggregated_values
 
-            endpoint_stats.append({
-                'endpoint': endpoint,
-                'method': method,
-                'avg_response_time_ms': sum(response_times) / len(response_times),
-                'p50_response_time_ms': self._percentile(response_times, 0.5),
-                'p95_response_time_ms': self._percentile(response_times, 0.95),
-                'p99_response_time_ms': self._percentile(response_times, 0.99),
-                'request_count': request_count,
-                'error_count': error_count,
-                'error_rate': error_count / request_count if request_count > 0 else 0.0,
-            })
+        # Sum total events
+        total_events += values.get('total_events', 0)
 
-        # Sort by avg_response_time_ms descending (slowest first) per SC-005
-        endpoint_stats.sort(key=lambda x: x['avg_response_time_ms'], reverse=True)
+        # Collect unique users (if stored as list in aggregated_values)
+        if 'unique_users' in values:
+          if isinstance(values['unique_users'], list):
+            unique_users_set.update(values['unique_users'])
+          elif isinstance(values['unique_users'], int):
+            # If just count is stored, we can't get exact users
+            # This is a limitation of aggregated data
+            pass
 
-        return endpoint_stats
+        # Check if this bucket is within the last hour for active users
+        if record.time_bucket >= one_hour_ago and 'unique_users' in values:
+          if isinstance(values['unique_users'], list):
+            active_users_set.update(values['unique_users'])
 
-    def _empty_performance_response(
-        self,
-        start_time: datetime,
-        end_time: datetime
-    ) -> Dict:
-        """Generate empty performance response structure.
+        # Aggregate event distribution
+        if 'event_distribution' in values:
+          for event_type_name, count in values['event_distribution'].items():
+            event_distribution[event_type_name] = event_distribution.get(event_type_name, 0) + count
 
-        Args:
-            start_time: Start of time range
-            end_time: End of time range
+        # Aggregate page views
+        if 'page_views' in values:
+          for page_name, count in values['page_views'].items():
+            page_views[page_name] = page_views.get(page_name, 0) + count
 
-        Returns:
-            Empty response dictionary
-        """
-        return {
-            'time_range': self._format_time_range(start_time, end_time),
-            'start_time': start_time.isoformat(),
-            'end_time': end_time.isoformat(),
-            'metrics': {
-                'avg_response_time_ms': 0.0,
-                'total_requests': 0,
-                'error_rate': 0.0,
-                'p50_response_time_ms': 0.0,
-                'p95_response_time_ms': 0.0,
-                'p99_response_time_ms': 0.0,
-            },
-            'endpoints': []
+      unique_users = len(unique_users_set)
+      active_users = len(active_users_set)
+
+      return {
+        'time_range': self._format_time_range(start_time, end_time),
+        'start_time': start_time.isoformat(),
+        'end_time': end_time.isoformat(),
+        'metrics': {
+          'total_events': total_events,
+          'unique_users': unique_users,
+          'active_users': active_users,
+        },
+        'event_distribution': event_distribution,
+        'page_views': page_views,
+      }
+    except Exception as e:
+      # Handle database connection errors gracefully
+      logger.warning(f'Failed to query aggregated usage metrics: {e}')
+      return self._empty_usage_response(start_time, end_time)
+
+  def _percentile(self, data: List[float], p: float) -> float:
+    """Calculate percentile of data.
+
+    Args:
+        data: List of numeric values
+        p: Percentile (0.0 to 1.0)
+
+    Returns:
+        Percentile value
+    """
+    if not data:
+      return 0.0
+    sorted_data = sorted(data)
+    index = int(len(sorted_data) * p)
+    return sorted_data[min(index, len(sorted_data) - 1)]
+
+  def _aggregate_by_endpoint(self, metrics: List[PerformanceMetric]) -> List[Dict]:
+    """Aggregate metrics by endpoint and method.
+
+    Args:
+        metrics: List of PerformanceMetric objects
+
+    Returns:
+        List of per-endpoint statistics sorted by avg_response_time_ms descending
+    """
+    endpoint_groups = {}
+    for m in metrics:
+      key = (m.endpoint, m.method)
+      if key not in endpoint_groups:
+        endpoint_groups[key] = []
+      endpoint_groups[key].append(m)
+
+    endpoint_stats = []
+    for (endpoint, method), group in endpoint_groups.items():
+      response_times = [m.response_time_ms for m in group]
+      error_count = sum(1 for m in group if m.status_code >= 400)
+      request_count = len(group)
+
+      endpoint_stats.append(
+        {
+          'endpoint': endpoint,
+          'method': method,
+          'avg_response_time_ms': sum(response_times) / len(response_times),
+          'p50_response_time_ms': self._percentile(response_times, 0.5),
+          'p95_response_time_ms': self._percentile(response_times, 0.95),
+          'p99_response_time_ms': self._percentile(response_times, 0.99),
+          'request_count': request_count,
+          'error_count': error_count,
+          'error_rate': error_count / request_count if request_count > 0 else 0.0,
+        }
+      )
+
+    # Sort by avg_response_time_ms descending (slowest first) per SC-005
+    endpoint_stats.sort(key=lambda x: x['avg_response_time_ms'], reverse=True)
+
+    return endpoint_stats
+
+  def _empty_performance_response(self, start_time: datetime, end_time: datetime) -> Dict:
+    """Generate empty performance response structure.
+
+    Args:
+        start_time: Start of time range
+        end_time: End of time range
+
+    Returns:
+        Empty response dictionary
+    """
+    return {
+      'time_range': self._format_time_range(start_time, end_time),
+      'start_time': start_time.isoformat(),
+      'end_time': end_time.isoformat(),
+      'metrics': {
+        'avg_response_time_ms': 0.0,
+        'total_requests': 0,
+        'error_rate': 0.0,
+        'p50_response_time_ms': 0.0,
+        'p95_response_time_ms': 0.0,
+        'p99_response_time_ms': 0.0,
+      },
+      'endpoints': [],
+    }
+
+  def _empty_usage_response(self, start_time: datetime, end_time: datetime) -> Dict:
+    """Generate empty usage response structure.
+
+    Args:
+        start_time: Start of time range
+        end_time: End of time range
+
+    Returns:
+        Empty response dictionary
+    """
+    return {
+      'time_range': self._format_time_range(start_time, end_time),
+      'start_time': start_time.isoformat(),
+      'end_time': end_time.isoformat(),
+      'metrics': {
+        'total_events': 0,
+        'unique_users': 0,
+        'active_users': 0,
+      },
+      'event_distribution': {},
+      'page_views': {},
+    }
+
+  def _format_time_range(self, start_time: datetime, end_time: datetime) -> str:
+    """Format time range for display.
+
+    Args:
+        start_time: Start time
+        end_time: End time
+
+    Returns:
+        Human-readable time range string
+    """
+    delta = end_time - start_time
+    if delta.days == 0:
+      return '24h'
+    elif delta.days <= 7:
+      return '7d'
+    elif delta.days <= 30:
+      return '30d'
+    else:
+      return '90d'
+
+  # ========================================================================
+  # User Story 4: Time-Series Metrics (T095-T100)
+  # ========================================================================
+
+  def get_time_series_metrics(
+    self, time_range: str = '24h', metric_type: str = 'performance'
+  ) -> Dict:
+    """Retrieve time-series metrics data for chart visualization.
+
+    Returns data points at appropriate intervals based on time range:
+    - 24h: 5-minute intervals
+    - 7d, 30d, 90d: hourly intervals
+    Automatically routes to raw vs aggregated tables based on age.
+
+    Args:
+        time_range: Time range ("24h", "7d", "30d", "90d")
+        metric_type: Type of metrics ("performance", "usage", "both")
+
+    Returns:
+        Dictionary with time_range, interval, and data_points array
+    """
+    start_time, end_time = self._parse_time_range(time_range)
+
+    logger.info(f'Time-series query: {time_range} ({metric_type})')
+
+    # Determine interval based on time range
+    interval = '5min' if time_range == '24h' else 'hourly'
+
+    # Query based on metric type
+    if metric_type == 'performance':
+      data_points = self._query_performance_time_series(start_time, end_time, interval)
+    elif metric_type == 'usage':
+      data_points = self._query_usage_time_series(start_time, end_time, interval)
+    elif metric_type == 'both':
+      # Merge performance and usage data points
+      perf_points = self._query_performance_time_series(start_time, end_time, interval)
+      usage_points = self._query_usage_time_series(start_time, end_time, interval)
+      data_points = self._merge_time_series_data(perf_points, usage_points)
+    else:
+      data_points = []
+
+    return {'time_range': time_range, 'interval': interval, 'data_points': data_points}
+
+  def _query_performance_time_series(
+    self, start_time: datetime, end_time: datetime, interval: str = 'hourly'
+  ) -> List[Dict]:
+    """Query performance metrics time-series data.
+
+    Returns data points at specified interval with performance metrics.
+    Routes to raw or aggregated tables based on age.
+
+    Args:
+        start_time: Start of time range
+        end_time: End of time range
+        interval: Time bucket interval ('5min' or 'hourly')
+    """
+    from datetime import timezone
+
+    if (datetime.now(timezone.utc) - start_time).days <= 7:
+      # Query raw performance_metrics table
+      return self._query_raw_performance_time_series(start_time, end_time, interval)
+    else:
+      # Query aggregated_metrics table (always hourly for historical data)
+      return self._query_aggregated_performance_time_series(start_time, end_time)
+
+  def _query_usage_time_series(
+    self, start_time: datetime, end_time: datetime, interval: str = 'hourly'
+  ) -> List[Dict]:
+    """Query usage events time-series data.
+
+    Returns data points at specified interval with usage metrics.
+    Routes to raw or aggregated tables based on age.
+
+    Args:
+        start_time: Start of time range
+        end_time: End of time range
+        interval: Time bucket interval ('5min' or 'hourly')
+    """
+    from datetime import timezone
+
+    if (datetime.now(timezone.utc) - start_time).days <= 7:
+      # Query raw usage_events table
+      return self._query_raw_usage_time_series(start_time, end_time, interval)
+    else:
+      # Query aggregated_metrics table (always hourly for historical data)
+      return self._query_aggregated_usage_time_series(start_time, end_time)
+
+  def _query_raw_performance_time_series(
+    self, start_time: datetime, end_time: datetime, interval: str = 'hourly'
+  ) -> List[Dict]:
+    """Query raw performance metrics grouped by specified interval.
+
+    Uses PostgreSQL date_trunc to bucket by interval.
+
+    Args:
+        start_time: Start of time range
+        end_time: End of time range
+        interval: Time bucket interval ('5min' or 'hourly')
+    """
+    try:
+      # Determine time bucket expression based on interval
+      if interval == '5min':
+        # Create 5-minute buckets using floor division
+        # Formula: floor timestamp to 5-minute intervals
+        time_bucket_expr = func.to_timestamp(
+          func.floor(func.extract('epoch', PerformanceMetric.timestamp) / 300) * 300
+        ).label('time_bucket')
+      else:
+        # Default to hourly buckets
+        time_bucket_expr = func.date_trunc('hour', PerformanceMetric.timestamp).label('time_bucket')
+
+      # Query metrics grouped by time bucket
+      results = (
+        self.db.query(
+          time_bucket_expr,
+          func.avg(PerformanceMetric.response_time_ms).label('avg_response_time_ms'),
+          func.count(PerformanceMetric.id).label('total_requests'),
+          func.sum(func.cast(PerformanceMetric.status_code >= 400, Integer)).label('error_count'),
+        )
+        .filter(
+          and_(PerformanceMetric.timestamp >= start_time, PerformanceMetric.timestamp <= end_time)
+        )
+        .group_by('time_bucket')
+        .order_by('time_bucket')
+        .all()
+      )
+
+      # Convert to data points
+      data_points = []
+      for row in results:
+        total_requests = row.total_requests or 0
+        error_count = row.error_count or 0
+        error_rate = error_count / total_requests if total_requests > 0 else 0.0
+
+        data_points.append(
+          {
+            'timestamp': row.time_bucket.isoformat() if row.time_bucket else '',
+            'avg_response_time_ms': float(row.avg_response_time_ms)
+            if row.avg_response_time_ms
+            else 0.0,
+            'total_requests': total_requests,
+            'error_rate': error_rate,
+          }
+        )
+
+      return data_points
+    except Exception as e:
+      # Handle database connection errors gracefully
+      logger.warning(f'Failed to query performance time-series: {e}')
+      return []
+
+  def _query_raw_usage_time_series(
+    self, start_time: datetime, end_time: datetime, interval: str = 'hourly'
+  ) -> List[Dict]:
+    """Query raw usage events grouped by specified interval.
+
+    Uses PostgreSQL date_trunc to bucket by interval.
+
+    Args:
+        start_time: Start of time range
+        end_time: End of time range
+        interval: Time bucket interval ('5min' or 'hourly')
+    """
+    try:
+      # Determine time bucket expression based on interval
+      if interval == '5min':
+        # Create 5-minute buckets using floor division
+        # Formula: floor timestamp to 5-minute intervals
+        time_bucket_expr = func.to_timestamp(
+          func.floor(func.extract('epoch', UsageEvent.timestamp) / 300) * 300
+        ).label('time_bucket')
+      else:
+        # Default to hourly buckets
+        time_bucket_expr = func.date_trunc('hour', UsageEvent.timestamp).label('time_bucket')
+
+      # Query events grouped by time bucket
+      results = (
+        self.db.query(
+          time_bucket_expr,
+          func.count(UsageEvent.id).label('total_events'),
+          func.count(func.distinct(UsageEvent.user_id)).label('unique_users'),
+        )
+        .filter(and_(UsageEvent.timestamp >= start_time, UsageEvent.timestamp <= end_time))
+        .group_by('time_bucket')
+        .order_by('time_bucket')
+        .all()
+      )
+
+      # Convert to data points
+      data_points = []
+      for row in results:
+        data_points.append(
+          {
+            'timestamp': row.time_bucket.isoformat() if row.time_bucket else '',
+            'total_events': row.total_events or 0,
+            'unique_users': row.unique_users or 0,
+          }
+        )
+
+      return data_points
+    except Exception as e:
+      # Handle database connection errors gracefully
+      logger.warning(f'Failed to query usage time-series: {e}')
+      return []
+
+  def _query_aggregated_performance_time_series(
+    self, start_time: datetime, end_time: datetime
+  ) -> List[Dict]:
+    """Query aggregated performance metrics (for data >7 days old).
+
+    Reads pre-computed hourly summaries from aggregated_metrics table.
+    """
+    try:
+      results = (
+        self.db.query(AggregatedMetric)
+        .filter(
+          and_(
+            AggregatedMetric.metric_type == 'performance',
+            AggregatedMetric.time_bucket >= start_time,
+            AggregatedMetric.time_bucket <= end_time,
+          )
+        )
+        .order_by(AggregatedMetric.time_bucket)
+        .all()
+      )
+
+      # Convert aggregated values to data points
+      data_points = []
+      for agg in results:
+        values = agg.aggregated_values
+        data_points.append(
+          {
+            'timestamp': agg.time_bucket.isoformat(),
+            'avg_response_time_ms': values.get('avg_response_time_ms', 0.0),
+            'total_requests': values.get('total_requests', 0),
+            'error_rate': values.get('error_rate', 0.0),
+          }
+        )
+
+      return data_points
+    except Exception as e:
+      # Handle database connection errors gracefully
+      logger.warning(f'Failed to query aggregated performance time-series: {e}')
+      return []
+
+  def _query_aggregated_usage_time_series(
+    self, start_time: datetime, end_time: datetime
+  ) -> List[Dict]:
+    """Query aggregated usage metrics (for data >7 days old).
+
+    Reads pre-computed hourly summaries from aggregated_metrics table.
+    """
+    try:
+      results = (
+        self.db.query(AggregatedMetric)
+        .filter(
+          and_(
+            AggregatedMetric.metric_type == 'usage',
+            AggregatedMetric.time_bucket >= start_time,
+            AggregatedMetric.time_bucket <= end_time,
+          )
+        )
+        .order_by(AggregatedMetric.time_bucket)
+        .all()
+      )
+
+      # Convert aggregated values to data points
+      data_points = []
+      for agg in results:
+        values = agg.aggregated_values
+        data_points.append(
+          {
+            'timestamp': agg.time_bucket.isoformat(),
+            'total_events': values.get('total_events', 0),
+            'unique_users': values.get('unique_users', 0),
+          }
+        )
+
+      return data_points
+    except Exception as e:
+      # Handle database connection errors gracefully
+      logger.warning(f'Failed to query aggregated usage time-series: {e}')
+      return []
+
+  def _merge_time_series_data(
+    self, perf_points: List[Dict], usage_points: List[Dict]
+  ) -> List[Dict]:
+    """Merge performance and usage time-series data points.
+
+    Combines data for the same timestamp into single data point.
+    """
+    # Create dictionary keyed by timestamp
+    merged = {}
+
+    # Add performance data
+    for point in perf_points:
+      timestamp = point['timestamp']
+      merged[timestamp] = {
+        'timestamp': timestamp,
+        'avg_response_time_ms': point.get('avg_response_time_ms'),
+        'total_requests': point.get('total_requests'),
+        'error_rate': point.get('error_rate'),
+      }
+
+    # Add usage data (merge if timestamp exists)
+    for point in usage_points:
+      timestamp = point['timestamp']
+      if timestamp in merged:
+        merged[timestamp]['total_events'] = point.get('total_events')
+        merged[timestamp]['unique_users'] = point.get('unique_users')
+      else:
+        merged[timestamp] = {
+          'timestamp': timestamp,
+          'total_events': point.get('total_events'),
+          'unique_users': point.get('unique_users'),
         }
 
-    def _empty_usage_response(
-        self,
-        start_time: datetime,
-        end_time: datetime
-    ) -> Dict:
-        """Generate empty usage response structure.
-
-        Args:
-            start_time: Start of time range
-            end_time: End of time range
-
-        Returns:
-            Empty response dictionary
-        """
-        return {
-            'time_range': self._format_time_range(start_time, end_time),
-            'start_time': start_time.isoformat(),
-            'end_time': end_time.isoformat(),
-            'metrics': {
-                'total_events': 0,
-                'unique_users': 0,
-                'active_users': 0,
-            },
-            'event_distribution': {},
-            'page_views': {}
-        }
-
-    def _format_time_range(self, start_time: datetime, end_time: datetime) -> str:
-        """Format time range for display.
-
-        Args:
-            start_time: Start time
-            end_time: End time
-
-        Returns:
-            Human-readable time range string
-        """
-        delta = end_time - start_time
-        if delta.days == 0:
-            return '24h'
-        elif delta.days <= 7:
-            return '7d'
-        elif delta.days <= 30:
-            return '30d'
-        else:
-            return '90d'
-
-    # ========================================================================
-    # User Story 4: Time-Series Metrics (T095-T100)
-    # ========================================================================
-
-    def get_time_series_metrics(self, time_range: str = '24h', metric_type: str = 'performance') -> Dict:
-        """Retrieve time-series metrics data for chart visualization.
-
-        Returns data points at appropriate intervals based on time range:
-        - 24h: 5-minute intervals
-        - 7d, 30d, 90d: hourly intervals
-        Automatically routes to raw vs aggregated tables based on age.
-
-        Args:
-            time_range: Time range ("24h", "7d", "30d", "90d")
-            metric_type: Type of metrics ("performance", "usage", "both")
-
-        Returns:
-            Dictionary with time_range, interval, and data_points array
-        """
-        start_time, end_time = self._parse_time_range(time_range)
-
-        logger.info(f'Time-series query: {time_range} ({metric_type})')
-
-        # Determine interval based on time range
-        interval = '5min' if time_range == '24h' else 'hourly'
-
-        # Query based on metric type
-        if metric_type == 'performance':
-            data_points = self._query_performance_time_series(start_time, end_time, interval)
-        elif metric_type == 'usage':
-            data_points = self._query_usage_time_series(start_time, end_time, interval)
-        elif metric_type == 'both':
-            # Merge performance and usage data points
-            perf_points = self._query_performance_time_series(start_time, end_time, interval)
-            usage_points = self._query_usage_time_series(start_time, end_time, interval)
-            data_points = self._merge_time_series_data(perf_points, usage_points)
-        else:
-            data_points = []
-
-        return {
-            'time_range': time_range,
-            'interval': interval,
-            'data_points': data_points
-        }
-
-    def _query_performance_time_series(self, start_time: datetime, end_time: datetime, interval: str = 'hourly') -> List[Dict]:
-        """Query performance metrics time-series data.
-
-        Returns data points at specified interval with performance metrics.
-        Routes to raw or aggregated tables based on age.
-        
-        Args:
-            start_time: Start of time range
-            end_time: End of time range
-            interval: Time bucket interval ('5min' or 'hourly')
-        """
-        from datetime import timezone
-        if (datetime.now(timezone.utc) - start_time).days <= 7:
-            # Query raw performance_metrics table
-            return self._query_raw_performance_time_series(start_time, end_time, interval)
-        else:
-            # Query aggregated_metrics table (always hourly for historical data)
-            return self._query_aggregated_performance_time_series(start_time, end_time)
-
-    def _query_usage_time_series(self, start_time: datetime, end_time: datetime, interval: str = 'hourly') -> List[Dict]:
-        """Query usage events time-series data.
-
-        Returns data points at specified interval with usage metrics.
-        Routes to raw or aggregated tables based on age.
-        
-        Args:
-            start_time: Start of time range
-            end_time: End of time range
-            interval: Time bucket interval ('5min' or 'hourly')
-        """
-        from datetime import timezone
-        if (datetime.now(timezone.utc) - start_time).days <= 7:
-            # Query raw usage_events table
-            return self._query_raw_usage_time_series(start_time, end_time, interval)
-        else:
-            # Query aggregated_metrics table (always hourly for historical data)
-            return self._query_aggregated_usage_time_series(start_time, end_time)
-
-    def _query_raw_performance_time_series(self, start_time: datetime, end_time: datetime, interval: str = 'hourly') -> List[Dict]:
-        """Query raw performance metrics grouped by specified interval.
-
-        Uses PostgreSQL date_trunc to bucket by interval.
-        
-        Args:
-            start_time: Start of time range
-            end_time: End of time range
-            interval: Time bucket interval ('5min' or 'hourly')
-        """
-        try:
-            # Determine time bucket expression based on interval
-            if interval == '5min':
-                # Create 5-minute buckets using floor division
-                # Formula: floor timestamp to 5-minute intervals
-                time_bucket_expr = func.to_timestamp(
-                    func.floor(
-                        func.extract('epoch', PerformanceMetric.timestamp) / 300
-                    ) * 300
-                ).label('time_bucket')
-            else:
-                # Default to hourly buckets
-                time_bucket_expr = func.date_trunc('hour', PerformanceMetric.timestamp).label('time_bucket')
-
-            # Query metrics grouped by time bucket
-            results = self.db.query(
-                time_bucket_expr,
-                func.avg(PerformanceMetric.response_time_ms).label('avg_response_time_ms'),
-                func.count(PerformanceMetric.id).label('total_requests'),
-                func.sum(
-                    func.cast(PerformanceMetric.status_code >= 400, Integer)
-                ).label('error_count')
-            ).filter(
-                and_(
-                    PerformanceMetric.timestamp >= start_time,
-                    PerformanceMetric.timestamp <= end_time
-                )
-            ).group_by('time_bucket').order_by('time_bucket').all()
-
-            # Convert to data points
-            data_points = []
-            for row in results:
-                total_requests = row.total_requests or 0
-                error_count = row.error_count or 0
-                error_rate = error_count / total_requests if total_requests > 0 else 0.0
-
-                data_points.append({
-                    'timestamp': row.time_bucket.isoformat() if row.time_bucket else '',
-                    'avg_response_time_ms': float(row.avg_response_time_ms) if row.avg_response_time_ms else 0.0,
-                    'total_requests': total_requests,
-                    'error_rate': error_rate
-                })
-
-            return data_points
-        except Exception as e:
-            # Handle database connection errors gracefully
-            logger.warning(f'Failed to query performance time-series: {e}')
-            return []
-
-    def _query_raw_usage_time_series(self, start_time: datetime, end_time: datetime, interval: str = 'hourly') -> List[Dict]:
-        """Query raw usage events grouped by specified interval.
-
-        Uses PostgreSQL date_trunc to bucket by interval.
-        
-        Args:
-            start_time: Start of time range
-            end_time: End of time range
-            interval: Time bucket interval ('5min' or 'hourly')
-        """
-        try:
-            # Determine time bucket expression based on interval
-            if interval == '5min':
-                # Create 5-minute buckets using floor division
-                # Formula: floor timestamp to 5-minute intervals
-                time_bucket_expr = func.to_timestamp(
-                    func.floor(
-                        func.extract('epoch', UsageEvent.timestamp) / 300
-                    ) * 300
-                ).label('time_bucket')
-            else:
-                # Default to hourly buckets
-                time_bucket_expr = func.date_trunc('hour', UsageEvent.timestamp).label('time_bucket')
-
-            # Query events grouped by time bucket
-            results = self.db.query(
-                time_bucket_expr,
-                func.count(UsageEvent.id).label('total_events'),
-                func.count(func.distinct(UsageEvent.user_id)).label('unique_users')
-            ).filter(
-                and_(
-                    UsageEvent.timestamp >= start_time,
-                    UsageEvent.timestamp <= end_time
-                )
-            ).group_by('time_bucket').order_by('time_bucket').all()
-
-            # Convert to data points
-            data_points = []
-            for row in results:
-                data_points.append({
-                    'timestamp': row.time_bucket.isoformat() if row.time_bucket else '',
-                    'total_events': row.total_events or 0,
-                    'unique_users': row.unique_users or 0
-                })
-
-            return data_points
-        except Exception as e:
-            # Handle database connection errors gracefully
-            logger.warning(f'Failed to query usage time-series: {e}')
-            return []
-
-    def _query_aggregated_performance_time_series(
-        self,
-        start_time: datetime,
-        end_time: datetime
-    ) -> List[Dict]:
-        """Query aggregated performance metrics (for data >7 days old).
-
-        Reads pre-computed hourly summaries from aggregated_metrics table.
-        """
-        try:
-            results = self.db.query(AggregatedMetric).filter(
-                and_(
-                    AggregatedMetric.metric_type == 'performance',
-                    AggregatedMetric.time_bucket >= start_time,
-                    AggregatedMetric.time_bucket <= end_time
-                )
-            ).order_by(AggregatedMetric.time_bucket).all()
-
-            # Convert aggregated values to data points
-            data_points = []
-            for agg in results:
-                values = agg.aggregated_values
-                data_points.append({
-                    'timestamp': agg.time_bucket.isoformat(),
-                    'avg_response_time_ms': values.get('avg_response_time_ms', 0.0),
-                    'total_requests': values.get('total_requests', 0),
-                    'error_rate': values.get('error_rate', 0.0)
-                })
-
-            return data_points
-        except Exception as e:
-            # Handle database connection errors gracefully
-            logger.warning(f'Failed to query aggregated performance time-series: {e}')
-            return []
-
-    def _query_aggregated_usage_time_series(
-        self,
-        start_time: datetime,
-        end_time: datetime
-    ) -> List[Dict]:
-        """Query aggregated usage metrics (for data >7 days old).
-
-        Reads pre-computed hourly summaries from aggregated_metrics table.
-        """
-        try:
-            results = self.db.query(AggregatedMetric).filter(
-                and_(
-                    AggregatedMetric.metric_type == 'usage',
-                    AggregatedMetric.time_bucket >= start_time,
-                    AggregatedMetric.time_bucket <= end_time
-                )
-            ).order_by(AggregatedMetric.time_bucket).all()
-
-            # Convert aggregated values to data points
-            data_points = []
-            for agg in results:
-                values = agg.aggregated_values
-                data_points.append({
-                    'timestamp': agg.time_bucket.isoformat(),
-                    'total_events': values.get('total_events', 0),
-                    'unique_users': values.get('unique_users', 0)
-                })
-
-            return data_points
-        except Exception as e:
-            # Handle database connection errors gracefully
-            logger.warning(f'Failed to query aggregated usage time-series: {e}')
-            return []
-
-    def _merge_time_series_data(
-        self,
-        perf_points: List[Dict],
-        usage_points: List[Dict]
-    ) -> List[Dict]:
-        """Merge performance and usage time-series data points.
-
-        Combines data for the same timestamp into single data point.
-        """
-        # Create dictionary keyed by timestamp
-        merged = {}
-
-        # Add performance data
-        for point in perf_points:
-            timestamp = point['timestamp']
-            merged[timestamp] = {
-                'timestamp': timestamp,
-                'avg_response_time_ms': point.get('avg_response_time_ms'),
-                'total_requests': point.get('total_requests'),
-                'error_rate': point.get('error_rate')
-            }
-
-        # Add usage data (merge if timestamp exists)
-        for point in usage_points:
-            timestamp = point['timestamp']
-            if timestamp in merged:
-                merged[timestamp]['total_events'] = point.get('total_events')
-                merged[timestamp]['unique_users'] = point.get('unique_users')
-            else:
-                merged[timestamp] = {
-                    'timestamp': timestamp,
-                    'total_events': point.get('total_events'),
-                    'unique_users': point.get('unique_users')
-                }
-
-        # Convert to sorted list
-        sorted_points = sorted(merged.values(), key=lambda x: x['timestamp'])
-        return sorted_points
-
+    # Convert to sorted list
+    sorted_points = sorted(merged.values(), key=lambda x: x['timestamp'])
+    return sorted_points
