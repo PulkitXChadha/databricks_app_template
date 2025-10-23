@@ -141,7 +141,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
                 variant="primary"
                 fullWidth
                 iconBefore={<ExternalLink className="h-4 w-4" />}
-                onClick={() => window.open("http://localhost:8000/docs", "_blank")}
+                onClick={() => window.open("/docs", "_blank")}
               >
                 Explore API Documentation
               </Button>
@@ -447,7 +447,7 @@ export function WelcomePage({ embedded = false }: WelcomePageProps) {
           <Typography.Paragraph color="secondary">
             Ready to build something amazing? Check out the{" "}
             <Typography.Link
-              href="http://localhost:8000/docs"
+              href="/docs"
               openInNewTab
             >
               API documentation

@@ -727,8 +727,25 @@ Claude understands natural language commands for common development tasks:
 - These files are generated through iterative collaboration with the user during the /dba command
 
 ### Common Issues
-- If TypeScript client is not found, run the client generation script manually
-- If hot reload not working, restart `./watch.sh`
-- If dependencies missing, run `./setup.sh` to reinstall
+
+**API calls fail in deployed Databricks Apps (http://localhost:8000 errors)**:
+- **Cause**: Frontend built with `VITE_API_BASE_URL=http://localhost:8000` in `client/.env.local`
+- **Solution**: 
+  1. Remove `VITE_API_BASE_URL` from `client/.env.local` (or leave it empty) for production builds
+  2. Rebuild frontend: `cd client && bun run build && cd ..`
+  3. Copy to production: `cp -r client/build/* build/`
+  4. Redeploy: `databricks bundle deploy`
+- **Why**: Vite bakes environment variables into the JavaScript bundle at build time
+- **Local dev**: Set `VITE_API_BASE_URL=http://localhost:8000` in `client/.env.local` for local development only
+- **Production**: Uses empty base URL (relative paths) to call APIs on the same domain
+
+**TypeScript client not found**:
+- Run the client generation script manually
+
+**Hot reload not working**:
+- Restart `./watch.sh`
+
+**Dependencies missing**:
+- Run `./setup.sh` to reinstall
 
 Remember: This is a development template focused on rapid iteration and modern tooling.

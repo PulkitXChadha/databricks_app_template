@@ -540,13 +540,18 @@ Final checks before deploying:
   uv run ruff check server/
   ```
 
-- [ ] **Build Frontend**
+- [ ] **Build Frontend for Production**
   ```bash
   cd client
+  # IMPORTANT: Do NOT set VITE_API_BASE_URL for production builds
+  # Production uses relative paths (empty base URL)
+  # Only set VITE_API_BASE_URL=http://localhost:8000 in client/.env.local for local dev
   bun run build
   cd ..
   ```
   Expected: Build completes without errors
+  
+  **Note**: Verify `client/.env.local` does NOT have `VITE_API_BASE_URL` set, or it's empty for production builds.
 
 - [ ] **Generate Requirements**
   ```bash

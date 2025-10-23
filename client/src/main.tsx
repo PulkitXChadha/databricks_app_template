@@ -23,7 +23,9 @@ if (userToken) {
 }
 
 // Set base URL for API calls
-OpenAPI.BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+// Use empty string for production (relative paths) or explicit URL for local dev
+// In local development, set VITE_API_BASE_URL=http://localhost:8000 in client/.env.local
+OpenAPI.BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 const queryClient = new QueryClient();
 
