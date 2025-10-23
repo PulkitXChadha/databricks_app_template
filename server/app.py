@@ -57,7 +57,7 @@ app.add_middleware(
     'http://localhost:5173',
     'http://127.0.0.1:5173',
     'http://localhost:3000',
-    'http://127.0.0.1:3000'
+    'http://127.0.0.1:3000',
   ],
   allow_credentials=True,
   allow_methods=['*'],
@@ -86,14 +86,14 @@ async def add_correlation_id(request: Request, call_next):
   # Extract user access token from Databricks Apps header
   # This enables On-Behalf-Of (OBO) authentication
   # Try multiple header variations for robustness
-  user_token = (
-    request.headers.get('X-Forwarded-Access-Token') or
-    request.headers.get('x-forwarded-access-token')
+  user_token = request.headers.get('X-Forwarded-Access-Token') or request.headers.get(
+    'x-forwarded-access-token'
   )
 
   # DEBUG: Log all request headers for diagnosis (only for /api/ paths)
   if request.url.path.startswith('/api/') and not request.url.path.startswith('/api/health'):
     from server.lib.structured_logger import StructuredLogger
+
     debug_logger = StructuredLogger(__name__)
     header_keys = list(request.headers.keys())
     has_token = user_token is not None
@@ -102,7 +102,7 @@ async def add_correlation_id(request: Request, call_next):
       path=request.url.path,
       has_token=has_token,
       header_count=len(header_keys),
-      header_keys=header_keys[:10] if len(header_keys) > 10 else header_keys
+      header_keys=header_keys[:10] if len(header_keys) > 10 else header_keys,
     )
 
   # Set authentication context in request state
@@ -139,24 +139,17 @@ async def add_correlation_id(request: Request, call_next):
     # Record authentication metrics based on actual auth mode
     auth_status = 'success' if 200 <= response.status_code < 400 else 'failure'
     auth_mode = getattr(request.state, 'auth_mode', 'obo')  # Default to OBO
-    record_auth_request(
-      endpoint=request.url.path,
-      mode=auth_mode,
-      status=auth_status
-    )
+    record_auth_request(endpoint=request.url.path, mode=auth_mode, status=auth_status)
 
     # Record auth overhead based on actual auth mode
-    record_auth_overhead(
-      mode=auth_mode,
-      overhead_seconds=auth_overhead
-    )
+    record_auth_overhead(mode=auth_mode, overhead_seconds=auth_overhead)
 
     # Record overall request duration
     record_request_duration(
       endpoint=request.url.path,
       method=request.method,
       status=response.status_code,
-      duration_seconds=duration_seconds
+      duration_seconds=duration_seconds,
     )
 
     # Log request with metrics
@@ -164,7 +157,7 @@ async def add_correlation_id(request: Request, call_next):
       endpoint=request.url.path,
       method=request.method,
       status_code=response.status_code,
-      duration_ms=duration_ms
+      duration_ms=duration_ms,
     )
 
   return response
@@ -201,10 +194,7 @@ async def metrics_api(request: Request):
   # Require authentication for metrics endpoint
   await get_user_token(request)
 
-  return Response(
-    content=generate_latest(),
-    media_type=CONTENT_TYPE_LATEST
-  )
+  return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get('/metrics')
@@ -225,10 +215,7 @@ async def metrics_root(request: Request):
   # Require authentication for metrics endpoint
   await get_user_token(request)
 
-  return Response(
-    content=generate_latest(),
-    media_type=CONTENT_TYPE_LATEST
-  )
+  return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # ============================================================================
@@ -238,37 +225,35 @@ async def metrics_root(request: Request):
 
 @app.exception_handler(RequestValidationError)
 async def custom_validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Custom exception handler for batch size validation (FR-013).
+  """Custom exception handler for batch size validation (FR-013).
 
-    Intercepts Pydantic ValidationError and converts batch size errors
-    to 413 Payload Too Large with structured error body.
-    """
-    # Get error details
-    error_dict = exc.errors()
+  Intercepts Pydantic ValidationError and converts batch size errors
+  to 413 Payload Too Large with structured error body.
+  """
+  # Get error details
+  error_dict = exc.errors()
 
-    # Look for batch size validation error
-    for error in error_dict:
-        error_msg = error.get('msg', '')
-        if 'Batch size exceeds maximum' in error_msg:
-            # Extract received count from error message
-            import re
-            match = re.search(r'received: (\d+)', error_msg)
-            received_count = int(match.group(1)) if match else None
+  # Look for batch size validation error
+  for error in error_dict:
+    error_msg = error.get('msg', '')
+    if 'Batch size exceeds maximum' in error_msg:
+      # Extract received count from error message
+      import re
 
-            return JSONResponse(
-                status_code=413,
-                content={
-                    'detail': 'Batch size exceeds maximum of 1000 events',
-                    'max_batch_size': 1000,
-                    'received': received_count
-                }
-            )
+      match = re.search(r'received: (\d+)', error_msg)
+      received_count = int(match.group(1)) if match else None
 
-    # Not a batch size error - use default validation error response (422)
-    return JSONResponse(
-        status_code=422,
-        content={'detail': exc.errors()}
-    )
+      return JSONResponse(
+        status_code=413,
+        content={
+          'detail': 'Batch size exceeds maximum of 1000 events',
+          'max_batch_size': 1000,
+          'received': received_count,
+        },
+      )
+
+  # Not a batch size error - use default validation error response (422)
+  return JSONResponse(status_code=422, content={'detail': exc.errors()})
 
 
 # Include API routers

@@ -5,7 +5,7 @@ from server.models.performance_metric import PerformanceMetric
 from server.models.usage_event import UsageEvent
 
 __all__ = [
-    'PerformanceMetric',
-    'UsageEvent',
-    'AggregatedMetric',
+  'PerformanceMetric',
+  'UsageEvent',
+  'AggregatedMetric',
 ]

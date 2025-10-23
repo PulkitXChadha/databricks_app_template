@@ -18,512 +18,530 @@ from server.lib.database import get_engine, is_lakebase_configured
 from server.lib.structured_logger import StructuredLogger
 from server.models.model_endpoint import EndpointState, ModelEndpoint, ModelEndpointResponse
 from server.models.model_inference import (
-    InferenceStatus,
-    ModelInferenceRequest,
-    ModelInferenceResponse,
+  InferenceStatus,
+  ModelInferenceRequest,
+  ModelInferenceResponse,
 )
 
 logger = StructuredLogger(__name__)
 
 
 class ModelServingService:
-    """Service for Model Serving inference with OBO-only authentication.
+  """Service for Model Serving inference with OBO-only authentication.
 
-    Provides methods to:
-    - List available serving endpoints
-    - Invoke model endpoints for predictions
-    - Log inference requests to Lakebase
+  Provides methods to:
+  - List available serving endpoints
+  - Invoke model endpoints for predictions
+  - Log inference requests to Lakebase
 
-    Authentication:
-    - OBO-only: Requires user access token (no service principal fallback)
+  Authentication:
+  - OBO-only: Requires user access token (no service principal fallback)
+  """
+
+  def __init__(self, user_token: str | None = None):
+    """Initialize Model Serving service with authentication.
+
+    Args:
+        user_token: User access token for OBO auth (None for service principal)
+
+    Raises:
+        ValueError: If DATABRICKS_HOST is not set and not in Databricks runtime
     """
+    databricks_host = os.getenv('DATABRICKS_HOST')
 
-    def __init__(self, user_token: str | None = None):
-        """Initialize Model Serving service with authentication.
+    if not databricks_host:
+      raise ValueError('DATABRICKS_HOST environment variable is not set')
 
-        Args:
-            user_token: User access token for OBO auth (None for service principal)
+    # Ensure host has proper format
+    if not databricks_host.startswith('http'):
+      databricks_host = f'https://{databricks_host}'
 
-        Raises:
-            ValueError: If DATABRICKS_HOST is not set and not in Databricks runtime
-        """
-        databricks_host = os.getenv('DATABRICKS_HOST')
+    if user_token:
+      # On-behalf-of-user (OBO) authorization
+      self.client = WorkspaceClient(
+        host=databricks_host,
+        token=user_token,
+        auth_type='pat',  # Forces token-only auth
+      )
+      logger.info('Model Serving service initialized with OBO authentication')
+    else:
+      # Service principal (OAuth M2M) authorization
+      self.client = WorkspaceClient(host=databricks_host)
+      logger.info('Model Serving service initialized with service principal authentication')
 
-        if not databricks_host:
-            raise ValueError('DATABRICKS_HOST environment variable is not set')
+    self.user_token = user_token
+    self.workspace_url = databricks_host
 
-        # Ensure host has proper format
-        if not databricks_host.startswith('http'):
-            databricks_host = f'https://{databricks_host}'
+    self.default_timeout = int(os.getenv('MODEL_SERVING_TIMEOUT', '30'))
 
-        if user_token:
-            # On-behalf-of-user (OBO) authorization
-            self.client = WorkspaceClient(
-                host=databricks_host,
-                token=user_token,
-                auth_type='pat'  # Forces token-only auth
-            )
-            logger.info('Model Serving service initialized with OBO authentication')
-        else:
-            # Service principal (OAuth M2M) authorization
-            self.client = WorkspaceClient(
-                host=databricks_host
-            )
-            logger.info('Model Serving service initialized with service principal authentication')
+  async def list_endpoints(self) -> list[ModelEndpointResponse]:
+    """List available Model Serving endpoints.
 
-        self.user_token = user_token
-        self.workspace_url = databricks_host
+    Returns:
+        List of endpoint metadata as ModelEndpointResponse objects
 
-        self.default_timeout = int(os.getenv('MODEL_SERVING_TIMEOUT', '30'))
+    Raises:
+        DatabricksError: If API call fails
+    """
+    try:
+      endpoints = []
 
-    async def list_endpoints(self) -> list[ModelEndpointResponse]:
-        """List available Model Serving endpoints.
+      # List all serving endpoints (wrap sync SDK call in async)
+      endpoint_list = await asyncio.to_thread(self.client.serving_endpoints.list)
 
-        Returns:
-            List of endpoint metadata as ModelEndpointResponse objects
-
-        Raises:
-            DatabricksError: If API call fails
-        """
+      for ep in endpoint_list:
         try:
-            endpoints = []
+          # Extract served model/entity config (supports both old and new formats)
+          served_model = None
+          served_entity = None
+          model_name = 'unknown'
+          model_version = None
 
-            # List all serving endpoints (wrap sync SDK call in async)
-            endpoint_list = await asyncio.to_thread(self.client.serving_endpoints.list)
+          if ep.config:
+            # New format: served_entities (for foundation models)
+            if hasattr(ep.config, 'served_entities') and ep.config.served_entities:
+              served_entity = ep.config.served_entities[0]
+              model_name = (
+                served_entity.entity_name
+                if hasattr(served_entity, 'entity_name')
+                else served_entity.name
+              )
+              model_version = (
+                str(served_entity.entity_version)
+                if hasattr(served_entity, 'entity_version')
+                else None
+              )
+            # Old format: served_models (for custom/MLflow models)
+            elif hasattr(ep.config, 'served_models') and ep.config.served_models:
+              served_model = ep.config.served_models[0]
+              model_name = served_model.model_name if served_model else 'unknown'
+              model_version = (
+                str(served_model.model_version)
+                if served_model and served_model.model_version
+                else None
+              )
 
-            for ep in endpoint_list:
-                try:
-                    # Extract served model/entity config (supports both old and new formats)
-                    served_model = None
-                    served_entity = None
-                    model_name = 'unknown'
-                    model_version = None
+          # Map state
+          state_str = (
+            ep.state.config_update.value if ep.state and ep.state.config_update else 'UNKNOWN'
+          )
+          state_mapping = {
+            'NOT_UPDATING': 'READY',
+            'UPDATE_PENDING': 'UPDATING',
+            'CREATING': 'CREATING',
+            'UPDATE_FAILED': 'FAILED',
+          }
+          state = state_mapping.get(state_str, 'UPDATING')
 
-                    if ep.config:
-                        # New format: served_entities (for foundation models)
-                        if hasattr(ep.config, 'served_entities') and ep.config.served_entities:
-                            served_entity = ep.config.served_entities[0]
-                            model_name = served_entity.entity_name if hasattr(served_entity, 'entity_name') else served_entity.name
-                            model_version = str(served_entity.entity_version) if hasattr(served_entity, 'entity_version') else None
-                        # Old format: served_models (for custom/MLflow models)
-                        elif hasattr(ep.config, 'served_models') and ep.config.served_models:
-                            served_model = ep.config.served_models[0]
-                            model_name = served_model.model_name if served_model else 'unknown'
-                            model_version = str(served_model.model_version) if served_model and served_model.model_version else None
+          # Convert timestamp if present (Unix timestamp in milliseconds)
+          creation_timestamp = None
+          if hasattr(ep, 'creation_timestamp') and ep.creation_timestamp:
+            try:
+              # Convert from milliseconds to datetime, then to ISO string
+              dt = datetime.fromtimestamp(ep.creation_timestamp / 1000)
+              creation_timestamp = dt.isoformat() + 'Z'
+            except (ValueError, TypeError):
+              creation_timestamp = None
 
-                    # Map state
-                    state_str = ep.state.config_update.value if ep.state and ep.state.config_update else 'UNKNOWN'
-                    state_mapping = {
-                        'NOT_UPDATING': 'READY',
-                        'UPDATE_PENDING': 'UPDATING',
-                        'CREATING': 'CREATING',
-                        'UPDATE_FAILED': 'FAILED',
-                    }
-                    state = state_mapping.get(state_str, 'UPDATING')
+          endpoint_response = ModelEndpointResponse(
+            endpoint_name=ep.name,
+            endpoint_id=None,  # Not typically available in list response
+            model_name=model_name,
+            model_version=model_version,
+            state=state,
+            creation_timestamp=creation_timestamp,
+          )
 
-                    # Convert timestamp if present (Unix timestamp in milliseconds)
-                    creation_timestamp = None
-                    if hasattr(ep, 'creation_timestamp') and ep.creation_timestamp:
-                        try:
-                            # Convert from milliseconds to datetime, then to ISO string
-                            dt = datetime.fromtimestamp(ep.creation_timestamp / 1000)
-                            creation_timestamp = dt.isoformat() + 'Z'
-                        except (ValueError, TypeError):
-                            creation_timestamp = None
+          endpoints.append(endpoint_response)
 
-                    endpoint_response = ModelEndpointResponse(
-                        endpoint_name=ep.name,
-                        endpoint_id=None,  # Not typically available in list response
-                        model_name=model_name,
-                        model_version=model_version,
-                        state=state,
-                        creation_timestamp=creation_timestamp
-                    )
+        except Exception as e:
+          # Log error but continue processing other endpoints
+          logger.warning(
+            f'Error processing endpoint {ep.name if hasattr(ep, "name") else "unknown"}: {str(e)}',
+            endpoint=ep.name if hasattr(ep, 'name') else None,
+          )
+          continue
 
-                    endpoints.append(endpoint_response)
+      logger.info(f'Listed {len(endpoints)} serving endpoints')
 
-                except Exception as e:
-                    # Log error but continue processing other endpoints
-                    logger.warning(
-                        f"Error processing endpoint {ep.name if hasattr(ep, 'name') else 'unknown'}: {str(e)}",
-                        endpoint=ep.name if hasattr(ep, 'name') else None
-                    )
-                    continue
+      return endpoints
 
-            logger.info(f'Listed {len(endpoints)} serving endpoints')
+    except DatabricksError as e:
+      logger.error(f'Error listing model serving endpoints: {str(e)}', exc_info=True)
+      raise
 
-            return endpoints
+  async def get_endpoint(self, endpoint_name: str) -> ModelEndpoint:
+    """Get endpoint metadata.
 
-        except DatabricksError as e:
-            logger.error(
-                f'Error listing model serving endpoints: {str(e)}',
-                exc_info=True
-            )
-            raise
+    Args:
+        endpoint_name: Endpoint name
 
-    async def get_endpoint(self, endpoint_name: str) -> ModelEndpoint:
-        """Get endpoint metadata.
+    Returns:
+        ModelEndpoint with metadata
 
-        Args:
-            endpoint_name: Endpoint name
+    Raises:
+        DatabricksError: If endpoint not found
+    """
+    try:
+      # Wrap sync SDK call in async
+      ep = await asyncio.to_thread(self.client.serving_endpoints.get, endpoint_name)
 
-        Returns:
-            ModelEndpoint with metadata
+      # Extract served model/entity info (supports both formats)
+      served_model = None
+      served_entity = None
+      model_name = 'unknown'
+      model_version = 'unknown'
+      config_dict = {}
 
-        Raises:
-            DatabricksError: If endpoint not found
-        """
-        try:
-            # Wrap sync SDK call in async
-            ep = await asyncio.to_thread(self.client.serving_endpoints.get, endpoint_name)
+      if ep.config:
+        # New format: served_entities (foundation models)
+        if hasattr(ep.config, 'served_entities') and ep.config.served_entities:
+          served_entity = ep.config.served_entities[0]
+          model_name = (
+            served_entity.entity_name
+            if hasattr(served_entity, 'entity_name')
+            else served_entity.name
+          )
+          model_version = (
+            str(served_entity.entity_version)
+            if hasattr(served_entity, 'entity_version')
+            else 'unknown'
+          )
+          config_dict = {
+            'served_entities': [served_entity.as_dict()]
+            if hasattr(served_entity, 'as_dict')
+            else []
+          }
+        # Old format: served_models (custom/MLflow models)
+        elif hasattr(ep.config, 'served_models') and ep.config.served_models:
+          served_model = ep.config.served_models[0]
+          model_name = served_model.model_name if served_model else 'unknown'
+          model_version = (
+            str(served_model.model_version)
+            if served_model and served_model.model_version
+            else 'unknown'
+          )
+          config_dict = {
+            'served_models': [served_model.as_dict()]
+            if served_model and hasattr(served_model, 'as_dict')
+            else []
+          }
 
-            # Extract served model/entity info (supports both formats)
-            served_model = None
-            served_entity = None
-            model_name = 'unknown'
-            model_version = 'unknown'
-            config_dict = {}
+      # Map state
+      state_mapping = {
+        'NOT_UPDATING': EndpointState.READY,
+        'UPDATE_PENDING': EndpointState.UPDATING,
+        'CREATING': EndpointState.CREATING,
+        'UPDATE_FAILED': EndpointState.FAILED,
+      }
 
-            if ep.config:
-                # New format: served_entities (foundation models)
-                if hasattr(ep.config, 'served_entities') and ep.config.served_entities:
-                    served_entity = ep.config.served_entities[0]
-                    model_name = served_entity.entity_name if hasattr(served_entity, 'entity_name') else served_entity.name
-                    model_version = str(served_entity.entity_version) if hasattr(served_entity, 'entity_version') else 'unknown'
-                    config_dict = {'served_entities': [served_entity.as_dict()] if hasattr(served_entity, 'as_dict') else []}
-                # Old format: served_models (custom/MLflow models)
-                elif hasattr(ep.config, 'served_models') and ep.config.served_models:
-                    served_model = ep.config.served_models[0]
-                    model_name = served_model.model_name if served_model else 'unknown'
-                    model_version = str(served_model.model_version) if served_model and served_model.model_version else 'unknown'
-                    config_dict = {'served_models': [served_model.as_dict()] if served_model and hasattr(served_model, 'as_dict') else []}
+      state_str = ep.state.config_update.value if ep.state and ep.state.config_update else 'UNKNOWN'
+      state = state_mapping.get(state_str, EndpointState.UPDATING)
 
-            # Map state
-            state_mapping = {
-                'NOT_UPDATING': EndpointState.READY,
-                'UPDATE_PENDING': EndpointState.UPDATING,
-                'CREATING': EndpointState.CREATING,
-                'UPDATE_FAILED': EndpointState.FAILED,
-            }
+      # Build workload URL (endpoint invocation URL)
+      workspace_url = os.getenv('DATABRICKS_HOST', 'https://example.cloud.databricks.com').rstrip(
+        '/'
+      )
+      # Ensure HTTPS is used (required by ModelEndpoint validator)
+      if workspace_url.startswith('http://'):
+        workspace_url = workspace_url.replace('http://', 'https://', 1)
+      elif not workspace_url.startswith('https://'):
+        workspace_url = f'https://{workspace_url}'
+      workload_url = f'{workspace_url}/serving-endpoints/{endpoint_name}/invocations'
 
-            state_str = ep.state.config_update.value if ep.state and ep.state.config_update else 'UNKNOWN'
-            state = state_mapping.get(state_str, EndpointState.UPDATING)
+      endpoint = ModelEndpoint(
+        endpoint_name=ep.name,
+        endpoint_id=ep.id if hasattr(ep, 'id') else ep.name,
+        model_name=model_name,
+        model_version=model_version,
+        state=state,
+        workload_url=workload_url,
+        creation_timestamp=datetime.fromtimestamp(ep.creation_timestamp / 1000)
+        if hasattr(ep, 'creation_timestamp')
+        else datetime.utcnow(),
+        last_updated_timestamp=datetime.utcnow(),
+        config=config_dict,
+      )
 
-            # Build workload URL (endpoint invocation URL)
-            workspace_url = os.getenv('DATABRICKS_HOST', 'https://example.cloud.databricks.com').rstrip('/')
-            # Ensure HTTPS is used (required by ModelEndpoint validator)
-            if workspace_url.startswith('http://'):
-                workspace_url = workspace_url.replace('http://', 'https://', 1)
-            elif not workspace_url.startswith('https://'):
-                workspace_url = f'https://{workspace_url}'
-            workload_url = f'{workspace_url}/serving-endpoints/{endpoint_name}/invocations'
+      return endpoint
 
-            endpoint = ModelEndpoint(
-                endpoint_name=ep.name,
-                endpoint_id=ep.id if hasattr(ep, 'id') else ep.name,
-                model_name=model_name,
-                model_version=model_version,
-                state=state,
-                workload_url=workload_url,
-                creation_timestamp=datetime.fromtimestamp(ep.creation_timestamp / 1000) if hasattr(ep, 'creation_timestamp') else datetime.utcnow(),
-                last_updated_timestamp=datetime.utcnow(),
-                config=config_dict
-            )
+    except DatabricksError as e:
+      logger.error(
+        f'Error getting endpoint {endpoint_name}: {str(e)}', exc_info=True, endpoint=endpoint_name
+      )
+      raise
 
-            return endpoint
+  async def invoke_model(
+    self,
+    endpoint_name: str,
+    inputs: dict[str, Any],
+    user_id: str,
+    timeout_seconds: int | None = None,
+  ) -> ModelInferenceResponse:
+    """Invoke model serving endpoint for predictions.
 
-        except DatabricksError as e:
-            logger.error(
-                f'Error getting endpoint {endpoint_name}: {str(e)}',
-                exc_info=True,
-                endpoint=endpoint_name
-            )
-            raise
+    Args:
+        endpoint_name: Target endpoint name
+        inputs: Model input data
+        user_id: User making the request
+        timeout_seconds: Request timeout (default: 30s)
 
-    async def invoke_model(
-        self,
-        endpoint_name: str,
-        inputs: dict[str, Any],
-        user_id: str,
-        timeout_seconds: int | None = None
-    ) -> ModelInferenceResponse:
-        """Invoke model serving endpoint for predictions.
+    Returns:
+        ModelInferenceResponse with predictions or error
 
-        Args:
-            endpoint_name: Target endpoint name
-            inputs: Model input data
-            user_id: User making the request
-            timeout_seconds: Request timeout (default: 30s)
+    Raises:
+        ValueError: If endpoint not ready
+        httpx.TimeoutException: If request times out (EC-001)
+        httpx.HTTPError: If HTTP request fails (EC-001)
+    """
+    timeout = timeout_seconds or self.default_timeout
 
-        Returns:
-            ModelInferenceResponse with predictions or error
+    # Create inference request
+    request = ModelInferenceRequest(
+      request_id=f'req-{datetime.utcnow().timestamp()}',
+      endpoint_name=endpoint_name,
+      inputs=inputs,
+      user_id=user_id,
+      timeout_seconds=timeout,
+    )
 
-        Raises:
-            ValueError: If endpoint not ready
-            httpx.TimeoutException: If request times out (EC-001)
-            httpx.HTTPError: If HTTP request fails (EC-001)
-        """
-        timeout = timeout_seconds or self.default_timeout
+    start_time = datetime.utcnow()
 
-        # Create inference request
-        request = ModelInferenceRequest(
-            request_id=f'req-{datetime.utcnow().timestamp()}',
-            endpoint_name=endpoint_name,
-            inputs=inputs,
-            user_id=user_id,
-            timeout_seconds=timeout
+    try:
+      # Check endpoint is ready
+      endpoint = await self.get_endpoint(endpoint_name)
+      if not endpoint.is_ready_for_inference():
+        raise ValueError(f'Endpoint {endpoint_name} is not ready (state: {endpoint.state})')
+
+      # Determine if this is a chat/foundation model or traditional ML model
+      # Chat models have 'messages' key in inputs, traditional models typically have other structures
+      is_chat_model = 'messages' in inputs
+
+      # Make request with retry logic
+      predictions = await self._invoke_with_retry(
+        endpoint.workload_url, inputs, timeout, max_retries=3, is_chat_model=is_chat_model
+      )
+
+      end_time = datetime.utcnow()
+      execution_time_ms = max(1, int((end_time - start_time).total_seconds() * 1000))
+
+      # Create success response
+      response = ModelInferenceResponse(
+        request_id=request.request_id,
+        endpoint_name=endpoint_name,
+        predictions=predictions,
+        status=InferenceStatus.SUCCESS,
+        execution_time_ms=execution_time_ms,
+        error_message=None,
+        completed_at=end_time,
+      )
+
+      logger.info(
+        f'Inference succeeded in {execution_time_ms}ms',
+        request_id=request.request_id,
+        endpoint=endpoint_name,
+        user_id=user_id,
+        execution_time_ms=execution_time_ms,
+      )
+
+      # Log inference to Lakebase model_inference_logs table
+      await self._log_inference(request, response)
+
+      return response
+
+    except httpx.TimeoutException:
+      logger.error(
+        f'Inference timeout after {timeout}s',
+        exc_info=True,
+        request_id=request.request_id,
+        endpoint=endpoint_name,
+        user_id=user_id,
+      )
+
+      response = ModelInferenceResponse(
+        request_id=request.request_id,
+        endpoint_name=endpoint_name,
+        predictions={},
+        status=InferenceStatus.TIMEOUT,
+        execution_time_ms=timeout * 1000,
+        error_message=f'Request timeout after {timeout} seconds',
+        completed_at=datetime.utcnow(),
+      )
+
+      # Log inference to Lakebase
+      await self._log_inference(request, response)
+
+      return response
+
+    except (httpx.HTTPError, DatabricksError, ValueError) as e:
+      end_time = datetime.utcnow()
+      execution_time_ms = max(1, int((end_time - start_time).total_seconds() * 1000))
+
+      # Enhance error message for 400 Bad Request errors
+      error_message = str(e)
+      if '400' in error_message and 'Bad Request' in error_message:
+        error_message = (
+          f'{error_message}\n\n'
+          "This usually means the request format doesn't match what the model expects. "
+          'Please check:\n'
+          '1. For foundation models (Claude, GPT, etc.), use: '
+          '{"messages": [{"role": "user", "content": "..."}], "max_tokens": 150}\n'
+          '2. For traditional ML models, use: '
+          '{"inputs": [[feature1, feature2, ...]]}\n'
+          '3. For custom models with dataframe input, use: '
+          '{"dataframe_split": {"columns": [...], "data": [[...]]}}'
         )
 
-        start_time = datetime.utcnow()
+      logger.error(
+        f'Inference error: {error_message}',
+        exc_info=True,
+        request_id=request.request_id,
+        endpoint=endpoint_name,
+        user_id=user_id,
+      )
 
+      response = ModelInferenceResponse(
+        request_id=request.request_id,
+        endpoint_name=endpoint_name,
+        predictions={},
+        status=InferenceStatus.ERROR,
+        execution_time_ms=execution_time_ms,
+        error_message=error_message,
+        completed_at=end_time,
+      )
+
+      # Log inference to Lakebase
+      await self._log_inference(request, response)
+
+      return response
+
+  async def _invoke_with_retry(
+    self,
+    url: str,
+    inputs: dict[str, Any],
+    timeout: int,
+    max_retries: int = 3,
+    is_chat_model: bool = False,
+  ) -> dict[str, Any]:
+    """Invoke endpoint with exponential backoff retry.
+
+    Args:
+        url: Endpoint URL
+        inputs: Model inputs
+        timeout: Request timeout
+        max_retries: Maximum retry attempts
+        is_chat_model: Whether this is a chat/foundation model (affects request format)
+
+    Returns:
+        Predictions dictionary
+
+    Raises:
+        httpx.HTTPError: If all retries fail
+    """
+    # Get authentication headers from WorkspaceClient
+    # authenticate() returns a dict with Authorization header (works with PAT and OAuth)
+    auth_headers = self.client.config.authenticate()
+    if not auth_headers or 'Authorization' not in auth_headers:
+      raise ValueError('Failed to authenticate with Databricks. Please check your credentials.')
+
+    headers = {
+      **auth_headers,  # Unpack authentication headers (includes Authorization)
+      'Content-Type': 'application/json',
+    }
+
+    # Prepare request body based on model type
+    # For foundation models (chat models), send inputs directly without wrapping
+    # For traditional ML models, the inputs might already be wrapped correctly
+    request_body = inputs
+
+    retry_count = 0
+    last_exception = None
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+      while retry_count < max_retries:
         try:
-            # Check endpoint is ready
-            endpoint = await self.get_endpoint(endpoint_name)
-            if not endpoint.is_ready_for_inference():
-                raise ValueError(f'Endpoint {endpoint_name} is not ready (state: {endpoint.state})')
+          logger.debug(
+            f'Invoking model endpoint (attempt {retry_count + 1}/{max_retries})',
+            url=url,
+            is_chat_model=is_chat_model,
+            request_body_keys=list(request_body.keys()),
+          )
 
-            # Determine if this is a chat/foundation model or traditional ML model
-            # Chat models have 'messages' key in inputs, traditional models typically have other structures
-            is_chat_model = 'messages' in inputs
+          response = await client.post(url, json=request_body, headers=headers)
+          response.raise_for_status()
 
-            # Make request with retry logic
-            predictions = await self._invoke_with_retry(
-                endpoint.workload_url,
-                inputs,
-                timeout,
-                max_retries=3,
-                is_chat_model=is_chat_model
-            )
+          return response.json()
 
-            end_time = datetime.utcnow()
-            execution_time_ms = max(1, int((end_time - start_time).total_seconds() * 1000))
+        except (httpx.HTTPError, httpx.TimeoutException) as e:
+          retry_count += 1
+          last_exception = e
 
-            # Create success response
-            response = ModelInferenceResponse(
-                request_id=request.request_id,
-                endpoint_name=endpoint_name,
-                predictions=predictions,
-                status=InferenceStatus.SUCCESS,
-                execution_time_ms=execution_time_ms,
-                error_message=None,
-                completed_at=end_time
-            )
+          # Log detailed error information for 4xx errors
+          if isinstance(e, httpx.HTTPStatusError):
+            try:
+              error_body = e.response.text
+              logger.error(
+                f'HTTP {e.response.status_code} error from model endpoint',
+                url=url,
+                status_code=e.response.status_code,
+                error_body=error_body,
+                request_body_keys=list(request_body.keys()),
+                is_chat_model=is_chat_model,
+              )
 
-            logger.info(
-                f'Inference succeeded in {execution_time_ms}ms',
-                request_id=request.request_id,
-                endpoint=endpoint_name,
-                user_id=user_id,
-                execution_time_ms=execution_time_ms
-            )
-
-            # Log inference to Lakebase model_inference_logs table
-            await self._log_inference(request, response)
-
-            return response
-
-        except httpx.TimeoutException:
-            logger.error(
-                f'Inference timeout after {timeout}s',
-                exc_info=True,
-                request_id=request.request_id,
-                endpoint=endpoint_name,
-                user_id=user_id
-            )
-
-            response = ModelInferenceResponse(
-                request_id=request.request_id,
-                endpoint_name=endpoint_name,
-                predictions={},
-                status=InferenceStatus.TIMEOUT,
-                execution_time_ms=timeout * 1000,
-                error_message=f'Request timeout after {timeout} seconds',
-                completed_at=datetime.utcnow()
-            )
-
-            # Log inference to Lakebase
-            await self._log_inference(request, response)
-
-            return response
-
-        except (httpx.HTTPError, DatabricksError, ValueError) as e:
-            end_time = datetime.utcnow()
-            execution_time_ms = max(1, int((end_time - start_time).total_seconds() * 1000))
-
-            # Enhance error message for 400 Bad Request errors
-            error_message = str(e)
-            if '400' in error_message and 'Bad Request' in error_message:
-                error_message = (
-                    f"{error_message}\n\n"
-                    "This usually means the request format doesn't match what the model expects. "
-                    "Please check:\n"
-                    "1. For foundation models (Claude, GPT, etc.), use: "
-                    '{"messages": [{"role": "user", "content": "..."}], "max_tokens": 150}\n'
-                    "2. For traditional ML models, use: "
-                    '{"inputs": [[feature1, feature2, ...]]}\n'
-                    "3. For custom models with dataframe input, use: "
-                    '{"dataframe_split": {"columns": [...], "data": [[...]]}}'
+              # For 400 errors, provide helpful guidance
+              if e.response.status_code == 400:
+                logger.error(
+                  'Bad Request - Request format may not match model expectations. '
+                  "Check the endpoint's input schema or model documentation.",
+                  endpoint_url=url,
                 )
+            except Exception:
+              pass
 
-            logger.error(
-                f'Inference error: {error_message}',
-                exc_info=True,
-                request_id=request.request_id,
-                endpoint=endpoint_name,
-                user_id=user_id
-            )
+          # Only retry on server errors (5xx) or timeouts
+          if isinstance(e, httpx.HTTPStatusError) and 400 <= e.response.status_code < 500:
+            # Client error - don't retry
+            raise
 
-            response = ModelInferenceResponse(
-                request_id=request.request_id,
-                endpoint_name=endpoint_name,
-                predictions={},
-                status=InferenceStatus.ERROR,
-                execution_time_ms=execution_time_ms,
-                error_message=error_message,
-                completed_at=end_time
-            )
+          if retry_count < max_retries:
+            # Exponential backoff: 1s, 2s, 4s
+            wait_time = 2 ** (retry_count - 1)
+            logger.warning(f'Retry {retry_count}/{max_retries} after {wait_time}s', url=url)
+            await asyncio.sleep(wait_time)
+          else:
+            # Max retries reached
+            raise last_exception
 
-            # Log inference to Lakebase
-            await self._log_inference(request, response)
+  async def _log_inference(
+    self, request: ModelInferenceRequest, response: ModelInferenceResponse
+  ) -> None:
+    """Log inference request and response to Lakebase.
 
-            return response
+    Args:
+        request: Model inference request
+        response: Model inference response
+    """
+    try:
+      # Skip logging if Lakebase is not configured
+      if not is_lakebase_configured():
+        logger.debug(
+          'Skipping inference logging - Lakebase not configured', request_id=request.request_id
+        )
+        return
 
-    async def _invoke_with_retry(
-        self,
-        url: str,
-        inputs: dict[str, Any],
-        timeout: int,
-        max_retries: int = 3,
-        is_chat_model: bool = False
-    ) -> dict[str, Any]:
-        """Invoke endpoint with exponential backoff retry.
+      engine = get_engine()
 
-        Args:
-            url: Endpoint URL
-            inputs: Model inputs
-            timeout: Request timeout
-            max_retries: Maximum retry attempts
-            is_chat_model: Whether this is a chat/foundation model (affects request format)
+      # Serialize inputs and predictions as JSON
+      import json
 
-        Returns:
-            Predictions dictionary
+      inputs_json = json.dumps(request.inputs)
+      predictions_json = json.dumps(response.predictions) if response.predictions else None
 
-        Raises:
-            httpx.HTTPError: If all retries fail
-        """
-        # Get authentication headers from WorkspaceClient
-        # authenticate() returns a dict with Authorization header (works with PAT and OAuth)
-        auth_headers = self.client.config.authenticate()
-        if not auth_headers or 'Authorization' not in auth_headers:
-            raise ValueError('Failed to authenticate with Databricks. Please check your credentials.')
-
-        headers = {
-            **auth_headers,  # Unpack authentication headers (includes Authorization)
-            'Content-Type': 'application/json'
-        }
-
-        # Prepare request body based on model type
-        # For foundation models (chat models), send inputs directly without wrapping
-        # For traditional ML models, the inputs might already be wrapped correctly
-        request_body = inputs
-
-        retry_count = 0
-        last_exception = None
-
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            while retry_count < max_retries:
-                try:
-                    logger.debug(
-                        f'Invoking model endpoint (attempt {retry_count + 1}/{max_retries})',
-                        url=url,
-                        is_chat_model=is_chat_model,
-                        request_body_keys=list(request_body.keys())
-                    )
-
-                    response = await client.post(
-                        url,
-                        json=request_body,
-                        headers=headers
-                    )
-                    response.raise_for_status()
-
-                    return response.json()
-
-                except (httpx.HTTPError, httpx.TimeoutException) as e:
-                    retry_count += 1
-                    last_exception = e
-
-                    # Log detailed error information for 4xx errors
-                    if isinstance(e, httpx.HTTPStatusError):
-                        try:
-                            error_body = e.response.text
-                            logger.error(
-                                f'HTTP {e.response.status_code} error from model endpoint',
-                                url=url,
-                                status_code=e.response.status_code,
-                                error_body=error_body,
-                                request_body_keys=list(request_body.keys()),
-                                is_chat_model=is_chat_model
-                            )
-
-                            # For 400 errors, provide helpful guidance
-                            if e.response.status_code == 400:
-                                logger.error(
-                                    "Bad Request - Request format may not match model expectations. "
-                                    "Check the endpoint's input schema or model documentation.",
-                                    endpoint_url=url
-                                )
-                        except Exception:
-                            pass
-
-                    # Only retry on server errors (5xx) or timeouts
-                    if isinstance(e, httpx.HTTPStatusError) and 400 <= e.response.status_code < 500:
-                        # Client error - don't retry
-                        raise
-
-                    if retry_count < max_retries:
-                        # Exponential backoff: 1s, 2s, 4s
-                        wait_time = 2 ** (retry_count - 1)
-                        logger.warning(
-                            f'Retry {retry_count}/{max_retries} after {wait_time}s',
-                            url=url
-                        )
-                        await asyncio.sleep(wait_time)
-                    else:
-                        # Max retries reached
-                        raise last_exception
-
-    async def _log_inference(
-        self,
-        request: ModelInferenceRequest,
-        response: ModelInferenceResponse
-    ) -> None:
-        """Log inference request and response to Lakebase.
-
-        Args:
-            request: Model inference request
-            response: Model inference response
-        """
-        try:
-            # Skip logging if Lakebase is not configured
-            if not is_lakebase_configured():
-                logger.debug(
-                    'Skipping inference logging - Lakebase not configured',
-                    request_id=request.request_id
-                )
-                return
-
-            engine = get_engine()
-
-            # Serialize inputs and predictions as JSON
-            import json
-            inputs_json = json.dumps(request.inputs)
-            predictions_json = json.dumps(response.predictions) if response.predictions else None
-
-            # Insert log record
-            with engine.connect() as conn:
-                conn.execute(
-                    text("""
+      # Insert log record
+      with engine.connect() as conn:
+        conn.execute(
+          text("""
                         INSERT INTO model_inference_logs (
                             request_id, endpoint_name, user_id, inputs, predictions,
                             status, execution_time_ms, error_message, created_at, completed_at
@@ -532,77 +550,69 @@ class ModelServingService:
                             :status, :execution_time_ms, :error_message, :created_at, :completed_at
                         )
                     """),
-                    {
-                        'request_id': request.request_id,
-                        'endpoint_name': request.endpoint_name,
-                        'user_id': request.user_id,
-                        'inputs': inputs_json,
-                        'predictions': predictions_json,
-                        'status': response.status.value,
-                        'execution_time_ms': response.execution_time_ms,
-                        'error_message': response.error_message,
-                        'created_at': request.created_at,
-                        'completed_at': response.completed_at
-                    }
-                )
-                conn.commit()
+          {
+            'request_id': request.request_id,
+            'endpoint_name': request.endpoint_name,
+            'user_id': request.user_id,
+            'inputs': inputs_json,
+            'predictions': predictions_json,
+            'status': response.status.value,
+            'execution_time_ms': response.execution_time_ms,
+            'error_message': response.error_message,
+            'created_at': request.created_at,
+            'completed_at': response.completed_at,
+          },
+        )
+        conn.commit()
 
-            logger.debug(
-                'Logged inference to database',
-                request_id=request.request_id,
-                user_id=request.user_id
-            )
+      logger.debug(
+        'Logged inference to database', request_id=request.request_id, user_id=request.user_id
+      )
 
-        except Exception as e:
-            # Log error but don't fail the inference request
-            logger.error(
-                f'Failed to log inference to database: {str(e)}',
-                exc_info=True,
-                request_id=request.request_id
-            )
+    except Exception as e:
+      # Log error but don't fail the inference request
+      logger.error(
+        f'Failed to log inference to database: {str(e)}',
+        exc_info=True,
+        request_id=request.request_id,
+      )
 
-    async def get_user_inference_logs(
-        self,
-        user_id: str,
-        limit: int = 50,
-        offset: int = 0
-    ) -> tuple[list[dict[str, Any]], int]:
-        """Get inference logs for a specific user.
+  async def get_user_inference_logs(
+    self, user_id: str, limit: int = 50, offset: int = 0
+  ) -> tuple[list[dict[str, Any]], int]:
+    """Get inference logs for a specific user.
 
-        Args:
-            user_id: User ID to filter logs
-            limit: Maximum number of logs to return
-            offset: Offset for pagination
+    Args:
+        user_id: User ID to filter logs
+        limit: Maximum number of logs to return
+        offset: Offset for pagination
 
-        Returns:
-            Tuple of (logs list, total count)
-        """
-        try:
-            # Return empty logs if Lakebase is not configured (local development)
-            if not is_lakebase_configured():
-                logger.debug(
-                    'Skipping inference log retrieval - Lakebase not configured',
-                    user_id=user_id
-                )
-                return [], 0
+    Returns:
+        Tuple of (logs list, total count)
+    """
+    try:
+      # Return empty logs if Lakebase is not configured (local development)
+      if not is_lakebase_configured():
+        logger.debug('Skipping inference log retrieval - Lakebase not configured', user_id=user_id)
+        return [], 0
 
-            engine = get_engine()
+      engine = get_engine()
 
-            with engine.connect() as conn:
-                # Get total count
-                count_result = conn.execute(
-                    text("""
+      with engine.connect() as conn:
+        # Get total count
+        count_result = conn.execute(
+          text("""
                         SELECT COUNT(*) as total
                         FROM model_inference_logs
                         WHERE user_id = :user_id
                     """),
-                    {'user_id': user_id}
-                )
-                total_count = count_result.fetchone()[0]
+          {'user_id': user_id},
+        )
+        total_count = count_result.fetchone()[0]
 
-                # Get logs
-                result = conn.execute(
-                    text("""
+        # Get logs
+        result = conn.execute(
+          text("""
                         SELECT
                             id, request_id, endpoint_name, user_id,
                             inputs, predictions, status, execution_time_ms,
@@ -612,31 +622,29 @@ class ModelServingService:
                         ORDER BY created_at DESC
                         LIMIT :limit OFFSET :offset
                     """),
-                    {'user_id': user_id, 'limit': limit, 'offset': offset}
-                )
+          {'user_id': user_id, 'limit': limit, 'offset': offset},
+        )
 
-                logs = []
-                for row in result:
-                    logs.append({
-                        'id': row[0],
-                        'request_id': row[1],
-                        'endpoint_name': row[2],
-                        'user_id': row[3],
-                        'inputs': row[4],
-                        'predictions': row[5],
-                        'status': row[6],
-                        'execution_time_ms': row[7],
-                        'error_message': row[8],
-                        'created_at': row[9].isoformat() if row[9] else None,
-                        'completed_at': row[10].isoformat() if row[10] else None
-                    })
+        logs = []
+        for row in result:
+          logs.append(
+            {
+              'id': row[0],
+              'request_id': row[1],
+              'endpoint_name': row[2],
+              'user_id': row[3],
+              'inputs': row[4],
+              'predictions': row[5],
+              'status': row[6],
+              'execution_time_ms': row[7],
+              'error_message': row[8],
+              'created_at': row[9].isoformat() if row[9] else None,
+              'completed_at': row[10].isoformat() if row[10] else None,
+            }
+          )
 
-                return logs, total_count
+        return logs, total_count
 
-        except Exception as e:
-            logger.error(
-                f'Failed to retrieve inference logs: {str(e)}',
-                exc_info=True,
-                user_id=user_id
-            )
-            raise
+    except Exception as e:
+      logger.error(f'Failed to retrieve inference logs: {str(e)}', exc_info=True, user_id=user_id)
+      raise

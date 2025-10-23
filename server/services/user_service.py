@@ -34,17 +34,12 @@ class UserService:
 
     # Log authentication mode selection
     if user_token:
-      log_event('auth.mode', context={
-        'mode': 'obo',
-        'auth_type': 'pat',
-        'service': 'UserService'
-      })
+      log_event('auth.mode', context={'mode': 'obo', 'auth_type': 'pat', 'service': 'UserService'})
     else:
-      log_event('auth.mode', context={
-        'mode': 'service_principal',
-        'auth_type': 'oauth_m2m',
-        'service': 'UserService'
-      })
+      log_event(
+        'auth.mode',
+        context={'mode': 'service_principal', 'auth_type': 'oauth_m2m', 'service': 'UserService'},
+      )
 
   def _get_client(self) -> WorkspaceClient:
     """Get WorkspaceClient with appropriate authentication.
@@ -59,36 +54,44 @@ class UserService:
       raise ValueError('DATABRICKS_HOST environment variable is not set')
 
     # Ensure host has proper format
-    host = self.workspace_url if self.workspace_url.startswith('http') else f'https://{self.workspace_url}'
+    host = (
+      self.workspace_url
+      if self.workspace_url.startswith('http')
+      else f'https://{self.workspace_url}'
+    )
 
     # Create client with or without user token
     if self.user_token:
       # On-Behalf-Of-User Authentication (OBO)
-      log_event('service.client_created', context={
-        'service_name': 'UserService',
-        'auth_mode': 'obo',
-        'auth_type': 'pat',
-        'has_host': bool(host)
-      })
+      log_event(
+        'service.client_created',
+        context={
+          'service_name': 'UserService',
+          'auth_mode': 'obo',
+          'auth_type': 'pat',
+          'has_host': bool(host),
+        },
+      )
 
       return WorkspaceClient(
         host=host,
         token=self.user_token,
-        auth_type='pat'  # REQUIRED: Explicit authentication type
+        auth_type='pat',  # REQUIRED: Explicit authentication type
       )
     else:
       # Service Principal Authentication (OAuth M2M)
-      log_event('service.client_created', context={
-        'service_name': 'UserService',
-        'auth_mode': 'service_principal',
-        'auth_type': 'oauth_m2m',
-        'has_host': bool(host)
-      })
+      log_event(
+        'service.client_created',
+        context={
+          'service_name': 'UserService',
+          'auth_mode': 'service_principal',
+          'auth_type': 'oauth_m2m',
+          'has_host': bool(host),
+        },
+      )
 
       # Use OAuth M2M (env vars: DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET)
-      return WorkspaceClient(
-        host=host
-      )
+      return WorkspaceClient(host=host)
 
   async def get_user_info(self) -> UserIdentity:
     """Get authenticated user's information from Databricks using OBO authentication.
@@ -111,6 +114,7 @@ class UserService:
       client = self._get_client()
       # Note: This is a blocking call, but wrapped in async for retry compatibility
       import asyncio
+
       user = await asyncio.to_thread(client.current_user.me)
       return user
 
@@ -120,23 +124,24 @@ class UserService:
       # Record successful API call metrics
       duration_seconds = time.time() - start_time
       record_upstream_api_call(
-        service='databricks',
-        operation='get_user_info',
-        duration_seconds=duration_seconds
+        service='databricks', operation='get_user_info', duration_seconds=duration_seconds
       )
 
       user_identity = UserIdentity(
         user_id=user.user_name or 'unknown@example.com',
         display_name=user.display_name or 'Unknown User',
         active=user.active or False,
-        extracted_at=datetime.utcnow()
+        extracted_at=datetime.utcnow(),
       )
 
-      log_event('auth.user_id_extracted', context={
-        'user_id': user_identity.user_id,
-        'method': 'UserService.get_user_info',
-        'duration_ms': duration_seconds * 1000
-      })
+      log_event(
+        'auth.user_id_extracted',
+        context={
+          'user_id': user_identity.user_id,
+          'method': 'UserService.get_user_info',
+          'duration_ms': duration_seconds * 1000,
+        },
+      )
 
       return user_identity
 
@@ -144,25 +149,27 @@ class UserService:
       # Record failed API call metrics
       duration_seconds = time.time() - start_time
       record_upstream_api_call(
-        service='databricks',
-        operation='get_user_info',
-        duration_seconds=duration_seconds
+        service='databricks', operation='get_user_info', duration_seconds=duration_seconds
       )
 
-      log_event('auth.failed', level='ERROR', context={
-        'error_type': type(e).__name__,
-        'error_message': str(e),
-        'has_token': bool(self.user_token),
-        'service': 'UserService'
-      })
+      log_event(
+        'auth.failed',
+        level='ERROR',
+        context={
+          'error_type': type(e).__name__,
+          'error_message': str(e),
+          'has_token': bool(self.user_token),
+          'service': 'UserService',
+        },
+      )
 
       # Return standardized error response
       raise HTTPException(
         status_code=401,
         detail={
           'error_code': 'AUTH_USER_IDENTITY_FAILED',
-          'message': f'Failed to extract user identity: {str(e)}'
-        }
+          'message': f'Failed to extract user identity: {str(e)}',
+        },
       ) from e
 
   async def get_user_id(self) -> str:
@@ -178,10 +185,7 @@ class UserService:
         HTTPException: 401 if user_token is missing or authentication fails
     """
     if not self.user_token:
-      raise HTTPException(
-        status_code=401,
-        detail='User authentication required'
-      )
+      raise HTTPException(status_code=401, detail='User authentication required')
 
     user_info = await self.get_user_info()
     return user_info.user_id
@@ -225,17 +229,18 @@ class UserService:
       return InternalWorkspaceInfo(
         workspace_id=workspace_id,
         workspace_url=workspace_url or self.workspace_url,
-        workspace_name=workspace_name
+        workspace_name=workspace_name,
       )
 
     except Exception as e:
-      log_event('service.api_call_failed', level='ERROR', context={
-        'service_name': 'UserService',
-        'operation': 'get_workspace_info',
-        'error_type': type(e).__name__,
-        'error_message': str(e)
-      })
-      raise HTTPException(
-        status_code=401,
-        detail='Failed to retrieve workspace information'
-      ) from e
+      log_event(
+        'service.api_call_failed',
+        level='ERROR',
+        context={
+          'service_name': 'UserService',
+          'operation': 'get_workspace_info',
+          'error_type': type(e).__name__,
+          'error_message': str(e),
+        },
+      )
+      raise HTTPException(status_code=401, detail='Failed to retrieve workspace information') from e

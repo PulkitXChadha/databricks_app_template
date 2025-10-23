@@ -24,7 +24,7 @@ from databricks.sdk.core import Config
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
-from sqlalchemy import create_engine, text, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.exc import OperationalError
 
 # Load environment variables from .env.local
@@ -39,27 +39,27 @@ else:
 
 def _create_workspace_client() -> WorkspaceClient:
   """Create WorkspaceClient with explicit OAuth configuration.
-  
+
   This explicitly uses OAuth credentials to avoid conflicts with PAT tokens
   that might be present in the environment.
-  
+
   Returns:
       WorkspaceClient configured with OAuth or default auth
   """
   databricks_host = os.getenv('DATABRICKS_HOST')
   client_id = os.getenv('DATABRICKS_CLIENT_ID')
   client_secret = os.getenv('DATABRICKS_CLIENT_SECRET')
-  
+
   # If OAuth credentials are available, use them explicitly
   if databricks_host and client_id and client_secret:
     cfg = Config(
       host=databricks_host,
       client_id=client_id,
       client_secret=client_secret,
-      auth_type="oauth-m2m"  # Explicitly force OAuth to ignore PAT tokens
+      auth_type='oauth-m2m',  # Explicitly force OAuth to ignore PAT tokens
     )
     return WorkspaceClient(config=cfg)
-  
+
   # Otherwise, let SDK auto-configure (will use single available method)
   return WorkspaceClient()
 
@@ -70,16 +70,16 @@ def get_databricks_oauth_token() -> str:
     host = os.getenv('DATABRICKS_HOST')
     if not host:
       raise Exception('DATABRICKS_HOST not set')
-    
+
     # Try to get token using databricks CLI
     cmd = ['databricks', 'auth', 'token', '--host', host.rstrip('/')]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
-    
+
     token = result.stdout.strip()
     if token:
       return token
     raise Exception('Empty token returned')
-    
+
   except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
     raise Exception(f'Failed to get OAuth token via CLI: {e}')
 
@@ -100,17 +100,19 @@ def unity_catalog(catalog, schema, table, rows):
   # Get from environment variables if not provided via CLI
   catalog = catalog or os.getenv('DATABRICKS_CATALOG')
   schema = schema or os.getenv('DATABRICKS_SCHEMA')
-  
+
   if not catalog or not schema:
     console.print('[red]Error: Catalog and schema must be specified[/red]')
-    console.print('[yellow]Set DATABRICKS_CATALOG and DATABRICKS_SCHEMA in .env.local or use --catalog and --schema flags[/yellow]')
+    console.print(
+      '[yellow]Set DATABRICKS_CATALOG and DATABRICKS_SCHEMA in .env.local or use --catalog and --schema flags[/yellow]'
+    )
     sys.exit(1)
-  
+
   if rows > 100:
     console.print('[yellow]Warning: Limiting rows to 100 as per spec constraint[/yellow]')
     rows = 100
 
-  console.print(f'\n[bold]Creating Unity Catalog sample data...[/bold]')
+  console.print('\n[bold]Creating Unity Catalog sample data...[/bold]')
   console.print(f'Target: {catalog}.{schema}.{table}')
 
   try:
@@ -163,9 +165,7 @@ def unity_catalog(catalog, schema, table, rows):
         INSERT INTO {catalog}.{schema}.{table} (id, name, value, category, created_at)
         VALUES {', '.join(values)}
       """
-      client.statement_execution.execute_statement(
-        warehouse_id=warehouse_id, statement=insert_sql
-      )
+      client.statement_execution.execute_statement(warehouse_id=warehouse_id, statement=insert_sql)
 
     # Verify data
     console.print('[cyan]4. Verifying data...[/cyan]')
@@ -175,7 +175,7 @@ def unity_catalog(catalog, schema, table, rows):
     )
 
     # Display success message
-    console.print(f'\n[green]✓ Unity Catalog sample data created successfully![/green]')
+    console.print('\n[green]✓ Unity Catalog sample data created successfully![/green]')
     console.print(f'  Table: {catalog}.{schema}.{table}')
     console.print(f'  Rows: {rows}')
 
@@ -204,7 +204,7 @@ def unity_catalog(catalog, schema, table, rows):
 @click.option('--num-records', default=5, type=int, help='Number of sample preferences')
 def lakebase(num_records):
   """Create sample user preferences in Lakebase."""
-  console.print(f'\n[bold]Creating Lakebase sample data...[/bold]')
+  console.print('\n[bold]Creating Lakebase sample data...[/bold]')
 
   # Get connection parameters
   lakebase_host = os.getenv('PGHOST') or os.getenv('LAKEBASE_HOST')
@@ -228,28 +228,30 @@ def lakebase(num_records):
     # Create engine with OAuth token authentication
     console.print('[cyan]1. Connecting to Lakebase...[/cyan]')
     engine = create_engine(
-      connection_string, 
+      connection_string,
       pool_pre_ping=True,
-      pool_recycle=3600  # Recycle connections after 1 hour (token expiry)
+      pool_recycle=3600,  # Recycle connections after 1 hour (token expiry)
     )
-    
+
     # Set up OAuth token authentication with explicit configuration
     workspace_client = _create_workspace_client()
-    
+
     # Get instance name - prioritize explicit LAKEBASE_INSTANCE_NAME
     # This should be the logical bundle name like 'databricks-app-lakebase-dev'
     # NOT the technical UUID like 'instance-0fac1568-...'
     instance_name = os.getenv('LAKEBASE_INSTANCE_NAME')
     if not instance_name:
       console.print('[yellow]⚠️  LAKEBASE_INSTANCE_NAME not set in .env.local[/yellow]')
-      console.print('[yellow]    Using logical name from bundle: databricks-app-lakebase-dev[/yellow]')
+      console.print(
+        '[yellow]    Using logical name from bundle: databricks-app-lakebase-dev[/yellow]'
+      )
       instance_name = 'databricks-app-lakebase-dev'  # Default to dev instance
-    
-    @event.listens_for(engine, "do_connect")
+
+    @event.listens_for(engine, 'do_connect')
     def provide_token(dialect, conn_rec, cargs, cparams):
       """Provide authentication token for Lakebase using OAuth."""
       lakebase_token = os.getenv('LAKEBASE_TOKEN')
-      
+
       if lakebase_token and not lakebase_token.startswith('dapi'):
         # Already an OAuth token
         cparams['password'] = lakebase_token
@@ -258,27 +260,26 @@ def lakebase(num_records):
         try:
           console.print(f'[dim]Generating OAuth token for Lakebase instance: {instance_name}[/dim]')
           cred = workspace_client.database.generate_database_credential(
-            request_id=str(uuid.uuid4()),
-            instance_names=[instance_name]
+            request_id=str(uuid.uuid4()), instance_names=[instance_name]
           )
           cparams['password'] = cred.token
         except Exception as e:
           # Fallback to LAKEBASE_TOKEN or CLI OAuth token
           if lakebase_token:
-            console.print(f'[yellow]SDK OAuth generation failed, using LAKEBASE_TOKEN[/yellow]')
+            console.print('[yellow]SDK OAuth generation failed, using LAKEBASE_TOKEN[/yellow]')
             cparams['password'] = lakebase_token
           else:
             try:
-              console.print(f'[yellow]SDK OAuth failed, trying Databricks CLI...[/yellow]')
+              console.print('[yellow]SDK OAuth failed, trying Databricks CLI...[/yellow]')
               cli_token = get_databricks_oauth_token()
               cparams['password'] = cli_token
               console.print('[dim]Using OAuth token from Databricks CLI[/dim]')
             except Exception as cli_error:
-              console.print(f'[red]All authentication methods failed[/red]')
+              console.print('[red]All authentication methods failed[/red]')
               console.print(f'[red]SDK error: {e}[/red]')
               console.print(f'[red]CLI error: {cli_error}[/red]')
               console.print('[yellow]Tip: Set LAKEBASE_TOKEN manually in .env.local[/yellow]')
-              raise Exception(f'Failed to generate Lakebase OAuth token')
+              raise Exception('Failed to generate Lakebase OAuth token')
       elif lakebase_token:
         # Use provided token as fallback
         cparams['password'] = lakebase_token
@@ -320,7 +321,7 @@ def lakebase(num_records):
       for i, (user_id, pref_key, pref_value) in enumerate(sample_preferences[:num_records]):
         # Use upsert to avoid conflicts - convert dict to JSON string
         pref_value_json = json.dumps(pref_value)
-        
+
         conn.execute(
           text(
             """
@@ -342,8 +343,8 @@ def lakebase(num_records):
       result = conn.execute(text('SELECT COUNT(*) FROM user_preferences'))
       count = result.scalar()
 
-    console.print(f'\n[green]✓ Lakebase sample data created successfully![/green]')
-    console.print(f'  Table: user_preferences')
+    console.print('\n[green]✓ Lakebase sample data created successfully![/green]')
+    console.print('  Table: user_preferences')
     console.print(f'  Records: {count}')
 
   except OperationalError as e:
@@ -367,12 +368,14 @@ def create_all(ctx, catalog, schema, table, uc_rows, lb_records):
   # Get from environment variables if not provided via CLI
   catalog = catalog or os.getenv('DATABRICKS_CATALOG')
   schema = schema or os.getenv('DATABRICKS_SCHEMA')
-  
+
   if not catalog or not schema:
     console.print('[red]Error: Catalog and schema must be specified[/red]')
-    console.print('[yellow]Set DATABRICKS_CATALOG and DATABRICKS_SCHEMA in .env.local or use --catalog and --schema flags[/yellow]')
+    console.print(
+      '[yellow]Set DATABRICKS_CATALOG and DATABRICKS_SCHEMA in .env.local or use --catalog and --schema flags[/yellow]'
+    )
     sys.exit(1)
-  
+
   console.print('[bold cyan]Creating all sample data...[/bold cyan]\n')
 
   # Run Unity Catalog setup
@@ -394,12 +397,14 @@ def cleanup(catalog, schema, table, confirm):
   # Get from environment variables if not provided via CLI
   catalog = catalog or os.getenv('DATABRICKS_CATALOG')
   schema = schema or os.getenv('DATABRICKS_SCHEMA')
-  
+
   if not catalog or not schema:
     console.print('[red]Error: Catalog and schema must be specified[/red]')
-    console.print('[yellow]Set DATABRICKS_CATALOG and DATABRICKS_SCHEMA in .env.local or use --catalog and --schema flags[/yellow]')
+    console.print(
+      '[yellow]Set DATABRICKS_CATALOG and DATABRICKS_SCHEMA in .env.local or use --catalog and --schema flags[/yellow]'
+    )
     sys.exit(1)
-  
+
   if not confirm:
     console.print('[yellow]This will DELETE sample data. Use --confirm flag to proceed.[/yellow]')
     sys.exit(0)
@@ -432,24 +437,23 @@ def cleanup(catalog, schema, table, confirm):
         f'{lakebase_host}:{lakebase_port}/{lakebase_database}?sslmode=require'
       )
       engine = create_engine(connection_string, pool_recycle=3600)
-      
+
       # Set up OAuth token authentication with explicit configuration
       workspace_client_cleanup = _create_workspace_client()
       # Use logical bundle name, not technical UUID
       instance_name_cleanup = os.getenv('LAKEBASE_INSTANCE_NAME', 'databricks-app-lakebase-dev')
-      
-      @event.listens_for(engine, "do_connect")
+
+      @event.listens_for(engine, 'do_connect')
       def provide_cleanup_token(dialect, conn_rec, cargs, cparams):
         """Provide authentication token for Lakebase cleanup."""
         lakebase_token = os.getenv('LAKEBASE_TOKEN')
-        
+
         if lakebase_token and not lakebase_token.startswith('dapi'):
           cparams['password'] = lakebase_token
         elif instance_name_cleanup:
           try:
             cred = workspace_client_cleanup.database.generate_database_credential(
-              request_id=str(uuid.uuid4()),
-              instance_names=[instance_name_cleanup]
+              request_id=str(uuid.uuid4()), instance_names=[instance_name_cleanup]
             )
             cparams['password'] = cred.token
           except Exception as e:
@@ -463,9 +467,7 @@ def cleanup(catalog, schema, table, confirm):
           raise Exception('No valid Lakebase authentication method available')
 
       with engine.connect() as conn:
-        conn.execute(
-          text("DELETE FROM user_preferences WHERE user_id LIKE 'sample_user_%'")
-        )
+        conn.execute(text("DELETE FROM user_preferences WHERE user_id LIKE 'sample_user_%'"))
         conn.commit()
       console.print('[green]✓ Deleted sample preferences[/green]')
 
