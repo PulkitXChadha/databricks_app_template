@@ -9,42 +9,46 @@ When deployed as a Databricks App, the following API endpoints were returning 50
 
 Meanwhile, `/api/user/me` was working correctly.
 
-## Root Cause
+## Root Cause (Multiple Issues)
 
-The services were explicitly setting `auth_type='pat'` when creating `WorkspaceClient` instances with the user token from the `X-Forwarded-Access-Token` header.
+### Issue 1: Direct WorkspaceClient with auth_type='pat' (Initial Problem)
+The services were passing `auth_type='pat'` directly to `WorkspaceClient()`, which caused OAuth scope validation errors with Databricks Apps tokens.
 
-```python
-# ❌ WRONG - Causes OAuth scope validation errors
-self.client = WorkspaceClient(
-    host=databricks_host,
-    token=user_token,
-    auth_type='pat',  # Forces SDK to validate as PAT with OAuth scopes
-)
-```
-
-**Why this failed:**
-1. Databricks Apps forwards user tokens via the `X-Forwarded-Access-Token` header
-2. These are special platform-managed tokens, NOT traditional Personal Access Tokens (PATs)
-3. By explicitly setting `auth_type='pat'`, the SDK was forcing these tokens to be validated as OAuth tokens with specific scopes
-4. The tokens don't have those OAuth scopes, causing the "Provided OAuth token does not have required scopes" error
-
-**Why `/api/user/me` worked initially:**
-- The simpler API call to get current user info succeeded
-- More complex API calls (listing catalogs, endpoints) triggered the OAuth scope validation
-- The dependency `get_current_user_id()` used by all failing endpoints calls `UserService.get_user_info()` which was also hitting the same error
+### Issue 2: No auth_type causes "multiple auth methods" error (Second Problem)
+When we removed `auth_type='pat'`, the SDK detected BOTH the user token AND OAuth environment variables (DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET), resulting in: **"validate: more than one authorization method configured: oauth and pat"**
 
 ## Solution
 
-Remove the explicit `auth_type='pat'` parameter and let the Databricks SDK auto-detect the token type:
+Use an **explicit Config object** with `auth_type='pat'` to isolate the user token from OAuth environment variables:
 
 ```python
-# ✅ CORRECT - Auto-detect token type
-self.client = WorkspaceClient(
+# ✅ CORRECT - Use explicit Config to isolate token from env vars
+from databricks.sdk.core import Config
+
+cfg = Config(
     host=databricks_host,
     token=user_token,
-    # No auth_type parameter - SDK auto-detects
+    auth_type='pat',  # Forces SDK to use ONLY the token, ignoring OAuth env vars
 )
+self.client = WorkspaceClient(config=cfg)
 ```
+
+**Why this works:**
+1. Creating an explicit `Config` object prevents the SDK from auto-detecting OAuth credentials from environment variables
+2. `auth_type='pat'` tells the SDK to treat the token as the ONLY authentication method
+3. This matches the pattern used successfully in `database.py` for Lakebase connections
+4. The token is isolated from OAuth M2M credentials that exist in the Databricks Apps environment
+
+**Why the previous attempts failed:**
+
+❌ **Attempt 1:** Direct `WorkspaceClient(token=..., auth_type='pat')`
+- SDK still checked OAuth env vars and got confused about token type
+
+❌ **Attempt 2:** Direct `WorkspaceClient(token=...)` without auth_type
+- SDK detected BOTH token and OAuth env vars, refused to proceed
+
+✅ **Final Solution:** Explicit `Config(token=..., auth_type='pat')` passed to `WorkspaceClient(config=cfg)`
+- Config isolates credentials, auth_type ensures token-only authentication
 
 ## Files Modified
 

@@ -69,9 +69,14 @@ class SchemaDetectionService:
         user_token: User's OAuth token for OBO authentication
     """
     self.user_token = user_token
-    # Note: Do not specify auth_type for Databricks Apps tokens
-    # Let the SDK auto-detect the token type to avoid OAuth scope errors
-    self.client = WorkspaceClient(token=user_token)
+    # Create explicit Config to isolate token from OAuth env vars
+    from databricks.sdk.core import Config
+
+    cfg = Config(
+      token=user_token,
+      auth_type='pat',  # Forces SDK to use ONLY the token, ignoring OAuth env vars
+    )
+    self.client = WorkspaceClient(config=cfg)
 
   async def detect_schema(self, endpoint_name: str, user_id: str) -> SchemaDetectionResult:
     """Detect input schema for a serving endpoint.

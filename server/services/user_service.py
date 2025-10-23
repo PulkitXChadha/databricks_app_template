@@ -73,12 +73,16 @@ class UserService:
         },
       )
 
-      # Note: Do not specify auth_type for Databricks Apps tokens
-      # Let the SDK auto-detect the token type to avoid OAuth scope errors
-      return WorkspaceClient(
+      # Create explicit Config to isolate token from OAuth env vars
+      # This prevents "more than one authorization method" error
+      from databricks.sdk.core import Config
+
+      cfg = Config(
         host=host,
         token=self.user_token,
+        auth_type='pat',  # Forces SDK to use ONLY the token, ignoring OAuth env vars
       )
+      return WorkspaceClient(config=cfg)
     else:
       # Service Principal Authentication (OAuth M2M)
       log_event(

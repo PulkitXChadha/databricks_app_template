@@ -52,12 +52,15 @@ class UnityCatalogService:
 
     if user_token:
       # On-behalf-of-user (OBO) authorization
-      # Note: Do not specify auth_type for Databricks Apps tokens
-      # Let the SDK auto-detect the token type to avoid OAuth scope errors
-      self.client = WorkspaceClient(
+      # Create explicit Config to isolate token from OAuth env vars
+      from databricks.sdk.core import Config
+
+      cfg = Config(
         host=databricks_host,
         token=user_token,
+        auth_type='pat',  # Forces SDK to use ONLY the token, ignoring OAuth env vars
       )
+      self.client = WorkspaceClient(config=cfg)
       logger.info('Unity Catalog service initialized with OBO authentication')
     else:
       # Service principal (OAuth M2M) authorization
